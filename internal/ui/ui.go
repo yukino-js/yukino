@@ -17,7 +17,6 @@ import (
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/memory"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/memory/consolidation"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/memory/extractor"
-	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/permissions"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/session"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/skills"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/subagent"
@@ -112,11 +111,11 @@ type Model struct {
 	sessionID    string
 	fileHistory  *file_history.History
 	defaultTools tools.DefaultTools
-	prePlanMode  permissions.PermissionMode
 
-	planApprovalDialog bool
-	planApprovalCursor int
-	planApprovalInput  string
+	planApprovalDialog   bool
+	planApprovalCursor   int
+	planApprovalInput    string
+	planFeedbackRequired bool
 
 	rewindDialog       bool
 	rewindSnapshots    []file_history.Snapshot
@@ -193,8 +192,6 @@ type Model struct {
 	// focusedId.
 	resumeFocusedID string
 	resumeFocusSet  bool
-
-	hasExitedPlanMode bool
 }
 
 // dialogAvailableRows is the row budget for a docked dialog: the terminal

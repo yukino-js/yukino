@@ -7,12 +7,14 @@ import (
 )
 
 type ToolActivity struct {
+	Input       map[string]any
 	ToolName    string
 	Description string
 }
 
 func NewToolActivity(toolName string, input map[string]interface{}) ToolActivity {
 	return ToolActivity{
+		Input:       input,
 		ToolName:    toolName,
 		Description: describeActivity(toolName, input),
 	}
@@ -32,10 +34,10 @@ func describeActivity(toolName string, input map[string]interface{}) string {
 		return "Editing " + getStr("file_path")
 	case "WriteFile":
 		return "Writing " + getStr("file_path")
-	case "Bash":
+	case "Bash", "PowerShell":
 		cmd := getStr("command")
 		if len(cmd) > 40 {
-			cmd = cmd[:40] + "…"
+			cmd = cmd[:40] + "..."
 		}
 		return "Running " + cmd
 	case "Glob":
@@ -52,6 +54,8 @@ type TeammateProgress struct {
 	Name             string
 	TeamName         string
 	Status           string
+	TurnCount        int
+	ActiveTools      map[string]string
 	ToolUseCount     int
 	TokenCount       int64
 	LastActivity     *ToolActivity
@@ -86,7 +90,7 @@ func (p *TeammateProgress) RecordToolUse(toolName string, input map[string]inter
 func (p *TeammateProgress) RecordTokens(input, output int64) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.TokenCount = input + output
+	p.TokenCount += input + output
 }
 
 func (p *TeammateProgress) SetStatus(s string) {
@@ -133,4 +137,35 @@ func FormatTokens(n int64) string {
 		return fmt.Sprintf("%.1fk", float64(n)/1_000)
 	}
 	return fmt.Sprintf("%d", n)
+}
+
+func (p *TeammateProgress) RecordToolStart(id, name string, input map[string]any) {
+	p.RecordToolUse(name, input)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.ActiveTools == nil {
+		p.ActiveTools = map[string]string{}
+	}
+	p.ActiveTools[id] = name
+}
+func (p *TeammateProgress) RecordToolResult(id string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	delete(p.ActiveTools, id)
+}
+func (p *TeammateProgress) RecordTurnComplete() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.TurnCount++
+	p.ActiveTools = nil
+}
+func (p *TeammateProgress) ClearActiveTools() { p.mu.Lock(); defer p.mu.Unlock(); p.ActiveTools = nil }
+func (p *TeammateProgress) SetLastMessage(message string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	r := []rune(message)
+	if len(r) > 200 {
+		message = string(r[:200]) + "..."
+	}
+	p.LastMessage = message
 }

@@ -7,7 +7,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"unicode"
 
 	"github.com/goccy/go-yaml"
 
@@ -99,9 +98,21 @@ func parseCommandFile(base, full string) *Command {
 		return nil
 	}
 	var meta CommandMeta
-	fm, body, ok := frontmatter.Split(string(data))
-	if ok {
-		_ = yaml.Unmarshal([]byte(fm), &meta)
+	raw := strings.TrimPrefix(string(data), "\ufeff")
+	fm, body, ok := frontmatter.Split(raw)
+	if !ok {
+		body = raw
+	} else {
+		var fields map[string]any
+		if yaml.Unmarshal([]byte(fm), &fields) == nil && fields != nil {
+			description, descriptionOK := fields["description"].(string)
+			hint, hintOK := fields["argument-hint"].(string)
+			_, hasDescription := fields["description"]
+			_, hasHint := fields["argument-hint"]
+			if (!hasDescription || descriptionOK) && (!hasHint || hintOK) {
+				meta = CommandMeta{Description: description, ArgumentHint: hint}
+			}
+		}
 	}
 	description := meta.Description
 	if description == "" {
@@ -152,7 +163,7 @@ func ParseCommandArgs(input string) []string {
 			started = true
 			continue
 		}
-		if unicode.IsSpace(char) {
+		if isCommandSpace(char) {
 			if started {
 				args = append(args, current.String())
 				current.Reset()
@@ -184,7 +195,7 @@ func RenderBody(body, args string) string {
 			offset = len(positional)
 		}
 		end := len(positional)
-		if length > 0 && offset+length < end {
+		if length >= 0 && length < end-offset {
 			end = offset + length
 		}
 		return strings.Join(positional[offset:end], " ")
@@ -216,7 +227,7 @@ func RenderBody(body, args string) string {
 		}
 		if start != "" {
 			startN, _ := strconv.Atoi(start)
-			lengthN := 0
+			lengthN := -1
 			if length != "" {
 				lengthN, _ = strconv.Atoi(length)
 			}

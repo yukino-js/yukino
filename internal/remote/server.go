@@ -20,6 +20,7 @@ import (
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/config"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/conversation"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/file_history"
+	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/history"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/hooks"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/llm"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/lsp"
@@ -27,7 +28,6 @@ import (
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/memory"
 	extractor "github.com/hangtiancheng/yukino.go/apps/yukino/internal/memory/extractor"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/permissions"
-	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/plan_file"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/prompt"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/session"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/skills"
@@ -68,12 +68,18 @@ var upgrader = websocket.Upgrader{
 }
 
 type Server struct {
-	MCPLoading string
-	LSPServers []lsp.ServerConfig
-	providers  []config.ProviderConfig
-	mcpConfigs []config.MCPServerConfig
-	hookCfgs   []config.HookConfig
-	addr       string
+	accessToken          string
+	runMu                sync.Mutex
+	planMu               sync.Mutex
+	planApprovalID       string
+	planApprovalTimer    *time.Timer
+	pendingPlanExecution string
+	MCPLoading           string
+	LSPServers           []lsp.ServerConfig
+	providers            []config.ProviderConfig
+	mcpConfigs           []config.MCPServerConfig
+	hookCfgs             []config.HookConfig
+	addr                 string
 
 	defaultProvider int
 
@@ -118,6 +124,7 @@ type Server struct {
 
 func NewServer(providers []config.ProviderConfig, mcpConfigs []config.MCPServerConfig, hookCfgs []config.HookConfig, addr string, enableCoordinatorMode, forkDisabled bool, defaultProvider int) *Server {
 	return &Server{
+		accessToken:           createAccessToken(),
 		providers:             providers,
 		mcpConfigs:            mcpConfigs,
 		hookCfgs:              hookCfgs,
@@ -151,11 +158,19 @@ func (s *Server) Run() error {
 	mux.HandleFunc("/", s.handleIndex)
 	mux.HandleFunc("/ws", s.handleWS)
 
-	fmt.Printf("\n  🌐 Remote UI: http://localhost%s\n\n", s.addr)
-	return http.ListenAndServe(s.addr, mux)
+	address, err := s.listenAddress()
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Remote server listening at http://%s/#token=%s\n", address, s.accessToken)
+	return http.ListenAndServe(address, mux)
 }
 
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
+	if status, message := authorizeWebSocket(r, "/ws", s.accessToken); status != 0 {
+		http.Error(w, message, status)
+		return
+	}
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("WebSocket upgrade failed: %v", err)
@@ -212,9 +227,21 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 			json.Unmarshal(msg.Data, &data)
 			s.handleAskUserResponse(data)
 
+		case "plan_approval_response":
+			var data struct {
+				ID       string `json:"id"`
+				Choice   string `json:"choice"`
+				Feedback string `json:"feedback"`
+			}
+			if json.Unmarshal(msg.Data, &data) == nil {
+				go s.handlePlanApprovalResponse(data.ID, data.Choice, data.Feedback)
+			}
 		case "cancel":
-			if s.cancelStream != nil {
-				s.cancelStream()
+			s.runMu.Lock()
+			cancel := s.cancelStream
+			s.runMu.Unlock()
+			if cancel != nil {
+				cancel()
 			}
 
 		case "ping":
@@ -244,7 +271,7 @@ func (s *Server) initAgent() error {
 
 	env := prompt.DetectEnvironment(wd)
 	env.Model = p.Model
-	systemPrompt := prompt.BuildSystemPrompt(env, prompt.BuildOptions{})
+	systemPrompt := prompt.BuildSystemPrompt(env)
 
 	client, err := llm.NewClient(p, systemPrompt)
 	if err != nil {
@@ -295,6 +322,7 @@ func (s *Server) initAgent() error {
 	ag.CoordinatorActiveFn = teams.CoordinatorActiveFn(s.enableCoordinatorMode)
 
 	s.ag = ag
+	s.teamMgr.SetPermissionChecker(ag.Checker)
 
 	if at, ok := s.registry.Get("Agent").(*subagent.AgentTool); ok {
 		at.ParentChecker = ag.Checker
@@ -328,29 +356,27 @@ func (s *Server) registerTools(client llm.Client, p *config.ProviderConfig, wd s
 		panic(err)
 	}
 	s.memoryMgr = memory.NewManager(wd)
-	loader := subagent.NewAgentLoader(wd)
+	loader := subagent.NewAgentLoader()
 	loader.LoadAll()
 	s.teamMgr = teams.NewTeamManager(wd)
+	s.teamMgr.CoordinatorMode = s.enableCoordinatorMode
 	s.registry.Register(&teams.TeamTodoWriteTool{TeamMgr: s.teamMgr, Fallback: s.todoList})
 
-	s.registry.Register(&tools.ExitPlanModeTool{
-		IsPlanMode: func() bool {
-			return s.ag != nil && s.ag.Checker != nil && s.ag.Checker.Mode() == permissions.ModePlan
-		},
-		PlanExists: func() bool { return false },
-	})
+	s.registry.Register(&tools.ExitPlanModeTool{})
 
 	s.registry.Register(&tools.ToolSearchTool{Registry: s.registry})
 	s.registry.Register(&tools.McpCallTool{Registry: s.registry})
 	s.registry.Register(&teams.TeamCreateTool{TeamMgr: s.teamMgr})
 	s.registry.Register(&teams.TeamDeleteTool{TeamMgr: s.teamMgr})
+	s.registry.Register(&teams.TeamListTool{TeamMgr: s.teamMgr})
 	s.registry.Register(&teams.SendMessageTool{TeamMgr: s.teamMgr, SenderName: "leader"})
 	s.registry.Register(&teams.TaskStopTool{TeamMgr: s.teamMgr, TaskManager: s.taskMgr})
 	s.registry.Register(&tools.SyntheticOutputTool{})
 	subProgressCh := make(chan subagent.SubAgentProgress, 32)
 	s.registry.Register(&subagent.AgentTool{
 		Client:        client,
-		ModelResolver: llm.NewModelResolver(*p),
+		Provider:      p,
+		MemoryContent: s.memoryContent,
 		Registry:      s.registry,
 		Protocol:      p.Protocol,
 		TaskMgr:       s.taskMgr,
@@ -420,32 +446,41 @@ func (s *Server) initMCPServers() {
 }
 
 func (s *Server) handleUserMessage(content string) {
-	if s.streaming {
-		return
-	}
 
 	content = strings.TrimSpace(content)
 	if content == "" {
 		return
 	}
 
-	if strings.HasPrefix(content, "/") {
+	if _, _, isCommand := commands.Parse(content); isCommand {
 		s.handleSlashCommand(content)
 		return
 	}
 
-	s.streaming = true
+	ctx, ok := s.beginRun()
+	if !ok {
+		return
+	}
+	defer s.finishRun()
 	wd, _ := os.Getwd()
-	session.SaveMessage(wd, s.sessionID, session.Message{Role: "user", Content: content, Ts: time.Now().Unix()})
-	s.conv.AddUserMessage(content)
+	input, err := history.RecordInput(history.InputOptions{Cwd: wd, SessionID: &s.sessionID, Source: "ws", Text: content})
+	if err != nil {
+		s.send(wsMessage{Type: "error", Data: map[string]string{"message": err.Error()}})
+		return
+	}
+	expanded := conversation.ExpandAtRefs(content, wd)
+	recorded, err := session.SaveUserMessage(wd, s.sessionID, input, session.Message{Content: expanded})
+	if err != nil {
+		s.send(wsMessage{Type: "error", Data: map[string]string{"message": err.Error()}})
+		return
+	}
+	s.conv.AppendMessages([]conversation.Message{recorded.ToConversation()})
 
 	if s.mcpInstructions != "" {
 		s.conv.AddSystemReminder(s.mcpInstructions)
 		s.mcpInstructions = ""
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	s.cancelStream = cancel
 	s.agentCh = s.ag.Run(ctx, s.conv)
 
 	askDone := make(chan struct{})
@@ -453,9 +488,6 @@ func (s *Server) handleUserMessage(content string) {
 	s.consumeAgentEvents()
 	close(askDone)
 
-	s.streaming = false
-	s.cancelStream = nil
-	s.agentCh = nil
 }
 
 func (s *Server) buildCommandList() []map[string]string {
@@ -483,6 +515,12 @@ func (s *Server) handleSlashCommand(input string) {
 		return
 	}
 
+	wd, _ := os.Getwd()
+	entry, err := history.RecordInput(history.InputOptions{Cwd: wd, SessionID: &s.sessionID, Source: "ws", Text: input, CommandName: &name})
+	if err != nil {
+		s.send(wsMessage{Type: "error", Data: map[string]string{"message": err.Error()}})
+		return
+	}
 	cmd := s.cmdRegistry.Find(name)
 	if cmd == nil {
 		s.send(wsMessage{Type: "error", Data: map[string]string{
@@ -528,7 +566,7 @@ func (s *Server) handleSlashCommand(input string) {
 	case commands.TypeLocalUI:
 		switch name {
 		case "clear":
-			s.conv = conversation.NewManager()
+			s.conv.Reset()
 			if s.ag != nil {
 				s.ag.ClearActiveSkills()
 				s.ag.SetToolFilter(teams.CoordinatorToolFilter(s.enableCoordinatorMode))
@@ -538,12 +576,6 @@ func (s *Server) handleSlashCommand(input string) {
 		case "compact":
 			s.handleCompact()
 			return
-
-		case "plan":
-			s.handlePlan(args)
-			if args != "" {
-				return
-			}
 
 		case "resume":
 			s.handleResume(args)
@@ -573,28 +605,37 @@ func (s *Server) handleSlashCommand(input string) {
 		if args != "" {
 			displayText += " " + args
 		}
-		s.streaming = true
+		c, ok := s.beginRun()
+		if !ok {
+			return
+		}
+		defer s.finishRun()
 		wd, _ := os.Getwd()
-		session.SaveMessage(wd, s.sessionID, session.Message{Role: "user", Content: displayText, Ts: time.Now().Unix()})
-		s.conv.AddUserMessage(prompt)
+		if cmd.Agent == "" {
+			recorded, err := session.SaveUserMessage(wd, s.sessionID, entry, session.Message{Content: prompt})
+			if err != nil {
+				s.send(wsMessage{Type: "error", Data: map[string]string{"message": err.Error()}})
+				return
+			}
+			s.conv.AppendMessages([]conversation.Message{recorded.ToConversation()})
+		}
 
 		if s.mcpInstructions != "" {
 			s.conv.AddSystemReminder(s.mcpInstructions)
 			s.mcpInstructions = ""
 		}
 
-		c, cancel := context.WithCancel(context.Background())
-		s.cancelStream = cancel
-		s.agentCh = s.ag.Run(c, s.conv)
+		if cmd.Agent != "" {
+			s.agentCh = commands.RunSubagentCommand(c, cmd.Agent, prompt, displayText, s.registry, s.ag.Checker, s.conv, wd, s.sessionID, &entry)
+		} else {
+			s.agentCh = s.ag.Run(c, s.conv)
+		}
 
 		askDone := make(chan struct{})
 		go s.listenForAskUser(askDone)
 		s.consumeAgentEvents()
 		close(askDone)
 
-		s.streaming = false
-		s.cancelStream = nil
-		s.agentCh = nil
 	}
 }
 
@@ -649,36 +690,6 @@ func (s *Server) handleCompact() {
 	s.send(wsMessage{Type: "command_done", Data: nil})
 }
 
-func (s *Server) handlePlan(args string) {
-	wd, _ := os.Getwd()
-	if s.ag == nil || s.ag.Checker == nil {
-		s.send(wsMessage{Type: "error", Data: map[string]string{"message": "Agent not initialized."}})
-		return
-	}
-	s.ag.Checker.SetMode(permissions.ModePlan)
-	planPath := plan_file.GetOrCreatePlanPath()
-	s.ag.Checker.PlanFilePath = planPath
-	s.send(wsMessage{Type: "system", Data: map[string]string{
-		"message": fmt.Sprintf("Entered Plan mode. Plan file: %s\nExplore the codebase and design your approach.", planPath),
-	}})
-
-	if args != "" {
-		s.streaming = true
-		session.SaveMessage(wd, s.sessionID, session.Message{Role: "user", Content: "/plan " + args, Ts: time.Now().Unix()})
-		s.conv.AddUserMessage(args)
-		ctx, cancel := context.WithCancel(context.Background())
-		s.cancelStream = cancel
-		s.agentCh = s.ag.Run(ctx, s.conv)
-		askDone := make(chan struct{})
-		go s.listenForAskUser(askDone)
-		s.consumeAgentEvents()
-		close(askDone)
-		s.streaming = false
-		s.cancelStream = nil
-		s.agentCh = nil
-	}
-}
-
 func (s *Server) handleResume(args string) {
 	wd, _ := os.Getwd()
 	sessions := session.ListSessions(wd)
@@ -714,7 +725,7 @@ func (s *Server) handleResume(args string) {
 		targetID = sessions[idx-1].ID
 	}
 
-	msgs := session.LoadSession(wd, targetID)
+	msgs := session.LoadSessionForResume(wd, targetID)
 	if len(msgs) == 0 {
 		s.send(wsMessage{Type: "error", Data: map[string]string{
 			"message": fmt.Sprintf("Session '%s' not found or empty.", targetID),
@@ -732,36 +743,18 @@ func (s *Server) handleResume(args string) {
 			return
 		}
 	}
-	s.conv = conversation.NewManager()
+	s.conv.Reset()
 	s.sessionID = targetID
 	if s.ag != nil {
 		s.ag.SetSessionID(s.sessionID)
 	}
 
 	boundary, after, compacted := session.FindLastCompactBoundary(msgs)
-	var replay []session.Message
-	if compacted {
-		resumeSummary := fmt.Sprintf("The conversation history before this point was compacted into the following summary:\n\n<summary>\n%s\n</summary>", boundary.Summary)
-		if len(boundary.Keep) > 0 {
-			resumeSummary += "\n\nRecent messages have been preserved verbatim."
-		}
-		replay = append(replay, session.Message{Role: "user", Content: resumeSummary})
-		for _, k := range boundary.Keep {
-			replay = append(replay, session.Message{
-				Role:        k.Role,
-				Content:     k.Content,
-				ToolUses:    k.ToolUses,
-				ToolResults: k.ToolResults,
-			})
-		}
-		replay = append(replay, after...)
-	} else {
-		replay = msgs
-	}
+	replay := session.RebuildFromSession(msgs, false)
 
 	s.send(wsMessage{Type: "clear", Data: nil})
 	for _, msg := range replay {
-		s.conv.AppendMessages([]conversation.Message{msg.ToConversation()})
+		s.conv.AppendMessages([]conversation.Message{msg})
 		if msg.Content == "" {
 			continue
 		}
@@ -849,6 +842,9 @@ func (s *Server) consumeAgentEvents() {
 			s.send(wsMessage{Type: "turn_complete", Data: map[string]int{"turn": e.Turn}})
 
 		case agent.LoopComplete:
+			if e.PlanReady {
+				s.requestPlanApproval()
+			}
 			if streamBuf != "" {
 				s.send(wsMessage{Type: "stream_end", Data: map[string]string{"text": streamBuf}})
 				streamBuf = ""

@@ -27,19 +27,18 @@ func (m Model) handlePlanApproval(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.updateViewport()
 		return m, nil
 	case "enter":
-		if m.planApprovalCursor == 2 && m.planApprovalInput != "" {
-			return m.sendPlanFeedback(m.planApprovalInput, false)
+		if m.planApprovalCursor == 2 {
+			return m.sendPlanFeedback(m.planApprovalInput)
 		}
 		return m.executePlanApproval()
 	case "shift+tab":
-		if m.planApprovalCursor == 2 && m.planApprovalInput != "" {
-			return m.sendPlanFeedback(m.planApprovalInput, true)
+		if m.planApprovalCursor == 2 {
+			return m.sendPlanFeedback(m.planApprovalInput)
 		}
 		return m, nil
 	case "esc":
-		m.planApprovalDialog = false
-		m.updateViewport()
-		return m, nil
+		m.planApprovalCursor = 1
+		return m.executePlanApproval()
 	case "backspace":
 		if m.planApprovalCursor == 2 && len(m.planApprovalInput) > 0 {
 			_, size := utf8.DecodeLastRuneInString(m.planApprovalInput)
@@ -58,68 +57,38 @@ func (m Model) handlePlanApproval(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) executePlanApproval() (tea.Model, tea.Cmd) {
 	m.planApprovalDialog = false
-
-	var modeMsg string
-	switch m.planApprovalCursor {
-	case 0:
-		if m.ag != nil && m.ag.Checker != nil {
-			m.ag.Checker.SetMode(permissions.ModeBypass)
-			m.ag.Checker.PlanFilePath = ""
-		}
-		modeMsg = "Plan approved. Entered YOLO mode (all operations auto-approved)."
-	case 1:
-		if m.ag != nil && m.ag.Checker != nil {
-			restoreMode := m.prePlanMode
-			if restoreMode == "" {
-				restoreMode = permissions.ModeDefault
-			}
-			m.ag.Checker.SetMode(restoreMode)
-			m.ag.Checker.PlanFilePath = ""
-		}
-		modeMsg = "Plan approved. Each edit will require your confirmation."
+	if m.ag == nil || m.ag.Checker == nil {
+		m.updateViewport()
+		return m, nil
 	}
-
-	m.chatMessages = append(m.chatMessages, chatMessage{
-		role:    "system",
-		content: modeMsg,
-	})
-
-	planPath := plan_file.GetPlanFilePath()
-	planContent, _ := plan_file.LoadPlan()
-	planExists := plan_file.PlanExists()
-	plan_file.ResetPlanPath()
-
-	executeMsg := prompt.BuildPlanModeExitReminder(planPath, planExists)
-	m.hasExitedPlanMode = true
-	executeMsg += "\n\nUser has approved your plan. You can now start coding."
-	if planContent != "" {
-		executeMsg += "\n\nApproved Plan:\n" + planContent
+	checker := m.ag.Checker
+	planPath := plan_file.GetCurrentPlanPath(checker)
+	planContent, _ := plan_file.LoadPlan(checker)
+	planExists := plan_file.PlanExists(checker)
+	mode, message := permissions.ModeDefault, "Plan approved. Edits will require your confirmation."
+	if m.planApprovalCursor == 0 {
+		mode, message = permissions.ModeBypass, "Plan approved. Entered YOLO mode (all operations auto-approved)."
 	}
-
+	checker.ExitPlanMode(mode)
+	m.conversation.AddSystemReminder(prompt.BuildPlanModeExitReminder(planPath, planExists))
+	m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: message})
 	m.updateViewport()
-	return m.sendMessage(executeMsg)
+	if strings.TrimSpace(planContent) == "" {
+		return m, nil
+	}
+	return m.sendMessage("Execute this plan:\n\n" + planContent)
 }
 
-func (m Model) sendPlanFeedback(feedback string, alsoExit bool) (tea.Model, tea.Cmd) {
+func (m Model) sendPlanFeedback(feedback string) (tea.Model, tea.Cmd) {
+	feedback = strings.TrimSpace(feedback)
+	if feedback == "" {
+		m.planFeedbackRequired = true
+		m.updateViewport()
+		return m, nil
+	}
 	m.planApprovalDialog = false
 	m.planApprovalInput = ""
-
-	if alsoExit {
-		if m.ag != nil && m.ag.Checker != nil {
-			restoreMode := m.prePlanMode
-			if restoreMode == "" {
-				restoreMode = permissions.ModeDefault
-			}
-			m.ag.Checker.SetMode(restoreMode)
-			m.ag.Checker.PlanFilePath = ""
-		}
-		plan_file.ResetPlanPath()
-		m.chatMessages = append(m.chatMessages, chatMessage{
-			role:    "system",
-			content: "Exiting plan mode with feedback. Edits will require confirmation.",
-		})
-	}
-
+	m.planFeedbackRequired = false
 	m.updateViewport()
 	return m.sendMessage(feedback)
 }
@@ -167,10 +136,13 @@ func (m Model) renderPlanApprovalDialog() string {
 			} else {
 				sb.WriteString("      " + inputLine + "\n")
 			}
-			hint := lipgloss.NewStyle().Foreground(dimText).Render("      shift+tab to approve with this feedback")
+			hint := lipgloss.NewStyle().Foreground(dimText).Render("      shift+tab to submit feedback")
 			sb.WriteString(hint)
 			sb.WriteString("\n")
 		}
+	}
+	if m.planFeedbackRequired {
+		sb.WriteString("      Enter feedback before submitting.\n")
 	}
 	sb.WriteString("\n")
 	return sb.String()

@@ -121,7 +121,7 @@ func ToDisplayPreview(content string) string {
 		string(runes[:ToolResultPreviewChars]), len(runes)-ToolResultPreviewChars)
 }
 
-func replaceToolResultContent(result *conversation.ToolResultBlock, content string) {
+func ReplaceToolResultContent(result *conversation.ToolResultBlock, content string) {
 	result.Content = content
 	if len(result.ContentBlocks) > 0 {
 		blocks := []map[string]any{{"type": "text", "text": content}}
@@ -222,7 +222,7 @@ func ApplyBudget(results []conversation.ToolResultBlock, sessionID string, exemp
 			continue
 		}
 		total -= utf8.RuneCountInString(content) - utf8.RuneCountInString(replacement)
-		replaceToolResultContent(r, replacement)
+		ReplaceToolResultContent(r, replacement)
 	}
 }
 

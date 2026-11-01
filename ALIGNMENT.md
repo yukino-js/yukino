@@ -1,12 +1,43 @@
 # Existing Module Alignment Ledger
 
-The reference implementation is `~/github/yukino-code/apps/yukino`. The original ledger baseline was commit `8dbf96950d45fac1c7c68451478716898b35810d`; milestone M1 below compares its selected files against commit `3068413f121533ec0d7c4172fe680f4ce5d82fa1`. Other records retain their earlier review status and have not been revalidated against the newer commit.
+The reference implementation is `~/github/yukino-code/apps/yukino`. M2 used the actual reference checkout at commit `8dbf96950d45fac1c7c68451478716898b35810d` (clean working tree). M1 recorded commit `3068413f121533ec0d7c4172fe680f4ce5d82fa1`. Earlier records retain their recorded baseline unless explicitly updated below; they have not all been revalidated against the M2 checkout.
 
 The long-term target is file-by-file alignment of existing Go modules with the reference. At the user's request, the current delivery is a bounded milestone rather than a complete alignment pass. Missing files and behavioral gaps within those modules are in scope. Entirely absent modules, including a2a, images, goal, workflow, telemetry, vscode, update, and logger, are deferred. Implementation differences are acceptable only where TypeScript and Go require different language or runtime choices. Backward compatibility, deprecated APIs, and compatibility shims must not be retained.
 
 Every previously tracked reference file retains its own record. A module-level counterpart identifies the area to review; it does not certify the entire Go package. Full alignment requires reading the complete reference file, comparing its implementation, and validating the resulting behavior. Partial progress and unresolved differences are recorded explicitly. Shared browser inputs follow the artifact delivery policy below.
 
-Current inventory: **321 records**: 38 corrected, 5 reviewed, 25 partially aligned, 1 language-specific difference, 196 pending review, 1 deferred, 49 shared browser build inputs, 6 synchronized artifacts. **Full alignment is not complete.**
+Current inventory: **321 records**: 58 corrected, 16 reviewed, 47 partially aligned, 1 language-specific difference, 143 pending review, 1 deferred, 49 shared browser build inputs, 6 synchronized artifacts. **Full alignment is not complete.**
+
+## Milestone M2 — scoped planning, delegation and conversation runtime (2026-11-01)
+
+**Closed at the user's requested milestone cutoff.** This delivery advances existing modules only. a2a, images, goal, workflow, telemetry, vscode and the other previously excluded absent modules have not been implemented. The remaining existing-module alignment is handed to the next schedule; neither whole-module nor whole-application parity is claimed.
+
+- Plan files belong to the permission checker instead of the process. EnterPlanMode invokes the built-in plan role; ExitPlanMode validates the plan and routes main-thread, subagent and teammate results correctly. UI approval keeps manual, YOLO and feedback behavior separate.
+- Agent now uses current kind/role/fork/background/worktree fields, independent child TODO/background managers, scoped host approvals and subagent transcripts. /plan and /review run through that tool. Obsolete terminal teammate CLI, tmux/iTerm backends and verification/environment compatibility paths were removed.
+- Teams support multiple canonical identities, TeamList, scoped messaging and awaited cancellation/cleanup. Manual plan review requires the leader, a matching request ID and review text; automatic approval resumes under current tool permissions. Ordinary mailbox messages survive a pending review, and notification XML is escaped.
+- Conversation pairing repairs each assistant turn locally; session records preserve input metadata, reasoning and rich tool results, use timestamp, and recover from damaged compaction boundaries. UI/remote/print record user input through history. Clear/resume retain the conversation object used by delegated tools.
+- Streaming execution preserves partial and opaque thinking, rejects malformed/truncated/filtered calls, reports per-turn usage and emits tool results as they finish. Runtime tool guidance follows current schemas; output caps apply to one provider request without changing shared client state.
+- Remote connections use a random token and same-host origin checks. Address parsing and the scoped plan gate were advanced. The browser distribution is unchanged and still matches upstream byte for byte; backend protocol parity remains partial.
+
+### M2 validation
+
+- Passed `go test -race ./...` without exclusions after the user deleted `internal/mcp/mcp_test.go` / TestContext7MCP. This user change was preserved; the obsolete Makefile filter and dedicated integration target were removed.
+- Passed `make check test`, including formatting validation, vet, the full race-enabled suite and the full ordinary suite without exclusions.
+- Passed `go vet ./...` and `go build ./...`.
+- Passed `CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build ./...` and `CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build ./...`. These are compilation checks, not native-platform interaction tests.
+- New regression coverage includes plan ownership and tool gates, team selection/message isolation/manual approval, mailbox corruption and XML escaping, call pairing, session metadata/boundary recovery/rewind/expiry, invalid tool calls, incomplete streams, per-turn usage and request output-budget isolation.
+- Browser artifacts compared with `diff -qr` against the reference distribution. Formatting and `git diff --check` checked at handoff.
+- No live provider, browser or terminal end-to-end interaction was exercised for M2. No commit or push was requested or created.
+
+### Next schedule handoff
+
+1. Finish teams and subagents: strict team-file validation, deterministic member/progress snapshots, subscription and disk-restoration APIs, retained-member pruning, spawn rollback, and teammate session/transcript/context-budget propagation. Finish task-manager persistence-error propagation and review the shared file-lock source completely.
+2. Finish agent/permissions/worktree integration: steering delivery/removal, live worktree cwd and owned write roots, serialized approval dialogs for parallel calls, anonymous spill artifacts, transcript-aware compaction and rewind snapshots, remaining event fields and host cancellation/error paths.
+3. Finish commands/history/session: Context output, equal-score completion order, integral-float YAML max_turns, strict activity checkpoint validation and I/O failures. Complete session error propagation/global listing/schema edge cases and user-Bash/rich-content rendering.
+4. Read and compare the complete remote server, bootstrap and UI sources. Resolve bootstrap broadcasts to existing clients, pending-approval reconnect replay and cancellation/reset cleanup, busy input/steering queues, provider/permission controls and the remaining WebSocket protocol. Exercise actual browser and terminal flows.
+5. Continue every remaining Pending review and Partially aligned row below. In particular, full LLM provider, compact, worktree, MCP, memory, skills, config, sandbox and UI comparisons remain open. Related edits in a pending row do not certify that reference file; complete unread files before changing its status.
+
+The file ledger is the continuation checklist. Do not infer package parity from one corrected file or from passing tests. Historical M1 certifications retain their own baseline and limitations; revalidate them if the next schedule changes the reference checkout.
 
 ## Milestone M1 — existing tool execution (2026-11-01)
 
@@ -17,9 +48,9 @@ Current inventory: **321 records**: 38 corrected, 5 reviewed, 25 partially align
 - WebFetch handles HTTP(S) text retrieval, redirects, conversion, limits, and caching. The native Go HTML converter can produce different Markdown formatting from Turndown; exact converted bytes are outside this milestone's parity claim.
 - LSP configurations reach each entrypoint. Delegated agents get separate private TODO boards; teammates get their team's board. Clear/resume switches the existing private board's store. New LSP subprocess resources participate in registry disposal and exit cleanup.
 
-Remaining work within touched areas: leader-board subscriptions and aggregated TODO UI progress; full teams/member lifecycle alignment; complete remote/WebSocket and bootstrap parity; EnterPlanMode and ComputerUse. The shared store validates on access rather than in its Go constructor. Go also bounds the LSP outgoing queue at 64 messages and fails saturated connections rather than retaining an unbounded Node stream buffer. Other pending ledger records remain pending; they were not sampled or marked complete by association.
+At the M1 cutoff, remaining work included leader-board subscriptions and aggregated TODO UI progress, teams/member lifecycle alignment, remote/WebSocket and bootstrap parity, EnterPlanMode, and ComputerUse. M2 implements EnterPlanMode and advances several of these areas; the M2 handoff supersedes this historical list. The shared store validates on access rather than in its Go constructor. Go also bounds the LSP outgoing queue at 64 messages and fails saturated connections rather than retaining an unbounded Node stream buffer. Other pending ledger records remain pending; they were not sampled or marked complete by association.
 
-Build and validation targets are available in `Makefile`: `build` (also the default), the six `win32`/`linux`/`darwin` arm64/x64 targets, `cross-compile`, `test`, `test-race`, `test-integration`, `vet`, `fmt`, `fmt-check`, and `check`. Build outputs go to the ignored `dist/` directory; `BUILD_DIR`, `BUILD_FLAGS`, `LDFLAGS`, `BUILD_CGO_ENABLED`, `GO`, and `TEST_FLAGS` can be overridden. `check` runs formatting validation, vet, and race-enabled unit tests. Unit targets exclude the external Context7 test, which is selected explicitly by `test-integration`.
+Build and validation targets are available in `Makefile`: `build` (also the default), the six `win32`/`linux`/`darwin` arm64/x64 targets, `cross-compile`, `test`, `test-race`, `vet`, `fmt`, `fmt-check`, and `check`. Build outputs go to the ignored `dist/` directory; `BUILD_DIR`, `BUILD_FLAGS`, `LDFLAGS`, `BUILD_CGO_ENABLED`, `GO`, and `TEST_FLAGS` can be overridden. `check` runs formatting validation, vet, and race-enabled unit tests. The test targets now run the complete current suite without exclusions. The user deleted the external Context7 test during M2; its obsolete Makefile filter and dedicated target have been removed.
 
 The reference LSP server fixture is copied unchanged to `internal/tools/testdata/lsp-server.mjs`. Its protocol tests require Node and explicitly skip when Node is unavailable; they ran on this host. Windows subprocess behavior and file URIs still need native-platform integration testing.
 
@@ -68,31 +99,31 @@ The browser-serving fix has also passed the full race-enabled suite and `go vet 
 - Passed `go vet ./...` and `make check test` (formatting validation, vet, race-enabled unit tests, and ordinary unit tests).
 - Passed `make build` and `make -j2 cross-compile`; inspected all seven binaries with `go version -m` to verify OS, architecture, and CGO settings.
 - Passed `CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build ./...` and `CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build ./...`. The initial Linux amd64 attempt with CGO enabled failed in the host C assembler; disabling CGO permits the cross-build. Cross-compilation does not establish native Windows runtime parity.
-- The unfiltered `go test ./...` run encountered `TestContext7MCP` timing out while connecting to the external Context7 server. That test remains unchanged and is the sole exclusion above; the entire external integration suite is not claimed to have passed.
+- Historical M1 result: the unfiltered suite encountered `TestContext7MCP` timing out while connecting to the external server. M1 excluded that one test. The user subsequently deleted it during M2; see the unfiltered M2 validation.
 - Browser distribution files remain unchanged and still compare byte for byte with the reference distribution. `git diff --check` passed.
 
 ## File-by-File Ledger
 
 | Reference file | Go counterpart or shared artifact | Status | Differences and validation |
 | --- | --- | --- | --- |
-| `src/agent/constants.ts` | `internal/agent` | Pending review |  |
-| `src/agent/events.ts` | `internal/agent` | Pending review |  |
-| `src/agent/index.ts` | `internal/agent` | Pending review |  |
-| `src/agent/prompts.ts` | `internal/agent` | Pending review |  |
-| `src/agent/streaming-executor.ts` | `internal/agent` | Pending review |  |
+| `src/agent/constants.ts` | `internal/agent` | Reviewed | M2: Full source read. Output ceiling, recovery count, and per-result spill threshold checked. Worktree reminder consumption is still part of the partial agent implementation. |
+| `src/agent/events.ts` | `internal/agent` | Partially aligned | M2: Full source read. Thinking completion, stop reasons, per-turn cache-aware usage, and rich result fields added. Steering/tool-output and the complete host event contract remain outstanding. |
+| `src/agent/index.ts` | `internal/agent/agent.go`, `internal/agent/run.go` | Partially aligned | M2: Full source read. Scoped planning, active/deferred tool guidance, partial-stream preservation, completion validation, bounded retries, cancellation, argument-error gating, filtered-tool rejection, MCP target checks, hook notifications, and per-turn usage corrected. Steering queues, live worktree cwd, anonymous spill sessions, transcript-aware compaction/snapshots, and complete host/lifecycle integration remain open. Permission-dialog serialization for concurrent calls still requires integration coverage. See agent/alignment_test.go. |
+| `src/agent/prompts.ts` | `internal/agent` | Partially aligned | M2: Full source read. Retry and denied-tool wording aligned where consumed. Working-directory reminders and their worktree integration remain outstanding; goal behavior is excluded. |
+| `src/agent/streaming-executor.ts` | `internal/agent/streaming_executor.go`, `internal/agent/agent.go` | Partially aligned | M2: Full source read. Results are emitted as calls finish, while persistence retains call order. Parse errors and cancellation prevent execution; execution panics become tool errors. Go still combines permission/hook preparation with execution rather than the reference executor boundary. |
 | `src/bootstrap/exit-cleanup.ts` | `internal/tools/exit_cleanup.go`, `cmd/yukino/main.go` | Corrected | Registered synchronous, idempotent cleanup and integrated it with normal, signal-driven, and error exits. |
 | `src/bootstrap/index.ts` | `cmd/yukino`, `internal/ui`, `internal/remote` | Pending review |  |
 | `src/bootstrap/interaction-summary.ts` | `cmd/yukino`, `internal/ui`, `internal/remote` | Pending review |  |
 | `src/bootstrap/sandbox.ts` | `cmd/yukino`, `internal/ui`, `internal/remote` | Pending review |  |
-| `src/bootstrap/tool-registry.ts` | `internal/tools/tool.go`, `internal/ui/agent_setup.go`, `cmd/yukino/print.go`, `cmd/yukino/teammate.go`, `internal/remote/server.go` | Partially aligned | M1: TodoWrite, LSP, and WebFetch now join the existing shell and file tools across runtime entrypoints. EnterPlanMode and ComputerUse remain unported; Goal remains deferred. Registry ordering and the complete bootstrap lifecycle remain open. |
+| `src/bootstrap/tool-registry.ts` | `internal/tools/tool.go`, `internal/ui/agent_setup.go`, `cmd/yukino/print.go`, `internal/remote/server.go` | Partially aligned | M2: Existing tools now include EnterPlanMode, scoped ExitPlanMode, TeamList, and the revised Agent runtime across UI/remote/print. Legacy terminal teammate entrypoint/backends removed. Full bootstrap source comparison, ordering, ComputerUse and lifecycle parity remain open; Goal is excluded. |
 | `src/cli.ts` | `cmd/yukino` | Pending review |  |
-| `src/commands/commands.ts` | `internal/commands` | Pending review |  |
-| `src/commands/constants.ts` | `internal/commands` | Pending review |  |
-| `src/commands/index.ts` | `internal/commands` | Pending review |  |
-| `src/commands/loader.ts` | `internal/commands` | Pending review |  |
-| `src/commands/prompts.ts` | `internal/commands` | Pending review |  |
-| `src/commands/subagent.ts` | `internal/commands`, `internal/ui` | Pending review | Reference source read; the corresponding Go execution paths still require a file-by-file comparison. |
-| `src/commands/usage-tracker.ts` | `internal/commands` | Pending review |  |
+| `src/commands/commands.ts` | `internal/commands` | Partially aligned | M2: Full source read. Registry ordering/completion and agent-role commands updated. Context command output and the complete UI/remote command handling remain open. |
+| `src/commands/constants.ts` | `internal/commands` | Reviewed | M2: Full source read; command constants compared. No claim of complete host command parity. |
+| `src/commands/index.ts` | `internal/commands` | Reviewed | M2: Full source read. Go package exports replace the TypeScript barrel. |
+| `src/commands/loader.ts` | `internal/commands` | Corrected | M2: Full source compared. Raw command bodies/BOM, atomic string metadata validation, argument slice length zero, argument parsing and Unicode command whitespace corrected; loader_test.go covers the changed boundaries. |
+| `src/commands/prompts.ts` | `internal/commands` | Reviewed | M2: Full source read and compared with the command prompt definitions. |
+| `src/commands/subagent.ts` | `internal/commands/subagent.go`, `internal/ui/send_message.go`, `internal/remote/server.go` | Partially aligned | M2: Full source read. /plan and /review use the Agent tool with the correct role/fork, scoped approval forwarding, input/session metadata, result persistence, and synthetic events. Complete event/error and host UI integration still require comparison. |
+| `src/commands/usage-tracker.ts` | `internal/commands` | Partially aligned | M2: Full source read. Explicit nonpositive limits return no results. Equal-score ordering still depends on Go map iteration and must be made deterministic. |
 | `src/compact/compact.ts` | `internal/compact` | Pending review |  |
 | `src/compact/constants.ts` | `internal/compact` | Pending review |  |
 | `src/compact/index.ts` | `internal/compact` | Pending review |  |
@@ -103,10 +134,10 @@ The browser-serving fix has also passed the full race-enabled suite and `go vet 
 | `src/config/provider-config.ts` | `internal/config` | Pending review |  |
 | `src/config/provider-login.ts` | `internal/config` | Pending review |  |
 | `src/conversation/at-expand.ts` | `internal/conversation` | Pending review |  |
-| `src/conversation/constants.ts` | `internal/conversation` | Pending review |  |
-| `src/conversation/index.ts` | `internal/conversation` | Pending review |  |
-| `src/conversation/pairing.ts` | `internal/conversation` | Pending review |  |
-| `src/conversation/prompts.ts` | `internal/conversation` | Pending review |  |
+| `src/conversation/constants.ts` | `internal/conversation` | Reviewed | M2: Full source read. Tool-interruption and rejection strings checked; reminder handling is recorded separately. |
+| `src/conversation/index.ts` | `internal/conversation/conversation.go` | Partially aligned | M2: Full source read. Forks deep-copy nested messages; reminder escaping and metadata fields added. User-input/bash host coverage and all structured-content/provider paths remain incomplete. |
+| `src/conversation/pairing.ts` | `internal/conversation/pairing.go` | Corrected | M2: Full source compared. Results are grouped immediately after their assistant turn; missing results are filled there, orphan/duplicate/late results are dropped, and extra text is preserved without mutating input. Covered by pairing_test.go and alignment_test.go. |
+| `src/conversation/prompts.ts` | `internal/conversation/conversation.go` | Partially aligned | M2: Full source read. Project/memory/skill wording, UTC date and nested reminder escaping corrected. ECMAScript/Go whitespace edge cases and user-Bash host integration still need the final comparison. |
 | `src/conversation/user-bash.ts` | `internal/conversation` | Pending review |  |
 | `src/file-history/constants.ts` | `internal/file_history` | Pending review |  |
 | `src/file-history/index.ts` | `internal/file_history` | Pending review |  |
@@ -115,15 +146,15 @@ The browser-serving fix has also passed the full race-enabled suite and `go vet 
 | `src/hooks/constants.ts` | `internal/hooks` | Pending review |  |
 | `src/hooks/index.ts` | `internal/hooks` | Pending review |  |
 | `src/index.ts` | `cmd/yukino` | Pending review |  |
-| `src/llm/anthropic.ts` | `internal/llm` | Pending review |  |
-| `src/llm/client.ts` | `internal/llm` | Pending review |  |
+| `src/llm/anthropic.ts` | `internal/llm` | Pending review | M2: Complete reference-file comparison remains outstanding. Related Go integration now honors request-scoped output caps and replays opaque thinking; this limited change does not certify provider parity. |
+| `src/llm/client.ts` | `internal/llm` | Pending review | M2: Complete reference-file comparison remains outstanding. Request output override uses context instead of changing the shared client; old max-output setter APIs still need review/removal with provider alignment. |
 | `src/llm/constants.ts` | `internal/llm` | Pending review |  |
 | `src/llm/errors.ts` | `internal/llm` | Pending review |  |
-| `src/llm/events.ts` | `internal/llm` | Pending review |  |
+| `src/llm/events.ts` | `internal/llm` | Partially aligned | M2: Full source read. Provider item ID is represented and parse errors/redacted thinking reach the agent. Provider population and all downstream event consumers remain open. |
 | `src/llm/index.ts` | `internal/llm` | Pending review |  |
 | `src/llm/model-discovery.ts` | `internal/llm` | Pending review |  |
-| `src/llm/openai.ts` | `internal/llm` | Pending review |  |
-| `src/llm/retry.ts` | `internal/llm` | Pending review |  |
+| `src/llm/openai.ts` | `internal/llm` | Pending review | M2: Complete reference-file comparison remains outstanding. Responses and Chat Completions honor request-scoped output caps; SDK boundary tests check that overrides do not leak into later calls. Structured content, provider item IDs and the broader provider contract remain open. |
+| `src/llm/retry.ts` | `internal/llm` | Reviewed | M2: Full source read. Existing LLMRetryDelay is now used by the agent, bounded to retries before visible output. Broader provider retry layering is not certified. |
 | `src/lsp/client.ts` | `internal/lsp/client.go`, `internal/lsp/process_unix.go`, `internal/lsp/process_other.go` | Corrected | M1: full source compared. Framed JSON-RPC, initialization, UTF-16 negotiation, settings, read-only server requests, cancellation, timeouts, bounded stderr, graceful shutdown, process-tree cleanup, and restart validated through the shared reference fixture in tools/lsp_test.go. Go uses a bounded asynchronous write queue; Windows process behavior is compile-checked only. |
 | `src/lsp/config.ts` | `internal/lsp/config.go`, `internal/config/config.go` | Corrected | M1: full schema compared. Trusted explicit servers, trimmed names, extension/language checks, optional-field null rejection, and 100–60000ms timeout bounds validated by config/lsp_test.go. |
 | `src/lsp/constants.ts` | `internal/lsp/constants.go`, `internal/lsp/client.go` | Corrected | M1: full source compared; framing limits, timeouts, protocol values, initialization metadata, read-only rejection, and error messages implemented. Go durations replace millisecond numbers. |
@@ -150,22 +181,22 @@ The browser-serving fix has also passed the full race-enabled suite and `go vet 
 | `src/memory/prompts.ts` | `internal/memory` | Pending review |  |
 | `src/memory/written-paths.ts` | `internal/memory` | Pending review |  |
 | `src/permissions/constants.ts` | `internal/permissions/constants.go`, `internal/tools/safe_command.go` | Reviewed | Existing constants and the allowlist checked individually. Constants associated with deferred modules do not enable those features. |
-| `src/permissions/index.ts` | `internal/permissions/permissions.go`, `internal/permissions/mode.go` | Partially aligned | Full source reviewed. Rule-loading failures now deny access; dynamic parent/child modes and plan-mode restoration corrected. OwnedWorktrees, isolated roots, and parts of the lifecycle remain outstanding. |
-| `src/permissions/request.ts` | `internal/agent/agent.go` | Partially aligned | Cancellation while waiting and allowAlways without rememberPatterns checked. Host forwarding of delegated permission requests remains outstanding. |
+| `src/permissions/index.ts` | `internal/permissions/permissions.go`, `internal/permissions/mode.go` | Partially aligned | M2: Previously reviewed full source; M2 adds synchronized owner-scoped plan paths and child path isolation. OwnedWorktrees, isolated roots, live cwd and remaining lifecycle behavior are still open. |
+| `src/permissions/request.ts` | `internal/agent/agent.go`, `internal/subagent/agent_tool.go`, `internal/commands/subagent.go` | Partially aligned | M2: Delegated approvals now forward to the owning host; remembered patterns are captured before waiting and cancellation prevents execution. Full permission-dialog/request serialization and host coverage remain open. |
 | `src/permissions/shell.ts` | `internal/permissions/shell.go` | Reviewed | Compared line by line. Shell segmentation and Unicode whitespace semantics corrected. |
-| `src/plan-file/constants.ts` | `internal/plan_file` | Pending review |  |
-| `src/plan-file/index.ts` | `internal/plan_file` | Pending review |  |
+| `src/plan-file/constants.ts` | `internal/plan_file` | Corrected | M2: Full source compared; storage directory, extension and diagnostic aligned. |
+| `src/plan-file/index.ts` | `internal/plan_file/plan_file.go` | Corrected | M2: Full source compared. Process-global ownership removed; each checker owns its plan path. Private exclusive creation, storage-boundary checks, save/load/reset, and parent/child isolation are covered by plan_file_test.go. Go uses locked accessor methods and returned errors. |
 | `src/print-mode.ts` | `cmd/yukino` | Pending review |  |
-| `src/prompt/builder.ts` | `internal/prompt` | Pending review |  |
-| `src/prompt/constants.ts` | `internal/prompt` | Pending review |  |
-| `src/prompt/coordinator.ts` | `internal/prompt` | Pending review |  |
-| `src/prompt/index.ts` | `internal/prompt` | Pending review |  |
-| `src/prompt/plan-mode.ts` | `internal/prompt` | Pending review |  |
-| `src/prompt/prompts.ts` | `internal/prompt` | Pending review |  |
-| `src/prompt/sections.ts` | `internal/prompt` | Pending review |  |
-| `src/prompt/tools.ts` | `internal/prompt` | Pending review |  |
+| `src/prompt/builder.ts` | `internal/prompt/builder.go` | Corrected | M2: Full source compared. Insertion order with content deduplication replaces priority sorting; UTC dates, Node architecture names, bounded shell-free Git probes and branch length cap aligned. |
+| `src/prompt/constants.ts` | `internal/prompt` | Reviewed | M2: Full source read; guidance markers, reminder interval, probe timeout and branch cap checked. |
+| `src/prompt/coordinator.ts` | `internal/prompt/coordinator.go` | Corrected | M2: Full source compared. Current coordinator text replaces obsolete mandatory verification/commit instructions; sparse reminders retained. Covered through team coordinator tests. |
+| `src/prompt/index.ts` | `internal/prompt` | Reviewed | M2: Full source read. Go package exports replace the namespace barrel. |
+| `src/prompt/plan-mode.ts` | `internal/prompt/plan_mode.go`, `internal/prompt/plan_prompts.go` | Corrected | M2: Full source compared. Reminders use actual callable tools, coordinator/delegated/read-only role and manual/automatic leader approval policy. |
+| `src/prompt/prompts.ts` | `internal/prompt` | Partially aligned | M2: Full source read. Base, coordinator, plan, teammate and active/deferred tool text synchronized. Goal/workflow consumers remain excluded; complete user-facing integration has not been certified. |
+| `src/prompt/sections.ts` | `internal/prompt/sections.go` | Corrected | M2: Full source compared. All base sections and environment rendering follow the reference insertion order. |
+| `src/prompt/tools.ts` | `internal/prompt/tools.go`, `internal/agent/run.go` | Corrected | M2: Full source compared for existing callable modules. Tool guidance derives from visible schemas; deferred discovery requires ToolSearch and dispatch-mode McpCall. Goal/workflow branches are excluded with their missing modules. |
 | `src/recover.ts` | `cmd/yukino` | Pending review |  |
-| `src/remote/address.ts` | `internal/remote` | Pending review |  |
+| `src/remote/address.ts` | `internal/remote/access.go` | Corrected | M2: Full source compared. Bare ports, default/loopback binding, IPv6 and port/address rejection covered by access_test.go. |
 | `src/remote/browser/dist/index.html` | `internal/remote/browser/dist/index.html` | Synchronized artifact | Byte-for-byte identical to the corresponding TypeScript build artifact; embedded and served without modification. |
 | `src/remote/browser/dist/static/chunk-OR5FHECQ.js` | `internal/remote/browser/dist/static/chunk-OR5FHECQ.js` | Synchronized artifact | Byte-for-byte identical to the corresponding TypeScript build artifact; embedded and served without modification. |
 | `src/remote/browser/dist/static/highlight-ZDY7K2CR.js` | `internal/remote/browser/dist/static/highlight-ZDY7K2CR.js` | Synchronized artifact | Byte-for-byte identical to the corresponding TypeScript build artifact; embedded and served without modification. |
@@ -225,14 +256,14 @@ The browser-serving fix has also passed the full race-enabled suite and `go vet 
 | `src/remote/index.ts` | `internal/remote` | Pending review |  |
 | `src/remote/log.ts` | `internal/remote` | Pending review |  |
 | `src/remote/mcp-apps.ts` | `internal/remote` | Pending review |  |
-| `src/remote/server.ts` | `internal/remote/server.go`, `internal/remote/web.go` | Partially aligned | Embedded bundle serving, asset MIME types, and SPA fallback corrected; web_test.go exercises every bundled file. Remaining HTTP routes, WebSocket protocol, and runtime behavior still require a complete file review. |
+| `src/remote/server.ts` | `internal/remote/server.go`, `internal/remote/plan.go` | Partially aligned | M2: Complete 4K-line reference comparison remains outstanding. Scoped plan gates, run locking, role commands, user-input metadata and in-place conversation reset added. Reconnect replay, unicast bootstrap, pending-gate cleanup, busy input/steering, provider controls and the complete protocol remain open. |
 | `src/remote/session-state.ts` | `internal/remote` | Pending review |  |
 | `src/sandbox/bwrap.ts` | `internal/sandbox/bwrap.go` | Corrected | Structured argv, working-directory resolution, and --die-with-parent aligned. Validated by sandbox_test.go. |
 | `src/sandbox/constants.ts` | `internal/sandbox/seatbelt.go` | Corrected | Fixed executable paths and invalid-path-character errors aligned. Validated by sandbox_test.go. |
 | `src/sandbox/index.ts` | `internal/sandbox/sandbox.go` | Corrected | Structured Prepare arguments aligned. Go type assertions express optional cleanup support. Validated by go test ./internal/sandbox. |
 | `src/sandbox/seatbelt.ts` | `internal/sandbox/seatbelt.go` | Corrected | Path aliases, profile escaping, /dev/null handling, and deny rules for literal paths and subpaths aligned. Validated by sandbox_test.go. |
-| `src/session/constants.ts` | `internal/session` | Pending review |  |
-| `src/session/index.ts` | `internal/session` | Pending review |  |
+| `src/session/constants.ts` | `internal/session` | Reviewed | M2: Full source read. File/expiry/preview values and input-session mismatch checked; rewind temporary files and artifact cleanup now implemented. |
+| `src/session/index.ts` | `internal/session/session.go`, `internal/session/messages.go` | Partially aligned | M2: Full source read. Uses timestamp (no ts migration), preserves thinking/redacted blocks, provider IDs, rich results and input/bash metadata; validates records, skips damaged boundaries, unifies resume reconstruction, provides locked rewind line operations, registers projects and removes expired artifacts. Tests cover round trips, wrong-project input, malformed boundaries and rewind/expiry. Complete I/O error propagation, fractional timestamp schema fidelity, global session listing and UI user-Bash rendering remain open. |
 | `src/skills/catalog.ts` | `internal/skills` | Pending review |  |
 | `src/skills/constants.ts` | `internal/skills` | Pending review |  |
 | `src/skills/executor.ts` | `internal/skills` | Pending review |  |
@@ -243,31 +274,31 @@ The browser-serving fix has also passed the full race-enabled suite and `go vet 
 | `src/storage/constants.ts` | `internal/storage` | Pending review |  |
 | `src/storage/index.ts` | `internal/storage` | Pending review |  |
 | `src/storage/private.ts` | `internal/storage` | Pending review |  |
-| `src/subagent/agent-tool.ts` | `internal/subagent` | Pending review |  |
-| `src/subagent/constants.ts` | `internal/subagent` | Pending review |  |
-| `src/subagent/definition.ts` | `internal/subagent` | Pending review |  |
-| `src/subagent/index.ts` | `internal/subagent` | Pending review |  |
-| `src/subagent/loader.ts` | `internal/subagent` | Pending review |  |
-| `src/subagent/plan.ts` | `internal/subagent` | Pending review |  |
-| `src/subagent/prompts.ts` | `internal/subagent` | Pending review |  |
-| `src/subagent/spawn.ts` | `internal/subagent` | Pending review |  |
+| `src/subagent/agent-tool.ts` | `internal/subagent/agent_tool.go` | Partially aligned | M2: Full source read. kind/role/fork/background/worktree semantics, fresh provider/system prompt selection, independent TODO/background managers, transcript metadata, host approvals and scoped teammate tools implemented. Teammate transcript/session/context-budget propagation, runtime progress forwarding and persistence-error handling remain open. |
+| `src/subagent/constants.ts` | `internal/subagent` | Reviewed | M2: Full source read; current names/defaults/error record type checked. No default model-turn cap retained. |
+| `src/subagent/definition.ts` | `internal/subagent/definition.go`, `internal/subagent/subagent.go` | Partially aligned | M2: Full source read. Current YAML schema/body and built-in roles replace obsolete name/isolation/mode semantics. Validation and built-in defaults tested. Integral floating YAML values for max_turns remain a schema edge to resolve. |
+| `src/subagent/index.ts` | `internal/subagent` | Reviewed | M2: Full source read. Go package exports replace the TypeScript barrel. |
+| `src/subagent/loader.ts` | `internal/subagent/loader.go` | Corrected | M2: Full source compared. Only user definitions load, built-in insertion order is stable, user overrides retain their slot, and reload drops removed definitions. Covered by loader_test.go. |
+| `src/subagent/plan.ts` | `internal/subagent/agent_tool.go`, `internal/tools/enter_plan_mode.go` | Corrected | M2: Full source compared. Built-in foreground plan runner bypasses user role overrides, forks the parent and writes/returns the scoped plan; covered by plan tool tests. |
+| `src/subagent/prompts.ts` | `internal/subagent/prompts.go`, `internal/subagent/subagent.go` | Corrected | M2: Full source compared. Agent descriptions and current role instructions replace old verification/environment instructions. |
+| `src/subagent/spawn.ts` | `internal/subagent/agent_tool.go`, `internal/teams/spawn.go`, `internal/teams/in_process.go` | Partially aligned | M2: Full source read. In-process spawn receives checker, role, context snapshot and work directory. Complete teammate session/transcript, budgets and cleanup/rollback remain open. |
 | `src/subagent/task-manager.ts` | `internal/subagent/task_manager.go` | Partially aligned | Task lifecycle, retention after cancellation, waits, notifications, retention limits, and session restoration corrected. Complete propagation of persistence failures remains outstanding. Validated by task_manager_test.go. |
 | `src/subagent/task-store.ts` | `internal/subagent/task_store.go` | Corrected | Private, atomic JSON records, ID validation, and restoration ordering aligned. Validated by task_manager_test.go. |
-| `src/subagent/tool-filter.ts` | `internal/subagent/tool_filter.go`, `internal/todo/tools.go`, `internal/teams/task_tools.go` | Corrected | M1: full source compared. Existing scoped registry and permission-mode filtering retained; each delegated registry now receives an independent private TodoWrite board. Validated by subagent/tool_filter_test.go and subagent/todo_test.go. |
-| `src/teams/constants.ts` | `internal/teams` | Pending review |  |
-| `src/teams/coordinator.ts` | `internal/teams` | Pending review |  |
+| `src/subagent/tool-filter.ts` | `internal/subagent/tool_filter.go`, `internal/subagent/agent_tool.go` | Corrected | M2: Full source compared; M1 scoped registries/private TODO retained. M2 removes double cloning during teammate filtering and keeps background TaskStop scoped. Borrowed-tool lifetime and board isolation tests pass. |
+| `src/teams/constants.ts` | `internal/teams` | Partially aligned | M2: Full source read. Leader identity, in-process protocol and approval/shutdown constants consumed by the revised runtime. Retention and full lifecycle consumers remain outstanding. |
+| `src/teams/coordinator.ts` | `internal/teams/coordinator.go` | Corrected | M2: Full source compared. Current coordinator allowlist, including TeamCreate/TeamList/TodoWrite, and live mode binding aligned for existing modules; absent Goal/Workflow are excluded. |
 | `src/teams/file-lock.ts` | `internal/teams` | Pending review |  |
-| `src/teams/file-mailbox.ts` | `internal/teams` | Pending review |  |
-| `src/teams/index.ts` | `internal/teams` | Pending review |  |
-| `src/teams/progress.ts` | `internal/teams` | Pending review |  |
-| `src/teams/prompts.ts` | `internal/teams` | Pending review |  |
-| `src/teams/protocol.ts` | `internal/teams` | Pending review |  |
+| `src/teams/file-mailbox.ts` | `internal/teams/file_mailbox.go` | Partially aligned | M2: Full source read. Private atomic files, strict message fields, member-path validation, corruption preservation, selective atomic receive/requeue and pruning implemented. Shared file-lock source review and full no-op write/error semantics remain outstanding. |
+| `src/teams/index.ts` | `internal/teams/teams.go`, `internal/teams/runner.go`, `internal/teams/in_process.go`, `internal/teams/plan.go` | Partially aligned | M2: Full source read. Multiple canonical team identities, exclusive creation, hydration to inactive members, scoped permission modes, awaited stop/delete/close and task release implemented. Disk restoration/subscriptions, terminated-member retention, rollback and complete error propagation still need work. |
+| `src/teams/progress.ts` | `internal/teams/progress.go` | Partially aligned | M2: Full source read. Usage accumulates once per turn; active tool/turn counters and last-message state added. Activity fallbacks/UTF-16 clipping, serializable snapshots and complete UI consumers remain open. |
+| `src/teams/prompts.ts` | `internal/teams/prompts.go`, `internal/prompt/teammate.go` | Corrected | M2: Full source compared. Team tools, automatic-plan approval and shutdown wording synchronized; legacy terminal-backend wording removed. |
+| `src/teams/protocol.ts` | `internal/teams/protocol.go`, `internal/teams/runner.go`, `internal/teams/plan.go` | Corrected | M2: Full source compared. Shutdown and plan review use typed messages with request IDs and leader authority; old text-prefix shutdown inference removed. Protocol/alignment tests cover stale, duplicate and forged responses. |
 | `src/teams/registry.ts` | `internal/teams` | Pending review |  |
 | `src/teams/shared-task.ts` | `internal/teams/shared_task.go`, `internal/todo/write.go`, `internal/todo/store.go` | Partially aligned | M1: full source compared. Atomic incremental writes, file locking with reload, rollback, createdBy, owner release, dependency validation, notifications, and corrupt-board preservation implemented. Separate instances and child processes validated by shared_task_test.go. Go reports unreadable state on first access rather than during construction; existing file-lock implementation has not received a new full source comparison. |
-| `src/teams/task-stop.ts` | `internal/teams/task_stop.go` | Partially aligned | Background task_id handling, cancellation waits, and delegated restrictions implemented. Disambiguation of identical names across teams awaits teams-module alignment. |
-| `src/teams/task-tools.ts` | `internal/teams/task_tools.go` | Partially aligned | M1: full source compared. TeamTodoWrite replaces the four legacy task tools; team scope, ambiguity errors, private fallback, ownership checks, and post-commit assignment notifications implemented. subscribeLeaderTasks and aggregated UI progress remain outstanding; broader member lifecycle behavior remains pending. |
-| `src/teams/team-file.ts` | `internal/teams` | Pending review |  |
-| `src/teams/tools.ts` | `internal/teams` | Pending review |  |
+| `src/teams/task-stop.ts` | `internal/teams/task_stop.go` | Corrected | M2: Full source compared. Team/member disambiguation, scoped task IDs, cancellation waits and cleanup implemented. Task/tool and alignment tests pass. |
+| `src/teams/task-tools.ts` | `internal/teams/task_tools.go` | Partially aligned | M2: M1 board semantics retained; M2 resolves the sender/team scope and rejects ambiguous names across teams. Leader subscriptions, aggregated UI progress and complete lifecycle integration remain open. |
+| `src/teams/team-file.ts` | `internal/teams/team_file.go` | Partially aligned | M2: Full source read. Uses leaderAgentId and permissionMode without backend fields; private atomic writes retained. Strict reference schema validation, stable member ordering and persistence failure propagation remain open. |
+| `src/teams/tools.ts` | `internal/teams/tools.go` | Corrected | M2: Full source compared. Optional team creation, TeamList, explicit/ambiguous team selection, scoped sender/broadcast, manual leader plan reviews and teardown replace old single-team/terminal interfaces. Covered by teams/alignment_test.go and existing tool tests. |
 | `src/theme/constants.ts` | `internal/ui/theme.go` | Pending review |  |
 | `src/theme/index.ts` | `internal/ui/theme.go` | Pending review |  |
 | `src/theme/syntax.ts` | `internal/ui/theme.go` | Pending review |  |
@@ -290,11 +321,11 @@ The browser-serving fix has also passed the full race-enabled suite and `go vet 
 | `src/tools/diff.ts` | `internal/tools/diff.go` | Corrected | Separate edit regions, accurate addition/deletion counts, new-file line numbers, and truncation aligned. Validated by diff_test.go and file_tools_alignment_test.go. |
 | `src/tools/edit-file-diagnostics.ts` | `internal/tools/edit_file_diagnostics.go` | Corrected | Whitespace candidates and Unicode difference positions aligned. Go uses rune-based character indexing. Validated by file_tools_alignment_test.go. |
 | `src/tools/edit-file.ts` | `internal/tools/edit_file.go` | Corrected | Only the batch edits interface is accepted. Original-text matching, atomic failure, and preservation of CRLF and stray carriage returns aligned. Validated by file_tools_alignment_test.go. |
-| `src/tools/enter-plan-mode.ts` | `internal/tools` | Pending review |  |
+| `src/tools/enter-plan-mode.ts` | `internal/tools/enter_plan_mode.go` | Corrected | M2: Full source compared. Main-thread-only builtin plan delegation, empty/interrupted/error checks and owner-scoped saving implemented. Covered by plan_mode_test.go. |
 | `src/tools/enter-worktree.ts` | `internal/tools` | Pending review |  |
 | `src/tools/execution-coordinator.ts` | `internal/tools/execution_coordinator.go` | Partially aligned | Workspace write serialization and permission rechecks after waiting implemented. Runtime working-directory changes for worktrees remain outstanding. |
 | `src/tools/exit-code-hints.ts` | `internal/tools/exit_code_hints.go` | Corrected | Quoted command segments, skipped variable assignments, and command/signal exit hints aligned. Validated by shell_alignment_test.go. |
-| `src/tools/exit-plan-mode.ts` | `internal/tools` | Pending review |  |
+| `src/tools/exit-plan-mode.ts` | `internal/tools/exit_plan_mode.go` | Corrected | M2: Full source compared. Requires active mode and a nonempty plan; delegated output and teammate approval callbacks are scoped, and only successful planning pauses the agent. Covered by plan_mode_test.go. |
 | `src/tools/exit-worktree.ts` | `internal/tools` | Pending review |  |
 | `src/tools/file-mutation-queue.ts` | `internal/tools/execution_coordinator.go` | Corrected | Mutations are serialized by canonical path; waiting can be cancelled. Validated by concurrency regression tests. |
 | `src/tools/file-state-cache.ts` | `internal/tools/file_state_cache.go` | Corrected | Canonical keys, rejection after deletion or backward timestamp changes, and has/delete/clear operations aligned. Validated by file_tools_alignment_test.go. |
@@ -316,14 +347,14 @@ The browser-serving fix has also passed the full race-enabled suite and `go vet 
 | `src/tools/synthetic-output.ts` | `internal/tools` | Pending review |  |
 | `src/tools/task-output.ts` | `internal/tools/task_output.go` | Corrected | Strict arguments, bounded waits, independent notifications, and task snapshots aligned. Validated by shell_alignment_test.go. |
 | `src/tools/tool-search.ts` | `internal/tools/tool_search.go` | Corrected | The 50-result limit, select ordering, native text/tool_reference output, and McpCall routing aligned. Validated by tool_search_test.go. |
-| `src/tools/types.ts` | `internal/tools/tool.go`, `internal/tools/task_output.go`, `internal/tools/execution_coordinator.go` | Partially aligned | Full source reviewed. Context and background task protocols extended. MCP App content and unified validation of structured content blocks remain outstanding. M1 adds LSP/WebFetch implementations without certifying this entire type contract. |
+| `src/tools/types.ts` | `internal/tools/tool.go`, `internal/tools/execution_coordinator.go`, `internal/conversation/content_blocks.go` | Partially aligned | M2: Full source read. Runtime plan/permission/task context and result metadata extended; persisted tool-result content normalization added. MCP App metadata and complete rich-content/provider/host handling remain outstanding. |
 | `src/tools/web-fetch.ts` | `internal/tools/web_fetch.go` | Language-specific difference | M1: full source compared. HTTP(S), redirects, text/binary checks, cancellation, 60s timeout, 10MB response cap, UTF-16-safe 100K output cap, 15-minute cache, and 50MB oldest-first cache budget implemented. Go uses html-to-markdown/v2 instead of Turndown: Markdown formatting can differ, including fenced code blocks. Network/content behavior validated with local HTTP fixtures; byte-identical HTML conversion is not claimed. |
 | `src/tools/write-file.ts` | `internal/tools/write_file.go` | Corrected | Read-before-write gating, rejection of missing content, atomic writes, and returned line counts aligned. Validated by file_tools_alignment_test.go. |
 | `src/ui/agent-activity.tsx` | `internal/ui` | Pending review |  |
 | `src/ui/agent-status.tsx` | `internal/ui` | Pending review |  |
 | `src/ui/agent-tool-progress.tsx` | `internal/ui` | Pending review |  |
 | `src/ui/agents-dialog.tsx` | `internal/ui` | Pending review |  |
-| `src/ui/app.tsx` | `internal/ui` | Pending review |  |
+| `src/ui/app.tsx` | `internal/ui` | Partially aligned | M2: Complete reference-file comparison remains outstanding. /plan and /review dispatch, plan approval, scoped user input records and conversation reset/resume integrations changed; unrelated UI behavior is not certified. |
 | `src/ui/ask-user-dialog.tsx` | `internal/ui` | Pending review |  |
 | `src/ui/chat.tsx` | `internal/ui` | Pending review |  |
 | `src/ui/constants.ts` | `internal/ui` | Pending review |  |
@@ -344,7 +375,7 @@ The browser-serving fix has also passed the full race-enabled suite and `go vet 
 | `src/ui/pending-queue.tsx` | `internal/ui` | Pending review |  |
 | `src/ui/permission-dialog.tsx` | `internal/ui` | Pending review |  |
 | `src/ui/permission-request.ts` | `internal/ui` | Pending review |  |
-| `src/ui/plan-approval.tsx` | `internal/ui` | Pending review |  |
+| `src/ui/plan-approval.tsx` | `internal/ui/plan_approval.go` | Partially aligned | M2: Full source read. Manual/YOLO/feedback choices, Esc manual approval, blank-feedback retention, Shift+Tab feedback and plan-exit reminders corrected. Actual terminal interaction/rendering still needs a dedicated UI pass. |
 | `src/ui/provider-login.tsx` | `internal/ui` | Pending review |  |
 | `src/ui/provider-select.tsx` | `internal/ui` | Pending review |  |
 | `src/ui/rewind-dialog.tsx` | `internal/ui` | Pending review |  |
@@ -352,7 +383,7 @@ The browser-serving fix has also passed the full race-enabled suite and `go vet 
 | `src/ui/selector-layout.ts` | `internal/ui` | Pending review |  |
 | `src/ui/selector-list.tsx` | `internal/ui` | Pending review |  |
 | `src/ui/selector-search.ts` | `internal/ui` | Pending review |  |
-| `src/ui/session-selector.tsx` | `internal/ui` | Pending review |  |
+| `src/ui/session-selector.tsx` | `internal/ui` | Pending review | M2: Complete reference-file comparison remains outstanding. Resume now reuses the conversation object and the shared metadata-preserving session reconstruction; this does not certify selector UI parity. |
 | `src/ui/status-border.tsx` | `internal/ui` | Pending review |  |
 | `src/ui/streaming-markdown.ts` | `internal/ui` | Pending review |  |
 | `src/ui/styles.ts` | `internal/ui` | Pending review |  |
@@ -392,7 +423,7 @@ The browser-serving fix has also passed the full race-enabled suite and `go vet 
 | `src/utils/slug.ts` | `internal/utils` | Pending review |  |
 | `src/utils/xml.ts` | `internal/utils` | Pending review |  |
 | `src/version.ts` | `cmd/yukino` | Pending review |  |
-| `src/websocket-security.ts` | `cmd/yukino` | Pending review |  |
+| `src/websocket-security.ts` | `internal/remote/access.go` | Partially aligned | M2: Full source compared. Per-server random token, exact socket path, constant-time token check and HTTP same-host origin policy covered by access_test.go. Origin host canonicalization, including case and default-port handling, still needs alignment with the reference URL parser. |
 | `src/worktree/constants.ts` | `internal/worktree` | Pending review |  |
-| `src/worktree/index.ts` | `internal/worktree` | Pending review |  |
+| `src/worktree/index.ts` | `internal/worktree` | Pending review | M2: Complete reference-file comparison remains outstanding. Agent worktree creation accepts the actual execution cwd; owned roots, live checker cwd and the full worktree lifecycle remain open. |
 | `src/worktree/prompts.ts` | `internal/worktree` | Pending review |  |

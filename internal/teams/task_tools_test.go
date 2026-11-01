@@ -17,7 +17,7 @@ func newTestTeamManager(t *testing.T) *TeamManager {
 }
 func TestTeamTodoWriteFlowAndAtomicAssignment(t *testing.T) {
 	mgr := newTestTeamManager(t)
-	team := createTestTeam(t, mgr, "myteam", ModeInProcess)
+	team := createTestTeam(t, mgr, "myteam")
 	team.AddMember("alice", nil, nil, "")
 	tool := &TeamTodoWriteTool{TeamMgr: mgr, TeamName: "myteam"}
 	ctx := context.Background()
@@ -62,8 +62,8 @@ func TestTeamTodoWriteFallbackAndAmbiguousTeam(t *testing.T) {
 	if result.IsError || !strings.Contains(result.Output, `"boardId": "private:`) {
 		t.Fatal(result)
 	}
-	createTestTeam(t, mgr, "one", ModeInProcess)
-	createTestTeam(t, mgr, "two", ModeInProcess)
+	createTestTeam(t, mgr, "one")
+	createTestTeam(t, mgr, "two")
 	if result := tool.Execute(ctx, map[string]any{}); !result.IsError || !strings.Contains(result.Output, "Multiple teams") {
 		t.Fatal(result)
 	}
@@ -74,7 +74,7 @@ func TestTeamTodoWriteFallbackAndAmbiguousTeam(t *testing.T) {
 }
 func TestDeleteTeamUnregistersMembers(t *testing.T) {
 	mgr := newTestTeamManager(t)
-	team := createTestTeam(t, mgr, "myteam", ModeInProcess)
+	team := createTestTeam(t, mgr, "myteam")
 	team.Members["alice"] = &Member{Name: "alice"}
 	GetNameRegistry().Register("alice", "alice")
 	mgr.DeleteTeam("myteam")
@@ -83,17 +83,17 @@ func TestDeleteTeamUnregistersMembers(t *testing.T) {
 	}
 }
 
-func createTestTeam(t *testing.T, manager *TeamManager, name string, mode TeamMode) *Team {
+func createTestTeam(t *testing.T, manager *TeamManager, name string) *Team {
 	t.Helper()
-	team, err := manager.CreateTeam(name, mode)
+	team, err := manager.CreateTeam(name, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	return team
 }
-func createTestTeamFull(t *testing.T, manager *TeamManager, name string, mode TeamMode, leader, description string) *Team {
+func createTestTeamFull(t *testing.T, manager *TeamManager, name string, leader, description string) *Team {
 	t.Helper()
-	team, err := manager.CreateTeamFull(name, mode, leader, description)
+	team, err := manager.CreateTeam(name, leader, description)
 	if err != nil {
 		t.Fatal(err)
 	}

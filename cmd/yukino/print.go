@@ -12,6 +12,7 @@ import (
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/config"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/conversation"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/file_history"
+	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/history"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/hooks"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/llm"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/mcp"
@@ -89,7 +90,7 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 
 	env := prompt.DetectEnvironment(wd)
 	env.Model = p.Model
-	systemPrompt := prompt.BuildSystemPrompt(env, prompt.BuildOptions{})
+	systemPrompt := prompt.BuildSystemPrompt(env)
 
 	client, err := llm.NewClient(p, systemPrompt)
 	if err != nil {
@@ -116,16 +117,18 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 	if err != nil {
 		return err
 	}
-	loader := subagent.NewAgentLoader(wd)
+	loader := subagent.NewAgentLoader()
 	loader.LoadAll()
 
 	registry.Register(&tools.ToolSearchTool{Registry: registry})
 	registry.Register(&tools.McpCallTool{Registry: registry})
 
 	teamMgr := teams.NewTeamManager(wd)
+	teamMgr.CoordinatorMode = cfg.EnableCoordinatorMode
 	registry.Register(&teams.TeamTodoWriteTool{TeamMgr: teamMgr, Fallback: todoList})
 	registry.Register(&teams.TeamCreateTool{TeamMgr: teamMgr})
 	registry.Register(&teams.TeamDeleteTool{TeamMgr: teamMgr})
+	registry.Register(&teams.TeamListTool{TeamMgr: teamMgr})
 	registry.Register(&teams.SendMessageTool{TeamMgr: teamMgr, SenderName: "leader"})
 	registry.Register(&teams.TaskStopTool{TeamMgr: teamMgr, TaskManager: taskMgr})
 	registry.Register(&tools.SyntheticOutputTool{})
@@ -155,7 +158,8 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 	subProgressCh := make(chan subagent.SubAgentProgress, 32)
 	registry.Register(&subagent.AgentTool{
 		Client:        client,
-		ModelResolver: llm.NewModelResolver(*p),
+		Provider:      p,
+		MemoryContent: memoryContent,
 		Registry:      registry,
 		Protocol:      p.Protocol,
 		TaskMgr:       taskMgr,
@@ -186,6 +190,7 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 		ag.Hooks = eng
 	}
 
+	teamMgr.SetPermissionChecker(ag.Checker)
 	ag.NotificationFn = func() []string {
 		var messages []string
 		for _, task := range taskMgr.DrainNotifications() {
@@ -204,7 +209,15 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 	registry.Register(&tools.EnterWorktreeTool{SessionID: sessionID, RepoRoot: gitRoot})
 	registry.Register(&tools.ExitWorktreeTool{RepoRoot: gitRoot})
 
-	conv.AddUserMessage(userPrompt)
+	input, err := history.RecordInput(history.InputOptions{Cwd: wd, SessionID: &sessionID, Source: "print", Text: userPrompt})
+	if err != nil {
+		return err
+	}
+	recorded, err := session.SaveUserMessage(wd, sessionID, input, session.Message{Content: conversation.ExpandAtRefs(userPrompt, wd)})
+	if err != nil {
+		return err
+	}
+	conv.AppendMessages([]conversation.Message{recorded.ToConversation()})
 	ctx := context.Background()
 	ch := ag.Run(ctx, conv)
 
@@ -254,8 +267,8 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 			}
 
 		case agent.UsageEvent:
-			totalInput = e.InputTokens
-			totalOutput = e.OutputTokens
+			totalInput += e.InputTokens
+			totalOutput += e.OutputTokens
 			if isJSON {
 				emitJSON(map[string]any{
 					"type":          "usage",

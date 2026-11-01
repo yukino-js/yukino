@@ -5,8 +5,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"github.com/google/uuid"
+	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/permissions"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,13 +18,6 @@ import (
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/llm"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/storage"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/tools"
-)
-
-type TeamMode string
-
-const (
-	ModeInProcess TeamMode = "in-process"
-	ModeTmux      TeamMode = "tmux"
 )
 
 const TeamsDirName = "teams"
@@ -39,13 +35,15 @@ func TeamsBaseDir(cwd string) string {
 }
 
 type Member struct {
-	Name     string
-	AgentRef *agent.Agent
-	Conv     *conversation.Manager
-	Active   bool
-	Cancel   context.CancelFunc
-	PaneID   string
-	Progress *TeammateProgress
+	Name                 string
+	AgentRef             *agent.Agent
+	Conv                 *conversation.Manager
+	Active               bool
+	Cancel               context.CancelFunc
+	Done                 chan struct{}
+	PendingPlan          *pendingPlanApproval
+	PlanApprovalRequired bool
+	Progress             *TeammateProgress
 
 	AgentID      string
 	AgentType    string
@@ -57,32 +55,40 @@ type Member struct {
 type Team struct {
 	Cwd     string
 	Name    string
-	Mode    TeamMode
 	Members map[string]*Member
 	MailBox *FileMailBox
 	mu      sync.Mutex
 
-	LeadAgentID string
-	Description string
-	CreatedAt   int64
+	LeadAgentID                string
+	Description                string
+	CreatedAt                  int64
+	PermissionMode             permissions.PermissionMode
+	RequiresLeaderPlanApproval bool
+	memberOrder                []string
 }
 
-func NewTeam(cwd, name string, mode TeamMode) *Team {
+func NewTeam(cwd, name string) *Team {
 	inboxDir := filepath.Join(teamDir(cwd, name), "inboxes")
 	return &Team{
-		Cwd:       cwd,
-		Name:      name,
-		Mode:      mode,
-		Members:   make(map[string]*Member),
-		MailBox:   NewFileMailBox(inboxDir),
-		CreatedAt: time.Now().Unix(),
+		Cwd:            cwd,
+		Name:           name,
+		Members:        make(map[string]*Member),
+		MailBox:        NewFileMailBox(inboxDir),
+		CreatedAt:      time.Now().Unix(),
+		PermissionMode: permissions.ModeDefault,
 	}
 }
 
-func (t *Team) AddMember(name string, client llm.Client, registry *tools.Registry, protocol string) *Member {
+func (t *Team) AddMember(name string, client llm.Client, registry *tools.Registry, protocol string) (*Member, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	if name == LeadName || !mailboxMemberPattern.MatchString(name) {
+		return nil, fmt.Errorf("Invalid teammate name '%s'", name)
+	}
+	if t.Members[name] != nil {
+		return nil, fmt.Errorf("Teammate '%s' already exists", name)
+	}
 	ag := agent.New(client, registry, protocol)
 	member := &Member{
 		Name:     name,
@@ -93,8 +99,9 @@ func (t *Team) AddMember(name string, client llm.Client, registry *tools.Registr
 		JoinedAt: time.Now().Unix(),
 	}
 	t.Members[name] = member
+	t.memberOrder = append(t.memberOrder, name)
 	t.persist()
-	return member
+	return member, nil
 }
 
 func (t *Team) SetMemberMeta(name, agentType, model, worktreePath string) {
@@ -110,48 +117,30 @@ func (t *Team) SetMemberMeta(name, agentType, model, worktreePath string) {
 	t.persist()
 }
 
-func (t *Team) StartMember(ctx context.Context, name string, task string) (<-chan agent.AgentEvent, error) {
-	t.mu.Lock()
-	member, ok := t.Members[name]
-	t.mu.Unlock()
-
-	if !ok {
-		return nil, fmt.Errorf("member not found: %s", name)
-	}
-
-	memberCtx, cancel := context.WithCancel(ctx)
-	member.Active = true
-	member.Cancel = cancel
-
-	t.mu.Lock()
-	t.persist()
-	t.mu.Unlock()
-
-	member.Conv.AddUserMessage(task)
-	ch := member.AgentRef.Run(memberCtx, member.Conv)
-	return ch, nil
-}
-
 func (t *Team) StopMember(name string) {
 	t.mu.Lock()
-	defer t.mu.Unlock()
-	member, ok := t.Members[name]
-	if !ok {
+	member := t.Members[name]
+	if member == nil {
+		t.mu.Unlock()
 		return
 	}
-	if member.PaneID != "" {
-		switch t.Mode {
-		case ModeTmux:
-			stopTmuxTeammate(member.PaneID)
-		case ModeITerm:
-			stopITermTeammate(member.PaneID)
-		}
-	}
-	if member.Cancel != nil {
-		member.Cancel()
-	}
 	member.Active = false
+	cancel, done := member.Cancel, member.Done
+	if member.Progress != nil {
+		member.Progress.SetStatus("stopped")
+	}
+	GetNameRegistry().Unregister(name)
+	t.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	if done != nil {
+		<-done
+	}
+	t.releaseMemberTasks(name)
+	t.mu.Lock()
 	t.persist()
+	t.mu.Unlock()
 }
 
 func (t *Team) GetTeammateProgress() []*TeammateProgress {
@@ -166,19 +155,34 @@ func (t *Team) GetTeammateProgress() []*TeammateProgress {
 	return result
 }
 
-func (t *Team) SendMessage(from, to, content string) {
-	t.MailBox.Send(to, FileMailMessage{
-		From:      from,
-		Text:      content,
-		Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
-	})
+func (t *Team) SendMessage(from, to, content string) error {
+	t.mu.Lock()
+	member := t.Members[to]
+	if member == nil {
+		t.mu.Unlock()
+		return fmt.Errorf("Member '%s' not found in team '%s'", to, t.Name)
+	}
+	if !member.Active && member.Progress != nil {
+		status := member.Progress.GetStatus()
+		t.mu.Unlock()
+		return fmt.Errorf("Teammate '%s' is %s and cannot receive work", to, status)
+	}
+	if member.Active && member.Progress != nil && member.PendingPlan == nil {
+		member.Progress.SetStatus("running")
+	}
+	t.mu.Unlock()
+	return t.MailBox.Send(to, NewFileMailMessage(from, content))
 }
 
 type TeamManager struct {
-	mu         sync.Mutex
-	cwd        string
-	teams      map[string]*Team
-	taskStores map[string]*SharedTaskStore
+	mu              sync.Mutex
+	cwd             string
+	teams           map[string]*Team
+	taskStores      map[string]*SharedTaskStore
+	order           []string
+	CoordinatorMode bool
+	checker         *permissions.Checker
+	unsubscribe     func()
 }
 
 func NewTeamManager(cwd string) *TeamManager {
@@ -193,22 +197,45 @@ func teamDir(cwd, name string) string {
 	return filepath.Join(TeamsBaseDir(cwd), sanitizeTeamName(name))
 }
 
-func (tm *TeamManager) CreateTeam(name string, mode TeamMode) (*Team, error) {
-	return tm.CreateTeamFull(name, mode, "", "")
-}
-
-func (tm *TeamManager) CreateTeamFull(name string, mode TeamMode, leadAgentID, description string) (*Team, error) {
+func (tm *TeamManager) CreateTeam(name, leadAgentID, description string) (*Team, error) {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
-	team := NewTeam(tm.cwd, name, mode)
+	if name == "" {
+		name = "team-" + uuid.NewString()
+	}
+	if strings.TrimSpace(name) == "" {
+		return nil, fmt.Errorf("Team name must not be empty or whitespace.")
+	}
+	key := sanitizeTeamName(name)
+	exists := func() error {
+		return fmt.Errorf("Team '%s' already exists. Choose a different name, or target the existing team with team_name='%s'.", name, name)
+	}
+	if tm.teams[key] != nil {
+		return nil, exists()
+	}
+	if err := storage.MkdirPrivateSync(TeamsBaseDir(tm.cwd)); err != nil {
+		return nil, err
+	}
+	if err := os.Mkdir(teamDir(tm.cwd, name), 0700); err != nil {
+		if os.IsExist(err) {
+			return nil, exists()
+		}
+		return nil, err
+	}
+	team := NewTeam(tm.cwd, name)
 	team.LeadAgentID = leadAgentID
 	team.Description = description
+	team.RequiresLeaderPlanApproval = tm.CoordinatorMode
+	if tm.checker != nil {
+		team.PermissionMode = tm.checker.Mode()
+	}
 	store := NewSharedTaskStore(filepath.Join(teamDir(tm.cwd, name), "tasks.json"))
 	if err := store.InitEmpty(); err != nil {
 		return nil, err
 	}
-	tm.teams[name] = team
-	tm.taskStores[name] = store
+	tm.teams[key] = team
+	tm.order = append(tm.order, key)
+	tm.taskStores[key] = store
 	team.persist()
 	return team, nil
 }
@@ -216,42 +243,45 @@ func (tm *TeamManager) CreateTeamFull(name string, mode TeamMode, leadAgentID, d
 func (tm *TeamManager) GetTaskStore(teamName string) *SharedTaskStore {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
-	if store, ok := tm.taskStores[teamName]; ok {
+	if store, ok := tm.taskStores[sanitizeTeamName(teamName)]; ok {
 		return store
 	}
 	store := NewSharedTaskStore(filepath.Join(teamDir(tm.cwd, teamName), "tasks.json"))
-	tm.taskStores[teamName] = store
+	tm.taskStores[sanitizeTeamName(teamName)] = store
 	return store
 }
 
 func (tm *TeamManager) CreateTeamWith(team *Team) {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
-	tm.teams[team.Name] = team
+	key := sanitizeTeamName(team.Name)
+	if tm.teams[key] == nil {
+		tm.order = append(tm.order, key)
+	}
+	tm.teams[key] = team
 }
 
 func (tm *TeamManager) GetTeam(name string) *Team {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
-	if team, ok := tm.teams[name]; ok {
+	if team, ok := tm.teams[sanitizeTeamName(name)]; ok {
 		return team
 	}
 	tf := ReadTeamFile(tm.cwd, name)
 	if tf == nil {
 		return nil
 	}
-	team := NewTeam(tm.cwd, tf.Name, ModeInProcess)
+	team := NewTeam(tm.cwd, tf.Name)
+	team.RequiresLeaderPlanApproval = tm.CoordinatorMode
+	team.PermissionMode = tf.PermissionMode
+	if tm.checker != nil {
+		team.PermissionMode = tm.checker.Mode()
+	}
 	team.LeadAgentID = tf.LeadAgentID
 	team.Description = tf.Description
 	team.CreatedAt = tf.CreatedAt
 	for _, m := range tf.Members {
-		if m.BackendType != "" {
-			team.Mode = TeamMode(m.BackendType)
-		}
 		active := false
-		if m.IsActive != nil {
-			active = *m.IsActive
-		}
 		team.Members[m.Name] = &Member{
 			Name:         m.Name,
 			AgentID:      m.AgentID,
@@ -261,32 +291,49 @@ func (tm *TeamManager) GetTeam(name string) *Team {
 			JoinedAt:     m.JoinedAt,
 			Active:       active,
 		}
+		team.memberOrder = append(team.memberOrder, m.Name)
+		status := "stopped"
+		if m.IsActive != nil && *m.IsActive {
+			status = "failed"
+		}
+		team.Members[m.Name].Progress = NewTeammateProgress(m.Name, team.Name, TeammateSpinnerVerb)
+		team.Members[m.Name].Progress.SetStatus(status)
+		team.releaseMemberTasks(m.Name)
 	}
-	tm.teams[name] = team
+	tm.teams[sanitizeTeamName(name)] = team
+	tm.order = append(tm.order, sanitizeTeamName(name))
+	team.persist()
 	return team
 }
 
 func (tm *TeamManager) DeleteTeam(name string) {
+	team := tm.GetTeam(name)
+	if team != nil {
+		for _, member := range team.ListMembers() {
+			team.StopMember(member.Name)
+		}
+	}
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
-	if team, ok := tm.teams[name]; ok {
-		registry := GetNameRegistry()
-		for memberName := range team.Members {
-			team.StopMember(memberName)
-			registry.Unregister(memberName)
+	key := sanitizeTeamName(name)
+	delete(tm.teams, key)
+	delete(tm.taskStores, key)
+	for i, item := range tm.order {
+		if item == key {
+			tm.order = append(tm.order[:i], tm.order[i+1:]...)
+			break
 		}
-		delete(tm.teams, name)
 	}
-	delete(tm.taskStores, name)
 	_ = os.RemoveAll(teamDir(tm.cwd, name))
 }
-
 func (tm *TeamManager) ListTeams() []string {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
-	var names []string
-	for name := range tm.teams {
-		names = append(names, name)
+	names := []string{}
+	for _, key := range tm.order {
+		if team := tm.teams[key]; team != nil {
+			names = append(names, team.Name)
+		}
 	}
 	return names
 }
@@ -302,12 +349,86 @@ func (tm *TeamManager) GetAllTeammateProgress() []*TeammateProgress {
 }
 
 func (tm *TeamManager) CloseAll() {
+	for _, name := range tm.ListTeams() {
+		if team := tm.GetTeam(name); team != nil {
+			for _, member := range team.ListMembers() {
+				team.StopMember(member.Name)
+			}
+		}
+	}
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
-	for name, team := range tm.teams {
-		for memberName := range team.Members {
-			team.StopMember(memberName)
-		}
-		delete(tm.teams, name)
+	if tm.unsubscribe != nil {
+		tm.unsubscribe()
+		tm.unsubscribe = nil
 	}
+	tm.checker = nil
+	tm.teams = map[string]*Team{}
+	tm.taskStores = map[string]*SharedTaskStore{}
+	tm.order = nil
+}
+func (tm *TeamManager) SetPermissionChecker(checker *permissions.Checker) {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+	if tm.checker == checker {
+		return
+	}
+	if tm.unsubscribe != nil {
+		tm.unsubscribe()
+	}
+	tm.checker = checker
+	sync := func() {
+		tm.mu.Lock()
+		defer tm.mu.Unlock()
+		for _, team := range tm.teams {
+			team.mu.Lock()
+			team.PermissionMode = checker.Mode()
+			team.persist()
+			team.mu.Unlock()
+		}
+	}
+	tm.unsubscribe = checker.SubscribeMode(sync)
+	for _, team := range tm.teams {
+		team.mu.Lock()
+		team.PermissionMode = checker.Mode()
+		team.persist()
+		team.mu.Unlock()
+	}
+}
+func (t *Team) ListMembers() []*Member {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.membersInOrder()
+}
+func (t *Team) membersInOrder() []*Member {
+	result := []*Member{}
+	seen := map[string]bool{}
+	for _, name := range t.memberOrder {
+		if m := t.Members[name]; m != nil {
+			result = append(result, m)
+			seen[name] = true
+		}
+	}
+	for name, m := range t.Members {
+		if !seen[name] {
+			result = append(result, m)
+		}
+	}
+	return result
+}
+func (t *Team) releaseMemberTasks(name string) {
+	tasks, err := NewSharedTaskStore(filepath.Join(teamDir(t.Cwd, t.Name), "tasks.json")).ReleaseOwner(name)
+	if err == nil && len(tasks) > 0 {
+		ids := []string{}
+		for _, task := range tasks {
+			ids = append(ids, "#"+task.ID)
+		}
+		_ = t.MailBox.Send(LeadName, NewFileMailMessage(name, fmt.Sprintf("[tasks-released] %s exited. Unassigned tasks: %s. Use TodoWrite({}) to inspect and reassign them.", name, strings.Join(ids, ", "))))
+	}
+}
+
+func (t *Team) HasMember(name string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.Members[name] != nil
 }

@@ -30,7 +30,6 @@ TEST_FLAGS ?=
 BUILD_GOOS := $(shell $(GO) env GOOS)
 BINARY_SUFFIX := $(if $(filter windows,$(BUILD_GOOS)),.exe,)
 CROSS_TARGETS := win32-arm64 linux-arm64 darwin-arm64 win32-x64 linux-x64 darwin-x64
-INTEGRATION_TEST_PATTERN := ^TestContext7MCP$$
 
 .PHONY: build cross-compile $(CROSS_TARGETS)
 build:
@@ -56,15 +55,12 @@ $(CROSS_TARGETS):
 
 cross-compile: $(CROSS_TARGETS)
 
-.PHONY: test test-race test-integration vet fmt fmt-check check
+.PHONY: test test-race vet fmt fmt-check check
 test:
-	$(GO) test $(TEST_FLAGS) -skip '$(INTEGRATION_TEST_PATTERN)' ./...
+	$(GO) test $(TEST_FLAGS) ./...
 
 test-race:
-	$(GO) test -race $(TEST_FLAGS) -skip '$(INTEGRATION_TEST_PATTERN)' ./...
-
-test-integration:
-	$(GO) test $(TEST_FLAGS) -run '$(INTEGRATION_TEST_PATTERN)' ./internal/mcp
+	$(GO) test -race $(TEST_FLAGS) ./...
 
 vet:
 	$(GO) vet ./...

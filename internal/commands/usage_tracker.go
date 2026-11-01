@@ -28,7 +28,7 @@ func (t CommandUsageTracker) GetScore(name string) float64 {
 
 func (t CommandUsageTracker) GetRecentlyUsed(limit int) []string {
 	if limit <= 0 {
-		limit = 5
+		return nil
 	}
 	now := time.Now()
 	type scored struct {

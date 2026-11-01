@@ -3,8 +3,6 @@ package teams
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"fmt"
-	"strings"
 )
 
 const (
@@ -27,7 +25,7 @@ func NewShutdownRequest(from, reason string) FileMailMessage {
 	if reason == "" {
 		reason = "team is wrapping up"
 	}
-	return newTyped(from, MsgShutdownRequest, NewRequestID(), fmt.Sprintf("[shutdown] %s", reason))
+	return newTyped(from, MsgShutdownRequest, NewRequestID(), reason)
 }
 
 func NewShutdownResponse(from, requestID string, approve bool, reason string) FileMailMessage {
@@ -54,7 +52,7 @@ func newTyped(from, msgType, requestID, text string) FileMailMessage {
 }
 
 func IsShutdownRequest(m FileMailMessage) bool {
-	return m.Type == MsgShutdownRequest || strings.HasPrefix(strings.TrimSpace(m.Text), ShutdownPrefix)
+	return m.From == LeadName && m.Type == MsgShutdownRequest && m.RequestID != ""
 }
 
 func (m FileMailMessage) Approved() bool {

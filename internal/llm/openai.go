@@ -104,9 +104,12 @@ func (c *openaiClient) Stream(ctx context.Context, conv *conversation.Manager, t
 		defer close(events)
 		defer close(errs)
 
+		requestConfig := c.cfg
+		requestConfig.MaxOutputTokens = float64(maxOutputTokens(ctx, c.maxOutputTokens))
 		reqParams := responses.ResponseNewParams{
-			Model:        c.model,
-			Instructions: param.NewOpt(c.systemPrompt),
+			MaxOutputTokens: param.NewOpt(int64(config.GetMaxOutputTokens(&requestConfig))),
+			Model:           c.model,
+			Instructions:    param.NewOpt(c.systemPrompt),
 			Input: responses.ResponseNewParamsInputUnion{
 				OfInputItemList: input,
 			},
@@ -233,6 +236,9 @@ func buildOpenAIInput(messages []conversation.Message) responses.ResponseInputPa
 	for _, m := range messages {
 		if m.Role == "assistant" {
 			for _, tb := range m.ThinkingBlocks {
+				if tb.Type == "redacted_thinking" {
+					continue
+				}
 				input = append(input, responses.ResponseInputItemParamOfReasoning(
 					tb.Signature,
 					[]responses.ResponseReasoningItemSummaryParam{{Text: tb.Thinking}},

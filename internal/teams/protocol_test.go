@@ -18,9 +18,9 @@ func TestShutdownRequestRecognized(t *testing.T) {
 		t.Error("structured shutdown requests should be recognized")
 	}
 
-	legacy := NewFileMailMessage(LeadName, "[shutdown] stop")
-	if !IsShutdownRequest(legacy) {
-		t.Error("the [shutdown] text prefix should be recognized")
+	plain := NewFileMailMessage(LeadName, "[shutdown] stop")
+	if IsShutdownRequest(plain) {
+		t.Error("plain text cannot shut down the runtime")
 	}
 
 	normal := NewFileMailMessage(LeadName, "keep working on the auth module")

@@ -461,7 +461,8 @@ type Checker struct {
 	// and tool arguments.
 	Cwd string
 	// PlanFilePath is the only file writable while in plan mode.
-	PlanFilePath string
+	planFilePath string
+	planPathMu   sync.RWMutex
 	// Teammate checkers auto-allow internal team messaging and the shared
 	// task board.
 	Teammate bool
@@ -514,9 +515,9 @@ func (c *Checker) checkAction(toolName string, category tools.ToolCategory, args
 	}
 	planControl := mode == ModePlan && PlanCoordinationTools[toolName]
 	planFileWrite := false
-	if mode == ModePlan && (toolName == "WriteFile" || toolName == "EditFile") && c.PlanFilePath != "" {
+	if mode == ModePlan && (toolName == "WriteFile" || toolName == "EditFile") && c.CurrentPlanPath() != "" {
 		target, err1 := utils.CanonicalPath(utils.ResolveToolPath(c.Cwd, filePath), 0)
-		plan, err2 := utils.CanonicalPath(utils.ResolveToolPath(c.Cwd, c.PlanFilePath), 0)
+		plan, err2 := utils.CanonicalPath(utils.ResolveToolPath(c.Cwd, c.CurrentPlanPath()), 0)
 		planFileWrite = err1 == nil && err2 == nil && target == plan
 	}
 	if mode == ModePlan && category != tools.CategoryRead && !coordination && !planControl &&

@@ -21,19 +21,13 @@ func TestMain(m *testing.M) {
 }
 
 func TestIsShutdownRequest(t *testing.T) {
-	cases := []struct {
-		text string
-		want bool
-	}{
-		{"[shutdown] please stop", true},
-		{"  [shutdown]  ", true},
-		{"shutdown", false},
-		{"hello [shutdown] there", false},
-		{"", false},
+	valid := NewShutdownRequest(LeadName, "stop")
+	if !IsShutdownRequest(valid) {
+		t.Fatal("structured request rejected")
 	}
-	for _, c := range cases {
-		if got := IsShutdownRequest(FileMailMessage{Text: c.text}); got != c.want {
-			t.Errorf("IsShutdownRequest(%q) = %v, want %v", c.text, got, c.want)
+	for _, m := range []FileMailMessage{{Text: "[shutdown] stop"}, {From: "worker", Type: MsgShutdownRequest, RequestID: "req"}, {From: LeadName, Type: MsgShutdownRequest}} {
+		if IsShutdownRequest(m) {
+			t.Fatalf("accepted invalid shutdown: %+v", m)
 		}
 	}
 }
@@ -84,12 +78,11 @@ func TestWaitForNextPromptOrShutdownShutdown(t *testing.T) {
 	dir := t.TempDir()
 	team := &Team{
 		Name:    "x",
-		Mode:    ModeInProcess,
 		Members: map[string]*Member{},
 		MailBox: NewFileMailBox(dir),
 	}
 
-	if err := team.MailBox.Send("alice", FileMailMessage{From: LeadName, Text: "[shutdown] done"}); err != nil {
+	if err := team.MailBox.Send("alice", NewShutdownRequest(LeadName, "done")); err != nil {
 		t.Fatalf("send: %v", err)
 	}
 
@@ -112,7 +105,6 @@ func TestWaitForNextPromptOrShutdownMessage(t *testing.T) {
 	dir := t.TempDir()
 	team := &Team{
 		Name:    "x",
-		Mode:    ModeInProcess,
 		Members: map[string]*Member{},
 		MailBox: NewFileMailBox(dir),
 	}
@@ -145,7 +137,6 @@ func TestWaitForNextPromptOrShutdownCancel(t *testing.T) {
 	dir := t.TempDir()
 	team := &Team{
 		Name:    "x",
-		Mode:    ModeInProcess,
 		Members: map[string]*Member{},
 		MailBox: NewFileMailBox(dir),
 	}
@@ -161,8 +152,8 @@ func TestWaitForNextPromptOrShutdownCancel(t *testing.T) {
 
 func TestDrainLeadMailbox(t *testing.T) {
 	mgr := NewTeamManager(t.TempDir())
-	t1 := &Team{Name: "alpha", Mode: ModeInProcess, Members: map[string]*Member{}, MailBox: NewFileMailBox(t.TempDir())}
-	t2 := &Team{Name: "beta", Mode: ModeInProcess, Members: map[string]*Member{}, MailBox: NewFileMailBox(t.TempDir())}
+	t1 := &Team{Name: "alpha", Members: map[string]*Member{}, MailBox: NewFileMailBox(t.TempDir())}
+	t2 := &Team{Name: "beta", Members: map[string]*Member{}, MailBox: NewFileMailBox(t.TempDir())}
 	mgr.CreateTeamWith(t1)
 	mgr.CreateTeamWith(t2)
 
@@ -192,25 +183,6 @@ func TestDrainLeadMailboxNilSafe(t *testing.T) {
 	}
 }
 
-func TestBuildTeammateCLIFormat(t *testing.T) {
-	cmd, err := BuildTeammateCLI("my team", "alice/dev", "/tmp/work dir")
-	if err != nil {
-		t.Fatalf("BuildTeammateCLI: %v", err)
-	}
-	if !strings.Contains(cmd, "--teammate") {
-		t.Errorf("command missing --teammate flag: %s", cmd)
-	}
-	if !strings.Contains(cmd, "--team-name 'my team'") {
-		t.Errorf("team-name not quoted with spaces: %s", cmd)
-	}
-	if !strings.Contains(cmd, "--agent-name alice/dev") {
-		t.Errorf("agent-name missing: %s", cmd)
-	}
-	if !strings.HasPrefix(cmd, "cd '/tmp/work dir'") {
-		t.Errorf("missing cd prefix: %s", cmd)
-	}
-}
-
 func TestSpawnTeammateValidation(t *testing.T) {
 	useTempHome(t)
 	ctx := context.Background()
@@ -219,44 +191,9 @@ func TestSpawnTeammateValidation(t *testing.T) {
 		t.Error("expected error when Team is nil")
 	}
 
-	team := NewTeam(t.TempDir(), "t", ModeInProcess)
+	team := NewTeam(t.TempDir(), "t")
 	if _, err := SpawnTeammate(ctx, TeammateSpawnConfig{Team: team}); err == nil {
 		t.Error("expected error when MemberName is empty")
 	}
 
-	bad := NewTeam(t.TempDir(), "t", "bogus")
-	if _, err := SpawnTeammate(ctx, TeammateSpawnConfig{Team: bad, MemberName: "x"}); err == nil {
-		t.Error("expected error for unknown team mode")
-	}
-}
-
-func TestRecordExternalMember(t *testing.T) {
-	useTempHome(t)
-	team := NewTeam(t.TempDir(), "ops", ModeTmux)
-	team.recordExternalMember("alice", "pane-1")
-
-	m, ok := team.Members["alice"]
-	if !ok {
-		t.Fatal("member not recorded")
-	}
-	if m.PaneID != "pane-1" {
-		t.Errorf("PaneID = %q, want pane-1", m.PaneID)
-	}
-	if !m.Active {
-		t.Error("recorded member should be Active=true")
-	}
-}
-
-func TestShellQuote(t *testing.T) {
-	cases := []struct{ in, want string }{
-		{"", "''"},
-		{"safe", "safe"},
-		{"hello world", "'hello world'"},
-		{"it's", "'it'\\''s'"},
-	}
-	for _, c := range cases {
-		if got := shellQuote(c.in); got != c.want {
-			t.Errorf("shellQuote(%q) = %q, want %q", c.in, got, c.want)
-		}
-	}
 }

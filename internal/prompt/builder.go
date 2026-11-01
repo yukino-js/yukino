@@ -1,18 +1,17 @@
 package prompt
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"runtime"
-	"sort"
 	"strings"
 	"time"
 )
 
 type Section struct {
-	Name     string
-	Priority int
-	Content  string
+	Name    string
+	Content string
 }
 
 type EnvironmentContext struct {
@@ -25,8 +24,6 @@ type EnvironmentContext struct {
 	Model     string
 	Date      string
 }
-
-type BuildOptions struct{}
 
 type Builder struct {
 	sections []Section
@@ -42,14 +39,13 @@ func (b *Builder) Add(s Section) *Builder {
 }
 
 func (b *Builder) Build() string {
-	sort.Slice(b.sections, func(i, j int) bool {
-		return b.sections[i].Priority < b.sections[j].Priority
-	})
 
 	var parts []string
+	seen := map[string]bool{}
 	for _, s := range b.sections {
 		content := strings.TrimSpace(s.Content)
-		if content != "" {
+		if content != "" && !seen[content] {
+			seen[content] = true
 			parts = append(parts, content)
 		}
 	}
@@ -62,24 +58,41 @@ func DetectEnvironment(workDir string) EnvironmentContext {
 		OS:      runtime.GOOS,
 		Arch:    runtime.GOARCH,
 		Shell:   os.Getenv("SHELL"),
-		Date:    time.Now().Format("2006-01-02"),
+		Date:    time.Now().UTC().Format("2006-01-02"),
 	}
 
-	if env.Shell == "" {
+	if _, set := os.LookupEnv("SHELL"); !set {
 		env.Shell = "bash"
 	}
 
-	if out, err := exec.Command("git", "-C", workDir, "rev-parse", "--is-inside-work-tree").Output(); err == nil && strings.TrimSpace(string(out)) == "true" {
+	if gitProbe(workDir, "rev-parse", "--is-inside-work-tree") == "true" {
 		env.IsGitRepo = true
-		if branch, err := exec.Command("git", "-C", workDir, "rev-parse", "--abbrev-ref", "HEAD").Output(); err == nil {
-			env.GitBranch = strings.TrimSpace(string(branch))
-		}
+		branch := []rune(gitProbe(workDir, "rev-parse", "--abbrev-ref", "HEAD"))
+		env.GitBranch = string(branch[:min(len(branch), 256)])
 	}
 
+	switch env.Arch {
+	case "amd64":
+		env.Arch = "x64"
+	case "386":
+		env.Arch = "ia32"
+	}
 	return env
 }
 
-func BuildSystemPrompt(env EnvironmentContext, opts BuildOptions) string {
+func gitProbe(cwd string, args ...string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = cwd
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(output))
+}
+
+func BuildSystemPrompt(env EnvironmentContext) string {
 	b := NewBuilder()
 
 	b.Add(IdentitySection())

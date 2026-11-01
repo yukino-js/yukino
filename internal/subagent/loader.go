@@ -2,44 +2,35 @@ package subagent
 
 import (
 	"fmt"
+	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/storage"
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 )
 
 type AgentLoader struct {
-	workDir string
-	agents  map[string]*AgentDefinition
+	order  []string
+	agents map[string]*AgentDefinition
 
 	FailedFiles []string
 
 	ErrorWriter io.Writer
 }
 
-func NewAgentLoader(workDir string) *AgentLoader {
+func NewAgentLoader() *AgentLoader {
 	return &AgentLoader{
-		workDir:     workDir,
 		agents:      make(map[string]*AgentDefinition),
 		ErrorWriter: os.Stderr,
 	}
 }
 
-func getBuiltinSpecs() map[string]SubAgentSpec {
-	result := make(map[string]SubAgentSpec, len(BuiltinSpecs)+1)
-	for name, spec := range BuiltinSpecs {
-		result[name] = spec
-	}
-	if os.Getenv("YUKINO_VERIFICATION_AGENT") == "true" {
-		result[VerificationAgentType] = verificationSpec
-	}
-	return result
-}
-
 func (l *AgentLoader) LoadAll() error {
 	l.FailedFiles = l.FailedFiles[:0]
-	for name, spec := range getBuiltinSpecs() {
+	clear(l.agents)
+	l.order = []string{"general-purpose", "plan", "explore", "review"}
+	for _, name := range l.order {
+		spec := BuiltinSpecs[name]
 		l.agents[name] = &AgentDefinition{
 			AgentType:       spec.Name,
 			WhenToUse:       spec.Description,
@@ -48,18 +39,13 @@ func (l *AgentLoader) LoadAll() error {
 			MaxTurns:        spec.MaxTurns,
 			SystemPrompt:    spec.SystemPromptOverride,
 			Background:      spec.Background,
+			PermissionMode:  spec.PermissionMode,
+			ReadOnly:        spec.ReadOnly,
 			Source:          "built-in",
 		}
 	}
 
-	home, _ := os.UserHomeDir()
-	if home != "" {
-		l.loadDir(filepath.Join(home, ".yukino", "agents"), "user")
-	}
-
-	if l.workDir != "" {
-		l.loadDir(filepath.Join(l.workDir, ".yukino", "agents"), "project")
-	}
+	l.loadDir(storage.YukinoPath("agents"), "user")
 
 	return nil
 }
@@ -84,6 +70,9 @@ func (l *AgentLoader) loadDir(dir, source string) {
 			continue
 		}
 		def.Source = source
+		if l.agents[def.AgentType] == nil {
+			l.order = append(l.order, def.AgentType)
+		}
 		l.agents[def.AgentType] = def
 	}
 }
@@ -92,11 +81,4 @@ func (l *AgentLoader) Get(agentType string) *AgentDefinition {
 	return l.agents[agentType]
 }
 
-func (l *AgentLoader) ListNames() []string {
-	names := make([]string, 0, len(l.agents))
-	for name := range l.agents {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
-}
+func (l *AgentLoader) ListNames() []string { return append([]string{}, l.order...) }

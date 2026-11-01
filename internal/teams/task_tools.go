@@ -3,6 +3,7 @@ package teams
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/todo"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/tools"
@@ -143,19 +144,34 @@ func (t *TeamTodoWriteTool) ForSubagent() tools.Tool {
 	return &todo.TodoWriteTool{Board: list}
 }
 func (tm *TeamManager) ResolveTeam(name string) (*Team, error) {
+	return tm.ResolveTeamForMember(name, "")
+}
+func (tm *TeamManager) ResolveTeamForMember(name, member string) (*Team, error) {
 	if name != "" {
+		if strings.TrimSpace(name) == "" {
+			return nil, fmt.Errorf("Team name must not be empty or whitespace.")
+		}
 		team := tm.GetTeam(name)
 		if team == nil {
-			return nil, fmt.Errorf("Team '%s' not found", name)
+			return nil, fmt.Errorf("Team '%s' not found.", name)
+		}
+		if member != "" && !team.HasMember(member) {
+			return nil, nil
 		}
 		return team, nil
 	}
-	names := tm.ListTeams()
-	if len(names) > 1 {
+	matches := []*Team{}
+	for _, name := range tm.ListTeams() {
+		team := tm.GetTeam(name)
+		if team != nil && (member == "" || team.HasMember(member)) {
+			matches = append(matches, team)
+		}
+	}
+	if len(matches) > 1 {
 		return nil, fmt.Errorf("Multiple teams match. Specify team_name; use TeamList to see available teams.")
 	}
-	if len(names) == 0 {
+	if len(matches) == 0 {
 		return nil, nil
 	}
-	return tm.GetTeam(names[0]), nil
+	return matches[0], nil
 }

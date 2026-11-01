@@ -2,68 +2,69 @@ package teams
 
 import (
 	"context"
-	"strings"
+	"fmt"
+	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/memory"
+	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/permissions"
+	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/plan_file"
 
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/agent"
-	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/llm"
-	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/tools"
 )
 
-func StartInProcessMember(
-	ctx context.Context,
-	team *Team,
-	memberName string,
-	client llm.Client,
-	registry *tools.Registry,
-	protocol string,
-	task string,
-	addendum string,
-) <-chan agent.AgentEvent {
-	member := team.AddMember(memberName, client, registry, protocol)
+func startInProcessMember(ctx context.Context, cfg TeammateSpawnConfig) (<-chan agent.AgentEvent, error) {
+	team, memberName := cfg.Team, cfg.MemberName
+	if cfg.Checker != nil {
+		cfg.Checker.RequiresLeaderPlanApproval = team.RequiresLeaderPlanApproval
+		if cfg.Checker.Mode() == permissions.ModePlan {
+			if _, err := plan_file.GetOrCreatePlanPath(cfg.Checker); err != nil {
+				return nil, fmt.Errorf("create teammate plan: %w", err)
+			}
+		}
+	}
+	member, err := team.AddMember(memberName, cfg.Client, cfg.Registry, cfg.Protocol)
+	if err != nil {
+		return nil, err
+	}
+	team.mu.Lock()
+	member.AgentRef.Checker = cfg.Checker
+	member.AgentRef.MaxIterations = cfg.MaxTurns
+	member.AgentRef.DisableBackground = true
+	member.AgentRef.Instructions = memory.LoadInstructions(cfg.Workdir)
+	member.PlanApprovalRequired = cfg.PlanApprovalRequired
+
+	if cfg.Workdir != "" {
+		member.AgentRef.WorkDir = cfg.Workdir
+	}
+	if cfg.ContextSnapshot != nil {
+		member.Conv = cfg.ContextSnapshot
+	}
+
 	member.Progress = NewTeammateProgress(memberName, team.Name, TeammateSpinnerVerb)
 
 	memberCtx, cancel := context.WithCancel(ctx)
 	member.Active = true
 	member.Cancel = cancel
+	member.Done = make(chan struct{})
+	done := member.Done
+	GetNameRegistry().Register(memberName, memberName)
+	team.persist()
+	team.mu.Unlock()
 
 	eventCh := make(chan agent.AgentEvent, 32)
 	go func() {
 		defer close(eventCh)
+		defer close(done)
 		defer func() {
+			_ = cfg.Registry.Dispose()
 			team.mu.Lock()
 			member.Active = false
+			member.PendingPlan = nil
+			member.Cancel = nil
+			GetNameRegistry().Unregister(memberName)
+			team.persist()
 			team.mu.Unlock()
+			team.releaseMemberTasks(memberName)
 		}()
-		_ = RunInProcessTeammate(memberCtx, team, member, task, addendum, eventCh)
+		_ = RunInProcessTeammate(memberCtx, team, member, cfg.Task, cfg.Addendum, eventCh)
 	}()
-	return eventCh
-}
-
-func BuildTeammateAddendum(teamName, memberName string, otherMembers []string) string {
-	var sb strings.Builder
-	sb.WriteString("You are a member of team \"" + teamName + "\". Your name is \"" + memberName + "\".\n\n")
-	sb.WriteString("The lead is reachable as \"" + LeadName + "\". Deliver your final result to the lead with SendMessage(to=\"" + LeadName + "\", content=...) — the idle notification alone only signals completion, it does not carry your output.\n")
-	if len(otherMembers) > 0 {
-		sb.WriteString("Other team members: " + strings.Join(otherMembers, ", ") + "\n")
-	}
-	sb.WriteString("\nYou can communicate with the lead and teammates using the SendMessage tool.\n")
-	sb.WriteString("Messages from the team arrive as system reminders at the start of each turn.\n")
-	sb.WriteString("When you finish your current task, send your final result to \"" + LeadName + "\" via SendMessage, then stop calling tools — an idle notification will be sent to the lead automatically.\n")
-	return sb.String()
-}
-
-func InjectPendingMessages(team *Team, memberName string) string {
-	msgs, err := team.MailBox.ReadUnread(memberName)
-	if err != nil || len(msgs) == 0 {
-		return ""
-	}
-
-	var sb strings.Builder
-	sb.WriteString("You have new messages:\n\n")
-	for _, msg := range msgs {
-		sb.WriteString("From " + msg.From + ": " + msg.Text + "\n\n")
-	}
-
-	_ = team.MailBox.MarkAllRead(memberName)
-	return sb.String()
+	return eventCh, nil
 }

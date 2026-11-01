@@ -62,6 +62,7 @@ type Command struct {
 
 type Registry struct {
 	commands map[string]*Command
+	order    []*Command
 }
 
 func NewRegistry() *Registry {
@@ -75,6 +76,7 @@ func (r *Registry) Register(cmd *Command) {
 		panic(fmt.Sprintf("Command '%s' already registered", cmd.Name))
 	}
 	r.commands[key] = cmd
+	r.order = append(r.order, cmd)
 }
 
 func (r *Registry) Find(name string) *Command {
@@ -84,12 +86,11 @@ func (r *Registry) Find(name string) *Command {
 func (r *Registry) Complete(prefix string) []*Command {
 	lower := strings.ToLower(prefix)
 	var matches []*Command
-	for _, cmd := range r.commands {
+	for _, cmd := range r.order {
 		if strings.HasPrefix(strings.ToLower(cmd.Name), lower) {
 			matches = append(matches, cmd)
 		}
 	}
-	sort.Slice(matches, func(i, j int) bool { return matches[i].Name < matches[j].Name })
 	return matches
 }
 
@@ -109,9 +110,9 @@ func Parse(input string) (name, args string, ok bool) {
 	if !strings.HasPrefix(input, "/") {
 		return "", "", false
 	}
-	trimmed := strings.TrimSpace(input[1:])
+	trimmed := strings.TrimFunc(input[1:], isCommandSpace)
 	spaceIdx := strings.IndexFunc(trimmed, func(r rune) bool {
-		return r == ' ' || r == '\t' || r == '\n' || r == '\r'
+		return isCommandSpace(r)
 	})
 	if spaceIdx == -1 {
 		name = trimmed
@@ -124,7 +125,7 @@ func Parse(input string) (name, args string, ok bool) {
 	if spaceIdx == -1 {
 		return name, "", true
 	}
-	return name, strings.TrimSpace(trimmed[spaceIdx+1:]), true
+	return name, strings.TrimFunc(trimmed[spaceIdx+len(string([]rune(trimmed[spaceIdx:])[0])):], isCommandSpace), true
 }
 
 // Resolved pairs parsed input with the registered command.
@@ -135,7 +136,7 @@ type Resolved struct {
 }
 
 // Resolve parses input and resolves it against the registry, handling the
-// legacy /skill alias.
+// /skill alias.
 func Resolve(input string, registry *Registry) *Resolved {
 	name, args, ok := Parse(input)
 	if !ok {
@@ -364,4 +365,8 @@ func CreateDefaultRegistry() *Registry {
 	})
 
 	return r
+}
+
+func isCommandSpace(r rune) bool {
+	return r == '\u0009' || r == '\u000a' || r == '\u000b' || r == '\u000c' || r == '\u000d' || r == '\u0020' || r == '\u00a0' || r == '\u1680' || r >= '\u2000' && r <= '\u200a' || r == '\u2028' || r == '\u2029' || r == '\u202f' || r == '\u205f' || r == '\u3000' || r == '\ufeff'
 }

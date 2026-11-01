@@ -19,8 +19,6 @@ import (
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/memory"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/memory/consolidation"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/memory/extractor"
-	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/permissions"
-	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/plan_file"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/prompt"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/session"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/skills"
@@ -94,10 +92,11 @@ func (m *Model) registerAgentTools(client llm.Client, providerCfg *config.Provid
 
 	m.memoryMgr = memory.NewManager(wd)
 
-	loader := subagent.NewAgentLoader(wd)
+	loader := subagent.NewAgentLoader()
 	loader.LoadAll()
 
 	teamMgr := teams.NewTeamManager(wd)
+	teamMgr.CoordinatorMode = m.EnableCoordinatorMode
 	m.teamMgr = teamMgr
 	m.registry.Register(&teams.TeamTodoWriteTool{TeamMgr: m.teamMgr, Fallback: m.todoList})
 
@@ -120,25 +119,20 @@ func (m *Model) registerAgentTools(client llm.Client, providerCfg *config.Provid
 
 	worktree.StartCleanupLoop(context.Background())
 
-	m.registry.Register(&tools.ExitPlanModeTool{
-		IsPlanMode: func() bool {
-			return m.ag != nil && m.ag.Checker != nil && m.ag.Checker.Mode() == permissions.ModePlan
-		},
-		PlanExists: func() bool {
-			return plan_file.PlanExists()
-		},
-	})
+	m.registry.Register(&tools.ExitPlanModeTool{})
 
 	m.registry.Register(&tools.ToolSearchTool{Registry: m.registry})
 	m.registry.Register(&tools.McpCallTool{Registry: m.registry})
 	m.registry.Register(&teams.TeamCreateTool{TeamMgr: teamMgr})
 	m.registry.Register(&teams.TeamDeleteTool{TeamMgr: teamMgr})
+	m.registry.Register(&teams.TeamListTool{TeamMgr: teamMgr})
 	m.registry.Register(&teams.SendMessageTool{TeamMgr: teamMgr, SenderName: "leader"})
 	m.registry.Register(&teams.TaskStopTool{TeamMgr: teamMgr, TaskManager: m.taskMgr})
 	m.registry.Register(&tools.SyntheticOutputTool{})
 	m.registry.Register(&subagent.AgentTool{
 		Client:        client,
-		ModelResolver: llm.NewModelResolver(*providerCfg),
+		Provider:      providerCfg,
+		MemoryContent: m.memoryContent,
 		Registry:      m.registry,
 		Protocol:      protocol,
 		TaskMgr:       m.taskMgr,
@@ -298,7 +292,7 @@ func (m *Model) rebuildSystemPrompt(wd string) string {
 	if m.selectedProvider != nil {
 		env.Model = m.selectedProvider.Model
 	}
-	return prompt.BuildSystemPrompt(env, prompt.BuildOptions{})
+	return prompt.BuildSystemPrompt(env)
 }
 
 func (m *Model) buildSkillSection(wd string) string {
@@ -510,7 +504,7 @@ func (m *Model) savePartialResponse() {
 		m.conversation.AddAssistantMessage(m.streamBuf)
 		wd, _ := os.Getwd()
 		session.SaveMessage(wd, m.sessionID, session.Message{
-			Role: "assistant", Content: m.streamBuf, Ts: time.Now().Unix(),
+			Role: "assistant", Content: m.streamBuf, Timestamp: time.Now().Unix(),
 		})
 		m.streamBuf = ""
 	}

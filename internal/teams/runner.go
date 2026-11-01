@@ -3,205 +3,256 @@ package teams
 import (
 	"context"
 	"fmt"
-	"strings"
-	"time"
-
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/agent"
-	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/conversation"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/permissions"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/plan_file"
+	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/prompt"
+	"strings"
+	"time"
 )
 
 const LeadName = "leader"
-
-const ShutdownPrefix = "[shutdown]"
-
 const IdlePollInterval = 500 * time.Millisecond
 
-func CreateIdleNotification(memberName, reason string) FileMailMessage {
-	return NewFileMailMessage(memberName, fmt.Sprintf("[idle] %s (reason: %s)", memberName, reason))
+func CreateIdleNotification(name, reason string) FileMailMessage {
+	return NewFileMailMessage(name, fmt.Sprintf("[idle] %s (reason: %s)", name, reason))
 }
-
-func RunInProcessTeammate(
-	ctx context.Context,
-	team *Team,
-	member *Member,
-	initialPrompt string,
-	addendum string,
-	eventOut chan<- agent.AgentEvent,
-) error {
+func RunInProcessTeammate(ctx context.Context, team *Team, member *Member, initialPrompt, addendum string, eventOut chan<- agent.AgentEvent) (runErr error) {
 	if addendum != "" {
 		member.Conv.AddSystemReminder(addendum)
 	}
-
+	defer func() {
+		if member.Progress != nil {
+			member.Progress.ClearActiveTools()
+			if ctx.Err() != nil {
+				member.Progress.SetStatus("stopped")
+			} else if runErr != nil {
+				member.Progress.SetStatus("failed")
+			} else {
+				member.Progress.SetStatus("completed")
+			}
+		}
+		reason := "stopped"
+		if runErr != nil && ctx.Err() == nil {
+			reason = "failed"
+		}
+		notification := CreateIdleNotification(member.Name, reason)
+		if reason == "failed" {
+			notification.Text += ": " + runErr.Error()
+		}
+		_ = team.MailBox.Send(LeadName, notification)
+	}()
 	nextPrompt := initialPrompt
-	idleReason := "available"
-
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-
-		if reminder := InjectPendingMessages(team, member.Name); reminder != "" {
-			member.Conv.AddSystemReminder(reminder)
-		}
-
-		if nextPrompt != "" {
-			member.Conv.AddUserMessage(nextPrompt)
-		}
-		nextPrompt = ""
-
-		ch := member.AgentRef.Run(ctx, member.Conv)
-		for ev := range ch {
-			if member.Progress != nil {
-				switch e := ev.(type) {
-				case agent.ToolUseEvent:
-					member.Progress.RecordToolUse(e.ToolName, e.Args)
-				case agent.UsageEvent:
-					member.Progress.RecordTokens(int64(e.InputTokens), int64(e.OutputTokens))
-				}
+		member.Progress.SetStatus("running")
+		member.Conv.AddUserMessage(prompt.BuildTeammatePrompt(team.Name, member.Name, nextPrompt))
+		var final strings.Builder
+		var executionErr error
+		for ev := range member.AgentRef.Run(ctx, member.Conv) {
+			switch e := ev.(type) {
+			case agent.StreamText:
+				final.WriteString(e.Text)
+			case agent.ToolUseEvent:
+				member.Progress.RecordToolStart(e.ToolID, e.ToolName, e.Args)
+			case agent.ToolResultEvent:
+				member.Progress.RecordToolResult(e.ToolID)
+			case agent.TurnComplete:
+				member.Progress.RecordTurnComplete()
+			case agent.UsageEvent:
+				member.Progress.RecordTokens(int64(e.InputTokens), int64(e.OutputTokens))
+			case agent.ErrorEvent:
+				executionErr = fmt.Errorf("%s", e.Message)
+			case agent.PermissionRequestEvent:
+				e.ResponseCh <- agent.PermissionReply{Response: agent.PermDeny}
+				continue
 			}
 			if eventOut != nil {
 				select {
 				case eventOut <- ev:
 				case <-ctx.Done():
-					return ctx.Err()
 				}
 			}
-			if e, ok := ev.(agent.ErrorEvent); ok && e.Message != "" {
-				idleReason = "failed"
-			}
 		}
-
-		if member.Progress != nil {
-			if idleReason == "failed" {
-				member.Progress.SetStatus("failed")
-			} else {
-				member.Progress.SetStatus("idle")
-			}
+		member.Progress.ClearActiveTools()
+		member.Progress.SetLastMessage(final.String())
+		if ctx.Err() != nil {
+			return ctx.Err()
 		}
-
-		if planModeActive(member) {
-			approved, feedback, err := requestPlanApproval(ctx, team, member)
+		if executionErr != nil {
+			return executionErr
+		}
+		team.mu.Lock()
+		planning := planModeActive(member) && (member.PlanApprovalRequired || member.PendingPlan != nil)
+		team.mu.Unlock()
+		member.Progress.SetStatus("idle")
+		if planning {
+			next, err := requestPlanApproval(ctx, team, member, final.String())
 			if err != nil {
 				return err
 			}
-			if approved {
-				member.AgentRef.Checker.SetMode(permissions.ModeDefault)
-				nextPrompt = buildPlanApprovedMessage("")
-			} else {
-				nextPrompt = buildPlanRejectedMessage(feedback)
+			if next == "" {
+				return nil
 			}
+			nextPrompt = next
 			continue
 		}
-
-		_ = team.MailBox.Send(LeadName, CreateIdleNotification(member.Name, idleReason))
-		idleReason = "available"
-
-		prompt, shutdown, err := waitForNextPromptOrShutdown(ctx, team, member.Name)
+		if err := team.MailBox.Send(LeadName, CreateIdleNotification(member.Name, "available")); err != nil {
+			return err
+		}
+		next, shutdown, err := waitForNextPromptOrShutdown(ctx, team, member.Name)
 		if err != nil {
 			return err
 		}
 		if shutdown != nil {
-			if shutdown.Type == MsgShutdownRequest {
-				_ = team.MailBox.Send(LeadName,
-					NewShutdownResponse(member.Name, shutdown.RequestID, true, "acknowledged, shutting down"))
-			}
+			_ = team.MailBox.Send(LeadName, NewShutdownResponse(member.Name, shutdown.RequestID, true, ShutdownAckMessage))
 			return nil
 		}
-		nextPrompt = prompt
+		nextPrompt = next
 	}
 }
-
 func planModeActive(member *Member) bool {
-	return member.AgentRef != nil &&
-		member.AgentRef.Checker != nil &&
-		member.AgentRef.Checker.Mode() == permissions.ModePlan
+	return member.AgentRef != nil && member.AgentRef.Checker != nil && !member.AgentRef.Checker.ReadOnly && member.AgentRef.Checker.Mode() == permissions.ModePlan
 }
-
-func requestPlanApproval(ctx context.Context, team *Team, member *Member) (bool, string, error) {
-	plan := readPlanForReview(member)
-	req := NewPlanApprovalRequest(member.Name, plan)
-	if err := team.MailBox.Send(LeadName, req); err != nil {
-		return false, "", err
+func requestPlanApproval(ctx context.Context, team *Team, member *Member, fallback string) (string, error) {
+	team.mu.Lock()
+	pending := member.PendingPlan
+	team.mu.Unlock()
+	if pending == nil {
+		if _, err := team.SubmitPlan(member.Name, readPlanForReview(member, fallback)); err != nil {
+			return "", err
+		}
 	}
-	if member.Progress != nil {
-		member.Progress.SetStatus("awaiting plan approval")
+	team.mu.Lock()
+	requestID := member.PendingPlan.Request.RequestID
+	manual := team.RequiresLeaderPlanApproval
+	team.mu.Unlock()
+	if !manual {
+		response := NewPlanApprovalResponse(LeadName, requestID, true, PlanAutoApprovedAckMessage)
+		if err := team.MailBox.Send(LeadName, response); err != nil {
+			return "", err
+		}
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		exitTeammatePlan(team, member)
+		return resumeAfterPlanReview(team, member, PlanAutoApprovedMessage)
 	}
-
 	for {
-		select {
-		case <-ctx.Done():
-			return false, "", ctx.Err()
-		case <-time.After(IdlePollInterval):
+		if err := waitForMember(ctx); err != nil {
+			return "", err
 		}
-
-		msgs, err := team.MailBox.ReadUnread(member.Name)
+		messages, err := team.MailBox.ReceiveMatching(member.Name, func(m FileMailMessage) bool { return IsShutdownRequest(m) || m.Type == MsgPlanApprovalResponse })
 		if err != nil {
-			return false, "", err
+			return "", err
 		}
-		for _, m := range msgs {
-			if m.Type == MsgPlanApprovalResponse && m.RequestID == req.RequestID {
-				_ = team.MailBox.MarkAllRead(member.Name)
-				return m.Approved(), m.Text, nil
+		for _, m := range messages {
+			if IsShutdownRequest(m) {
+				_ = team.MailBox.Send(LeadName, NewShutdownResponse(member.Name, m.RequestID, true, StoppedAwaitingPlanReviewMessage))
+				return "", nil
 			}
 		}
-	}
-}
-
-func readPlanForReview(member *Member) string {
-	plan_file.GetOrCreatePlanPath()
-	content, err := plan_file.LoadPlan()
-	if err != nil || content == "" {
-		return "(the plan file is empty; the teammate may not have written the plan as required)"
-	}
-	return content
-}
-
-func buildPlanApprovedMessage(feedback string) string {
-	return "The leader approved your plan. Review feedback:\n" + feedback +
-		"\n\nBegin execution within the approved scope and current tool permissions; plan approval does not authorize individual tool calls."
-}
-
-func buildPlanRejectedMessage(feedback string) string {
-	return "The leader rejected your plan. Review feedback:\n" + feedback +
-		"\n\nStay in plan mode. Revise the plan and submit it again with ExitPlanMode when available, otherwise return the revised plan in your final response."
-}
-
-func waitForNextPromptOrShutdown(ctx context.Context, team *Team, memberName string) (string, *FileMailMessage, error) {
-	for {
-		select {
-		case <-ctx.Done():
-			return "", nil, ctx.Err()
-		case <-time.After(IdlePollInterval):
+		for _, m := range messages {
+			if m.From != LeadName || m.RequestID != requestID || m.Approve == nil || strings.TrimSpace(m.Text) == "" {
+				continue
+			}
+			team.mu.Lock()
+			member.PendingPlan = nil
+			team.mu.Unlock()
+			if !m.Approved() {
+				return resumeAfterPlanReview(team, member, buildPlanRejectedMessage(m.Text))
+			}
+			exitTeammatePlan(team, member)
+			return resumeAfterPlanReview(team, member, buildPlanApprovedMessage(m.Text))
 		}
-
-		msgs, err := team.MailBox.ReadUnread(memberName)
+	}
+}
+func exitTeammatePlan(team *Team, member *Member) {
+	team.mu.Lock()
+	mode := team.PermissionMode
+	member.PendingPlan = nil
+	member.PlanApprovalRequired = false
+	team.mu.Unlock()
+	if mode == permissions.ModePlan {
+		mode = permissions.ModeDefault
+	}
+	member.AgentRef.Checker.ExitPlanMode(mode)
+}
+func readPlanForReview(member *Member, fallback string) string {
+	content, err := plan_file.LoadPlan(member.AgentRef.Checker)
+	if err == nil && strings.TrimSpace(content) != "" {
+		return content
+	}
+	if fallback != "" {
+		return fallback
+	}
+	return "(The teammate returned no plan.)"
+}
+func resumeAfterPlanReview(team *Team, member *Member, review string) (string, error) {
+	messages, err := team.MailBox.ReceiveMatching(member.Name, func(m FileMailMessage) bool { return m.Type == "" || m.Type == MsgText })
+	if err != nil {
+		return "", err
+	}
+	if len(messages) == 0 {
+		return review, nil
+	}
+	return review + "\n\nMessages received while awaiting plan review. Apply scope corrections before executing or revising the plan:\n\n" + formatMailboxLines(messages), nil
+}
+func buildPlanApprovedMessage(feedback string) string {
+	return "The leader approved your plan. Review feedback:\n" + feedback + "\n\nBegin execution within the approved scope and current tool permissions; plan approval does not authorize individual tool calls."
+}
+func buildPlanRejectedMessage(feedback string) string {
+	return "The leader rejected your plan. Review feedback:\n" + feedback + "\n\nStay in plan mode. Revise the plan and submit it again with ExitPlanMode when available, otherwise return the revised plan in your final response."
+}
+func waitForMember(ctx context.Context) error {
+	timer := time.NewTimer(IdlePollInterval)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+func waitForNextPromptOrShutdown(ctx context.Context, team *Team, name string) (string, *FileMailMessage, error) {
+	for {
+		if err := waitForMember(ctx); err != nil {
+			return "", nil, err
+		}
+		messages, err := team.MailBox.ReceiveMatching(name, func(FileMailMessage) bool { return true })
 		if err != nil {
 			return "", nil, err
 		}
-		if len(msgs) == 0 {
+		if len(messages) == 0 {
 			continue
 		}
-
-		var shutdown *FileMailMessage
-		var keep []FileMailMessage
-		for i, m := range msgs {
+		for i, m := range messages {
 			if IsShutdownRequest(m) {
-				shutdown = &msgs[i]
-				continue
+				other := append(append([]FileMailMessage{}, messages[:i]...), messages[i+1:]...)
+				if err := team.MailBox.Requeue(name, other); err != nil {
+					return "", nil, err
+				}
+				return "", &m, nil
 			}
-			keep = append(keep, m)
 		}
-		_ = team.MailBox.MarkAllRead(memberName)
-
-		if shutdown != nil {
-			return "", shutdown, nil
-		}
-		return formatInboundAsPrompt(keep), nil, nil
+		return formatInboundAsPrompt(messages), nil, nil
 	}
 }
-
+func formatMailboxLines(messages []FileMailMessage) string {
+	lines := []string{}
+	for _, m := range messages {
+		lines = append(lines, fmt.Sprintf("From %s: %s", m.From, m.Text))
+	}
+	return strings.Join(lines, "\n\n")
+}
+func formatInboundAsPrompt(messages []FileMailMessage) string {
+	if len(messages) == 0 {
+		return ""
+	}
+	return "You have new messages from your team:\n\n" + formatMailboxLines(messages)
+}
 func DrainLeadMailbox(mgr *TeamManager) []string {
 	if mgr == nil {
 		return nil
@@ -209,41 +260,30 @@ func DrainLeadMailbox(mgr *TeamManager) []string {
 	var notes []string
 	for _, name := range mgr.ListTeams() {
 		team := mgr.GetTeam(name)
-		if team == nil {
-			continue
+		messages, err := team.MailBox.ReceiveMatching(LeadName, func(FileMailMessage) bool { return true })
+		if err == nil && len(messages) > 0 {
+			notes = append(notes, buildTeamNotification(name, messages))
 		}
-		msgs, err := team.MailBox.ReadUnread(LeadName)
-		if err != nil || len(msgs) == 0 {
-			continue
-		}
-		var sb strings.Builder
-		sb.WriteString("<team-notification team=\"")
-		sb.WriteString(name)
-		sb.WriteString("\">\n")
-		for _, m := range msgs {
-			sb.WriteString("from=")
-			sb.WriteString(m.From)
-			sb.WriteString(": ")
-			sb.WriteString(m.Text)
-			sb.WriteString("\n")
-		}
-		sb.WriteString("</team-notification>")
-		notes = append(notes, sb.String())
-		_ = team.MailBox.MarkAllRead(LeadName)
 	}
 	return notes
 }
-
-func formatInboundAsPrompt(msgs []FileMailMessage) string {
-	if len(msgs) == 0 {
-		return ""
-	}
-	var sb strings.Builder
-	sb.WriteString("You have new messages from your team:\n\n")
-	for _, m := range msgs {
-		sb.WriteString(fmt.Sprintf("From %s: %s\n\n", m.From, m.Text))
-	}
-	return sb.String()
+func escapeXML(s string) string {
+	return strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", "\"", "&quot;", "'", "&apos;").Replace(s)
 }
-
-var _ = conversation.NewManager
+func buildTeamNotification(name string, messages []FileMailMessage) string {
+	lines := []string{`<task-notification team="` + escapeXML(name) + `">`}
+	for _, m := range messages {
+		attributes := `from="` + escapeXML(m.From) + `"`
+		if m.Type != "" {
+			attributes += ` type="` + escapeXML(m.Type) + `"`
+		}
+		if m.RequestID != "" {
+			attributes += ` requestId="` + escapeXML(m.RequestID) + `"`
+		}
+		if m.Approve != nil {
+			attributes += fmt.Sprintf(` approve="%t"`, *m.Approve)
+		}
+		lines = append(lines, "<message "+attributes+">"+escapeXML(m.Text)+"</message>")
+	}
+	return strings.Join(append(lines, "</task-notification>"), "\n")
+}

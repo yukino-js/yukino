@@ -14,11 +14,15 @@ type AgentWorktreeResult struct {
 }
 
 func CreateAgentWorktree(ctx context.Context, slug string) (*AgentWorktreeResult, error) {
+	cwd, _ := os.Getwd()
+	return CreateAgentWorktreeAt(ctx, slug, cwd)
+}
+
+func CreateAgentWorktreeAt(ctx context.Context, slug, cwd string) (*AgentWorktreeResult, error) {
 	if err := ValidateWorktreeSlug(slug); err != nil {
 		return nil, err
 	}
 
-	cwd, _ := os.Getwd()
 	gitRoot := FindCanonicalGitRoot(cwd)
 	if gitRoot == "" {
 		return nil, &worktreeError{msg: "cannot create agent worktree: not in a git repository"}

@@ -168,7 +168,7 @@ func TestPlanModeAllowsExactPlanFile(t *testing.T) {
 	project := t.TempDir()
 	planPath := filepath.Join(project, "plan.md")
 	checker := NewChecker(NewPathSandbox(project, true), NewRuleEngine(project), ModePlan)
-	checker.PlanFilePath = planPath
+	checker.SetPlanFilePath(planPath)
 
 	got := checker.checkAction("WriteFile", tools.CategoryWrite, map[string]any{"file_path": planPath})
 	if got.Effect != Allow || got.Reason != "Plan file write allowed in plan mode" {

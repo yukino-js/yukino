@@ -19,16 +19,8 @@ func TestCoordinatorBlocksCodeTools(t *testing.T) {
 	}
 }
 
-func TestCoordinatorBlocksTaskBoardTools(t *testing.T) {
-	for _, name := range []string{"TodoWrite"} {
-		if IsCoordinatorTool(name) {
-			t.Errorf("%s is a worker coordination tool and must not be given to the Lead", name)
-		}
-	}
-}
-
 func TestCoordinatorAllowsSchedulingTools(t *testing.T) {
-	for _, name := range []string{"Agent", "SendMessage", "TaskStop", "SyntheticOutput"} {
+	for _, name := range []string{"Agent", "SendMessage", "TaskStop", "SyntheticOutput", "TodoWrite", "TeamCreate", "TeamList"} {
 		if !IsCoordinatorTool(name) {
 			t.Errorf("%s is required for orchestration; without it the Lead cannot operate", name)
 		}
@@ -47,7 +39,7 @@ func TestCoordinatorToolFilterIsStatic(t *testing.T) {
 		t.Fatal("enabled=true should return a filter")
 	}
 
-	if filter("Bash") || filter("ReadFile") || filter("TeamCreate") {
+	if filter("Bash") || filter("ReadFile") {
 		t.Error("when enabled only the whitelist passes, regardless of whether a team exists")
 	}
 	if !filter("Agent") || !filter("SendMessage") {
@@ -81,8 +73,11 @@ func TestCoordinatorDisabledReturnsNil(t *testing.T) {
 func TestTaskStopStopsTeammate(t *testing.T) {
 	useTempHome(t)
 	mgr := NewTeamManager(t.TempDir())
-	team := createTestTeam(t, mgr, "squad", ModeInProcess)
-	member := team.AddMember("scout", nil, nil, "anthropic")
+	team := createTestTeam(t, mgr, "squad")
+	member, err := team.AddMember("scout", nil, nil, "anthropic")
+	if err != nil {
+		t.Fatal(err)
+	}
 	member.Active = true
 	stopped := false
 	member.Cancel = func() { stopped = true }
@@ -103,7 +98,7 @@ func TestTaskStopStopsTeammate(t *testing.T) {
 func TestTaskStopOnUnknownTeammate(t *testing.T) {
 	useTempHome(t)
 	mgr := NewTeamManager(t.TempDir())
-	createTestTeam(t, mgr, "squad", ModeInProcess)
+	createTestTeam(t, mgr, "squad")
 
 	tool := &TaskStopTool{TeamMgr: mgr}
 	res := tool.Execute(context.Background(), map[string]any{"teammate": "ghost"})
@@ -115,7 +110,7 @@ func TestTaskStopOnUnknownTeammate(t *testing.T) {
 func TestTaskStopOnIdleTeammate(t *testing.T) {
 	useTempHome(t)
 	mgr := NewTeamManager(t.TempDir())
-	team := createTestTeam(t, mgr, "squad", ModeInProcess)
+	team := createTestTeam(t, mgr, "squad")
 	team.AddMember("scout", nil, nil, "anthropic")
 
 	tool := &TaskStopTool{TeamMgr: mgr}
@@ -134,13 +129,13 @@ func TestCoordinatorPromptUsesRealSubagentType(t *testing.T) {
 
 func TestCoordinatorPromptListsOnlyAllowedTools(t *testing.T) {
 	p := prompt.CoordinatorReminder(1)
-	toolsSection := p[strings.Index(p, "## 2. Your Tools"):strings.Index(p, "### Worker Results")]
+	toolsSection := p[strings.Index(p, "## Tools"):strings.Index(p, "## Delegation")]
 	for name := range CoordinatorAllowedTools {
 		if !strings.Contains(toolsSection, "**"+name+"**") {
 			t.Errorf("whitelisted %s is missing from the prompt tool list", name)
 		}
 	}
-	for _, name := range []string{"ReadFile", "Bash", "Grep", "TodoWrite", "TeamCreate"} {
+	for _, name := range []string{"ReadFile", "Bash", "Grep"} {
 		if strings.Contains(toolsSection, "**"+name+"**") {
 			t.Errorf("the prompt tool list contains filtered-out %s", name)
 		}
@@ -149,8 +144,8 @@ func TestCoordinatorPromptListsOnlyAllowedTools(t *testing.T) {
 
 func TestCoordinatorPromptMatchesTeamNotificationFormat(t *testing.T) {
 	p := prompt.CoordinatorReminder(1)
-	if !strings.Contains(p, "<team-notification") || !strings.Contains(p, "from=") {
-		t.Error("the reminder should describe the real <team-notification> and from= format")
+	if !strings.Contains(p, "<task-notification") || !strings.Contains(p, "from=") {
+		t.Error("the reminder should describe the real <task-notification> and from= format")
 	}
 	if strings.Contains(p, "<task_id>") {
 		t.Error("the reminder describes the background subagent channel, not the teammate reply channel")
@@ -235,13 +230,4 @@ func readEntrySource(t *testing.T, paths []string) string {
 		sb.Write(data)
 	}
 	return sb.String()
-}
-
-func TestTeamCreateNotNeededUnderCoordinator(t *testing.T) {
-	if IsCoordinatorTool("TeamCreate") {
-		t.Error("TeamCreate must not be whitelisted; the Agent tool creates teams automatically")
-	}
-	if !IsCoordinatorTool("TeamDelete") {
-		t.Error("TeamDelete must be kept, otherwise teams cannot be torn down")
-	}
 }

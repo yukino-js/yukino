@@ -133,7 +133,9 @@ func (c *anthropicClient) Stream(ctx context.Context, conv *conversation.Manager
 		defer close(events)
 		defer close(errs)
 
-		maxTokens := int64(config.GetMaxOutputTokens(&c.cfg))
+		requestConfig := c.cfg
+		requestConfig.MaxOutputTokens = float64(maxOutputTokens(ctx, config.GetMaxOutputTokens(&c.cfg)))
+		maxTokens := int64(config.GetMaxOutputTokens(&requestConfig))
 		params := anthropic.MessageNewParams{
 			Model:     c.model,
 			MaxTokens: maxTokens,
@@ -144,7 +146,7 @@ func (c *anthropicClient) Stream(ctx context.Context, conv *conversation.Manager
 			Messages: msgs,
 		}
 		markLastUserTailForCache(params.Messages)
-		level := config.ClampThinkingLevel(&c.cfg, c.GetThinkingLevel())
+		level := config.ClampThinkingLevel(&requestConfig, c.GetThinkingLevel())
 		if c.cfg.Reasoning == nil || *c.cfg.Reasoning {
 			switch {
 			case level == "off":
@@ -161,7 +163,7 @@ func (c *anthropicClient) Stream(ctx context.Context, conv *conversation.Manager
 					}
 				}
 			default:
-				thinkingTokens := config.ThinkingBudgetForProvider(&c.cfg, level)
+				thinkingTokens := config.ThinkingBudgetForProvider(&requestConfig, level)
 				if reserve := int(maxTokens) - config.MinThinkingAnswerTokens; thinkingTokens > reserve {
 					thinkingTokens = reserve
 				}
@@ -255,6 +257,8 @@ func (c *anthropicClient) Stream(ctx context.Context, conv *conversation.Manager
 				sawMessageStop = true
 			case anthropic.ContentBlockStartEvent:
 				switch ev.ContentBlock.Type {
+				case "redacted_thinking":
+					events <- RedactedThinkingComplete{Data: ev.ContentBlock.Data}
 				case "thinking":
 					inThinking = true
 					thinkingAccum = ""
@@ -372,6 +376,10 @@ func buildAnthropicMessages(messages []conversation.Message) []anthropic.Message
 		if m.Role == "assistant" {
 			var blocks []anthropic.ContentBlockParamUnion
 			for _, tb := range m.ThinkingBlocks {
+				if tb.Type == "redacted_thinking" {
+					blocks = append(blocks, anthropic.NewRedactedThinkingBlock(tb.Data))
+					continue
+				}
 				blocks = append(blocks, anthropic.NewThinkingBlock(tb.Signature, tb.Thinking))
 			}
 			if m.Content != "" {

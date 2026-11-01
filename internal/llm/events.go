@@ -22,7 +22,8 @@ type ToolCallComplete struct {
 	Arguments map[string]any
 	// Marks malformed non-empty JSON so the executor can pair an error result
 	// without invoking the tool with an invented empty object.
-	ParseError string
+	ParseError     string
+	ProviderItemID string
 }
 type UsageInfo struct {
 	InputTokens         int

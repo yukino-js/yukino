@@ -11,15 +11,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/permissions"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/storage"
 )
 
 type TeamFile struct {
-	Name        string           `json:"name"`
-	Description string           `json:"description,omitempty"`
-	CreatedAt   int64            `json:"createdAt"`
-	LeadAgentID string           `json:"leadAgentId"`
-	Members     []TeamMemberFile `json:"members"`
+	Name           string                     `json:"name"`
+	Description    string                     `json:"description,omitempty"`
+	CreatedAt      int64                      `json:"createdAt"`
+	LeadAgentID    string                     `json:"leaderAgentId"`
+	PermissionMode permissions.PermissionMode `json:"permissionMode"`
+	Members        []TeamMemberFile           `json:"members"`
 }
 
 type TeamMemberFile struct {
@@ -29,7 +31,6 @@ type TeamMemberFile struct {
 	Model        string `json:"model,omitempty"`
 	JoinedAt     int64  `json:"joinedAt"`
 	WorktreePath string `json:"worktreePath,omitempty"`
-	BackendType  string `json:"backendType,omitempty"`
 	IsActive     *bool  `json:"isActive,omitempty"`
 }
 
@@ -121,11 +122,12 @@ func WriteTeamFile(cwd, name string, file *TeamFile, removedMembers ...string) {
 
 func (t *Team) snapshot() *TeamFile {
 	tf := &TeamFile{
-		Name:        t.Name,
-		Description: t.Description,
-		CreatedAt:   t.CreatedAt,
-		LeadAgentID: t.LeadAgentID,
-		Members:     make([]TeamMemberFile, 0, len(t.Members)),
+		Name:           t.Name,
+		Description:    t.Description,
+		CreatedAt:      t.CreatedAt,
+		LeadAgentID:    t.LeadAgentID,
+		PermissionMode: t.PermissionMode,
+		Members:        make([]TeamMemberFile, 0, len(t.Members)),
 	}
 	if tf.CreatedAt == 0 {
 		tf.CreatedAt = time.Now().Unix()
@@ -139,7 +141,6 @@ func (t *Team) snapshot() *TeamFile {
 			Model:        m.Model,
 			JoinedAt:     m.JoinedAt,
 			WorktreePath: m.WorktreePath,
-			BackendType:  string(t.Mode),
 			IsActive:     &active,
 		})
 	}

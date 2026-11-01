@@ -6,6 +6,7 @@ var CoordinatorAllowedTools = map[string]bool{
 	"TaskStop":        true,
 	"SyntheticOutput": true,
 	"TeamDelete":      true,
+	"TeamCreate":      true, "TeamList": true, "TodoWrite": true,
 }
 
 func IsCoordinatorTool(name string) bool {

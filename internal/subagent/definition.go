@@ -5,167 +5,111 @@ import (
 	"os"
 	"strings"
 
-	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/frontmatter"
-
 	"github.com/goccy/go-yaml"
-)
-
-type AgentMemoryScope string
-
-const (
-	AgentMemoryScopeUser    AgentMemoryScope = "user"
-	AgentMemoryScopeProject AgentMemoryScope = "project"
-	AgentMemoryScopeLocal   AgentMemoryScope = "local"
-)
-
-type IsolationMode string
-
-const (
-	IsolationWorktree IsolationMode = "worktree"
-	IsolationRemote   IsolationMode = "remote"
+	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/frontmatter"
 )
 
 type AgentDefinition struct {
 	AgentType       string   `yaml:"name"`
 	WhenToUse       string   `yaml:"description"`
 	Tools           []string `yaml:"tools"`
-	DisallowedTools []string `yaml:"disallowedTools"`
+	DisallowedTools []string `yaml:"disallowed_tools"`
+	SystemPrompt    string   `yaml:"system_prompt"`
+	MaxTurns        int      `yaml:"max_turns"`
 	Model           string   `yaml:"model"`
-	MaxTurns        int      `yaml:"maxTurns"`
-
-	PermissionMode string `yaml:"permissionMode"`
-
-	Effort any `yaml:"effort"`
-
-	Skills []string `yaml:"skills"`
-
-	McpServers []any `yaml:"mcpServers"`
-
-	RequiredMcpServers []string `yaml:"requiredMcpServers"`
-
-	Hooks any `yaml:"hooks"`
-
-	Memory AgentMemoryScope `yaml:"memory"`
-
-	Background bool `yaml:"background"`
-
-	Isolation IsolationMode `yaml:"isolation"`
-
-	InitialPrompt string `yaml:"initialPrompt"`
-
-	OmitYukinoMd bool `yaml:"omitYukinoMd"`
-
-	SystemPrompt string `yaml:"-"`
-
-	FilePath string `yaml:"-"`
-	Source   string `yaml:"-"`
-	Filename string `yaml:"-"`
+	PermissionMode  string   `yaml:"permission_mode"`
+	ReadOnly        bool     `yaml:"-"`
+	Background      bool     `yaml:"background"`
+	Worktree        bool     `yaml:"worktree"`
+	InitialPrompt   string   `yaml:"-"`
+	Source          string   `yaml:"-"`
+	FilePath        string   `yaml:"-"`
 }
 
-var validPermissionModes = map[string]bool{
-	"":                  true,
-	"acceptEdits":       true,
-	"bypassPermissions": true,
-	"default":           true,
-	"plan":              true,
-}
-
-var validMemoryScopes = map[AgentMemoryScope]bool{
-	"":                      true,
-	AgentMemoryScopeUser:    true,
-	AgentMemoryScopeProject: true,
-	AgentMemoryScopeLocal:   true,
-}
-
-var validIsolationModes = map[IsolationMode]bool{
-	"":                true,
-	IsolationWorktree: true,
-	IsolationRemote:   true,
-}
+var validPermissionModes = map[string]bool{"": true, "default": true, "acceptEdits": true, "plan": true, "bypassPermissions": true}
 
 func ParseAgentFile(path string) (*AgentDefinition, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-
-	var def AgentDefinition
-	def.FilePath = path
-
 	fm, body, ok := frontmatter.Split(string(data))
-	if ok {
-		if err := yaml.Unmarshal([]byte(fm), &def); err != nil {
-			return nil, fmt.Errorf("parse frontmatter in %s: %w", path, err)
-		}
+	if !ok {
+		return nil, fmt.Errorf("agent definition %s: missing frontmatter", path)
 	}
-	def.SystemPrompt = body
-
-	if def.AgentType == "" {
+	var raw map[string]any
+	if err := yaml.Unmarshal([]byte(fm), &raw); err != nil {
+		return nil, err
+	}
+	name, ok := raw["name"].(string)
+	if !ok || strings.TrimSpace(name) == "" {
 		return nil, fmt.Errorf("agent definition %s: missing required field 'name'", path)
 	}
-	if def.WhenToUse == "" {
-		return nil, fmt.Errorf("agent definition %s: missing required field 'description'", path)
+	for _, key := range []string{"description", "system_prompt", "model", "permission_mode"} {
+		if value, present := raw[key]; present {
+			if _, ok := value.(string); !ok {
+				return nil, fmt.Errorf("%s must be a string", key)
+			}
+		}
 	}
-
-	def.Model = strings.TrimSpace(def.Model)
-	if strings.EqualFold(def.Model, "inherit") {
-		def.Model = "inherit"
+	for _, key := range []string{"tools", "disallowed_tools"} {
+		if value, present := raw[key]; present {
+			values, ok := value.([]any)
+			if !ok {
+				return nil, fmt.Errorf("%s must be a string array", key)
+			}
+			for _, v := range values {
+				if _, ok := v.(string); !ok {
+					return nil, fmt.Errorf("%s must be a string array", key)
+				}
+			}
+		}
 	}
-
+	for _, key := range []string{"background", "worktree"} {
+		if value, present := raw[key]; present {
+			if _, ok := value.(bool); !ok {
+				return nil, fmt.Errorf("%s must be a boolean", key)
+			}
+		}
+	}
+	if value, present := raw["max_turns"]; present {
+		switch n := value.(type) {
+		case uint64:
+			if n == 0 || n > uint64(^uint(0)>>1) {
+				return nil, fmt.Errorf("max_turns must be a positive integer")
+			}
+		case int:
+			if n <= 0 {
+				return nil, fmt.Errorf("max_turns must be a positive integer")
+			}
+		case int64:
+			if n <= 0 {
+				return nil, fmt.Errorf("max_turns must be a positive integer")
+			}
+		default:
+			return nil, fmt.Errorf("max_turns must be a positive integer")
+		}
+	}
+	var def AgentDefinition
+	if err := yaml.Unmarshal([]byte(fm), &def); err != nil {
+		return nil, err
+	}
+	def.AgentType = strings.TrimSpace(name)
+	if _, present := raw["description"]; !present {
+		chars := []rune(body)
+		if len(chars) > 200 {
+			chars = chars[:200]
+		}
+		def.WhenToUse = string(chars)
+	}
 	if !validPermissionModes[def.PermissionMode] {
-		return nil, fmt.Errorf("agent definition %s: invalid permissionMode '%s'", path, def.PermissionMode)
+		return nil, fmt.Errorf("invalid permission_mode '%s'", def.PermissionMode)
 	}
-
-	if !validMemoryScopes[def.Memory] {
-		return nil, fmt.Errorf("agent definition %s: invalid memory scope '%s'", path, def.Memory)
-	}
-
-	if !validIsolationModes[def.Isolation] {
-		return nil, fmt.Errorf("agent definition %s: invalid isolation mode '%s'", path, def.Isolation)
-	}
-
+	def.InitialPrompt = body
+	def.FilePath = path
 	return &def, nil
 }
 
 func (d *AgentDefinition) ToSpec() SubAgentSpec {
-	return SubAgentSpec{
-		Name:                 d.AgentType,
-		Description:          d.WhenToUse,
-		Tools:                d.Tools,
-		DisallowedTools:      d.DisallowedTools,
-		SystemPromptOverride: d.SystemPrompt,
-		MaxTurns:             d.MaxTurns,
-		Model:                d.Model,
-		PermissionMode:       d.PermissionMode,
-		Background:           d.Background,
-		Isolation:            d.Isolation,
-		InitialPrompt:        d.InitialPrompt,
-		OmitYukinoMd:         d.OmitYukinoMd,
-		Skills:               d.Skills,
-		Memory:               d.Memory,
-		McpServers:           d.McpServers,
-		RequiredMcpServers:   d.RequiredMcpServers,
-		Hooks:                d.Hooks,
-		Effort:               d.Effort,
-	}
-}
-
-func (d *AgentDefinition) HasRequiredMcpServers(availableServers []string) bool {
-	if len(d.RequiredMcpServers) == 0 {
-		return true
-	}
-	for _, pattern := range d.RequiredMcpServers {
-		patLower := strings.ToLower(pattern)
-		matched := false
-		for _, server := range availableServers {
-			if strings.Contains(strings.ToLower(server), patLower) {
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			return false
-		}
-	}
-	return true
+	return SubAgentSpec{Name: d.AgentType, Description: d.WhenToUse, Tools: d.Tools, DisallowedTools: d.DisallowedTools, SystemPromptOverride: d.SystemPrompt, MaxTurns: d.MaxTurns, Model: d.Model, PermissionMode: d.PermissionMode, ReadOnly: d.ReadOnly, Background: d.Background, Worktree: d.Worktree, InitialPrompt: d.InitialPrompt}
 }

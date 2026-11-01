@@ -49,3 +49,15 @@ func NewClient(cfg *config.ProviderConfig, systemPrompt string) (Client, error) 
 		return nil, fmt.Errorf("unknown protocol: %s", cfg.Protocol)
 	}
 }
+
+type maxOutputKey struct{}
+
+func WithMaxOutputTokens(ctx context.Context, tokens int) context.Context {
+	return context.WithValue(ctx, maxOutputKey{}, tokens)
+}
+func maxOutputTokens(ctx context.Context, fallback int) int {
+	if tokens, ok := ctx.Value(maxOutputKey{}).(int); ok && tokens > 0 {
+		return tokens
+	}
+	return fallback
+}

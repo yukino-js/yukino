@@ -230,7 +230,7 @@ func (m Model) doResumeSession(wd, targetID string, saved []session.Message) (te
 	}
 	m.chatMessages = nil
 	m.committedUpTo = 0
-	m.conversation = conversation.NewManager()
+	m.conversation.Reset()
 	m.sessionID = targetID
 
 	// Re-key the session-derived stores to the resumed session.
@@ -246,36 +246,17 @@ func (m Model) doResumeSession(wd, targetID string, saved []session.Message) (te
 		m.ag.SetSessionID(m.sessionID)
 		m.ag.FileHistory = m.fileHistory
 		if m.ag.Checker != nil {
-			m.ag.Checker.PlanFilePath = ""
+			m.ag.Checker.SetPlanFilePath("")
 		}
 	}
 
-	boundary, after, compacted := session.FindLastCompactBoundary(saved)
-	var replay []session.Message
-	if compacted {
-		resumeSummary := fmt.Sprintf("The conversation history before this point was compacted into the following summary:\n\n<summary>\n%s\n</summary>", boundary.Summary)
-		if len(boundary.Keep) > 0 {
-			resumeSummary += "\n\nRecent messages have been preserved verbatim."
-		}
-		replay = append(replay, session.Message{Role: "user", Content: resumeSummary})
-		for _, k := range boundary.Keep {
-			replay = append(replay, session.Message{
-				Role:        k.Role,
-				Content:     k.Content,
-				ToolUses:    k.ToolUses,
-				ToolResults: k.ToolResults,
-			})
-		}
-		replay = append(replay, after...)
-	} else {
-		replay = saved
-	}
+	replay := session.RebuildFromSession(saved, false)
 
 	for _, msg := range replay {
 		if msg.Content != "" {
 			m.chatMessages = append(m.chatMessages, chatMessage{role: msg.Role, content: msg.Content})
 		}
-		m.conversation.AppendMessages([]conversation.Message{msg.ToConversation()})
+		m.conversation.AppendMessages([]conversation.Message{msg})
 	}
 
 	m.chatMessages = append(m.chatMessages, chatMessage{

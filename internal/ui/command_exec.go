@@ -11,12 +11,8 @@ import (
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/commands"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/compact"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/config"
-	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/conversation"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/file_history"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/llm"
-	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/permissions"
-	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/plan_file"
-	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/prompt"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/session"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/skills"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/teams"
@@ -166,7 +162,7 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 			}
 			m.chatMessages = nil
 			m.committedUpTo = 0
-			m.conversation = conversation.NewManager()
+			m.conversation.Reset()
 			if m.ag != nil {
 				m.ag.ClearActiveSkills()
 				m.ag.SetToolFilter(teams.CoordinatorToolFilter(m.EnableCoordinatorMode))
@@ -200,34 +196,6 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 				func() tea.Msg { return tea.ClearScreen() },
 				tea.Println(m.renderTranscriptHeader()),
 			)
-		case "plan":
-			if m.ag != nil && m.ag.Checker != nil {
-				m.prePlanMode = m.ag.Checker.Mode()
-				m.ag.Checker.SetMode(permissions.ModePlan)
-				planPath := plan_file.GetOrCreatePlanPath()
-				m.ag.Checker.PlanFilePath = planPath
-				m.chatMessages = append(m.chatMessages, chatMessage{
-					role:    "system",
-					content: fmt.Sprintf("Entered Plan mode. Plan file: %s\nExplore the codebase and design your approach.", planPath),
-				})
-
-				if m.hasExitedPlanMode && plan_file.PlanExists() {
-					reentryMsg := prompt.BuildPlanModeReentryReminder(planPath, true)
-					if reentryMsg != "" {
-						m.chatMessages = append(m.chatMessages, chatMessage{
-							role:    "system",
-							content: reentryMsg,
-						})
-					}
-					m.hasExitedPlanMode = false
-				}
-			}
-			if args != "" {
-				m.updateViewport()
-				return m.sendMessage(args)
-			}
-			m.updateViewport()
-			return m, nil
 		case "compact":
 			if m.client == nil || m.conversation == nil {
 				m.chatMessages = append(m.chatMessages, chatMessage{
@@ -300,7 +268,7 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 				displayText += " " + args
 			}
 			m.updateViewport()
-			newModel, teaCmd := m.sendPromptCommand(displayText, prompt)
+			newModel, teaCmd := m.sendPromptCommand(displayText, prompt, cmd.Agent)
 			if strings.HasSuffix(cmd.Description, "[skill]") {
 				loadedLine := lipgloss.NewStyle().Foreground(dimText).PaddingLeft(2).Render(
 					fmt.Sprintf("skill(%s)\nSuccessfully loaded skill", name))

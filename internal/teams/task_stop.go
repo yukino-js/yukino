@@ -39,7 +39,7 @@ func (t *TaskStopTool) Schema() map[string]any {
 		schema["additionalProperties"] = false
 	} else {
 		properties["teammate"] = map[string]any{"type": "string", "description": "Name of the teammate to stop, exactly as it appears in the from= field of a task-notification"}
-		properties["team_name"] = map[string]any{"type": "string"}
+		properties["team_name"] = stringProperty(teamNameParamDescription)
 	}
 	return map[string]any{"name": t.Name(), "description": t.Description(), "input_schema": schema}
 }
@@ -80,26 +80,21 @@ func (t *TaskStopTool) Execute(ctx context.Context, args map[string]any) tools.T
 	}
 
 	requestedTeam, _ := args["team_name"].(string)
-	for _, teamName := range t.TeamMgr.ListTeams() {
-		if requestedTeam != "" && requestedTeam != teamName {
-			continue
-		}
-		team := t.TeamMgr.GetTeam(teamName)
-		if team == nil {
-			continue
-		}
-		member, ok := team.Members[name]
-		if !ok {
-			continue
-		}
-		if !member.Active {
-			return tools.ToolResult{
-				Output: fmt.Sprintf("Teammate '%s' in team '%s' is not running, nothing to stop", name, teamName),
+	team, err := t.TeamMgr.ResolveTeamForMember(requestedTeam, name)
+	if err != nil {
+		return teamResult(err, "")
+	}
+	if team != nil {
+		team.mu.Lock()
+		member := team.Members[name]
+		active := member != nil && member.Active
+		team.mu.Unlock()
+		if member != nil {
+			if !active {
+				return teamResult(nil, fmt.Sprintf("Teammate '%s' in team '%s' is not running, nothing to stop", name, team.Name))
 			}
-		}
-		team.StopMember(name)
-		return tools.ToolResult{
-			Output: fmt.Sprintf("Teammate '%s' in team '%s' stopped.", name, teamName),
+			team.StopMember(name)
+			return teamResult(nil, fmt.Sprintf("Teammate '%s' in team '%s' stopped.", name, team.Name))
 		}
 	}
 
@@ -116,8 +111,8 @@ func (t *TaskStopTool) knownMembers() string {
 		if team == nil {
 			continue
 		}
-		for memberName := range team.Members {
-			names = append(names, memberName)
+		for _, member := range team.ListMembers() {
+			names = append(names, member.Name)
 		}
 	}
 	if len(names) == 0 {

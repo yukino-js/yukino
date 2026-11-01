@@ -1,7 +1,6 @@
 package session
 
 import (
-	"bufio"
 	"bytes"
 	"crypto/rand"
 	"encoding/hex"
@@ -15,8 +14,12 @@ import (
 	"sync"
 	"time"
 
+	"errors"
+	"fmt"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/conversation"
+	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/history"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/storage"
+	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/utils"
 )
 
 const (
@@ -30,129 +33,81 @@ const (
 	FirstMessagePreviewChars = 100
 )
 
+var rewindTempPattern = regexp.MustCompile(`\.\d+\.rewind-tmp$`)
+
 var sessionIDRe = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
-
-type ToolUseRecord struct {
-	ToolUseID string         `json:"tool_use_id"`
-	ToolName  string         `json:"tool_name"`
-	Arguments map[string]any `json:"arguments,omitempty"`
-}
-
-type ToolResultRecord struct {
-	ToolUseID string `json:"tool_use_id"`
-	Content   string `json:"content"`
-	IsError   bool   `json:"is_error,omitempty"`
-}
-
-type Message struct {
-	Role        string             `json:"role"`
-	Type        string             `json:"type,omitempty"`
-	Content     string             `json:"content"`
-	Ts          int64              `json:"ts"`
-	ToolUses    []ToolUseRecord    `json:"tool_uses,omitempty"`
-	ToolResults []ToolResultRecord `json:"tool_results,omitempty"`
-}
-
-func FromConversation(msg conversation.Message) Message {
-	rec := Message{
-		Role:    msg.Role,
-		Content: msg.Content,
-		Ts:      time.Now().Unix(),
-	}
-	for _, tu := range msg.ToolUses {
-		rec.ToolUses = append(rec.ToolUses, ToolUseRecord{
-			ToolUseID: tu.ToolUseID,
-			ToolName:  tu.ToolName,
-			Arguments: tu.Arguments,
-		})
-	}
-	for _, tr := range msg.ToolResults {
-		rec.ToolResults = append(rec.ToolResults, ToolResultRecord{
-			ToolUseID: tr.ToolUseID,
-			Content:   tr.Content,
-			IsError:   tr.IsError,
-		})
-	}
-	return rec
-}
-
-func (m Message) ToConversation() conversation.Message {
-	msg := conversation.Message{
-		Role:    m.Role,
-		Content: m.Content,
-	}
-	for _, tu := range m.ToolUses {
-		msg.ToolUses = append(msg.ToolUses, conversation.ToolUseBlock{
-			ToolUseID: tu.ToolUseID,
-			ToolName:  tu.ToolName,
-			Arguments: tu.Arguments,
-		})
-	}
-	for _, tr := range m.ToolResults {
-		msg.ToolResults = append(msg.ToolResults, conversation.ToolResultBlock{
-			ToolUseID: tr.ToolUseID,
-			Content:   tr.Content,
-			IsError:   tr.IsError,
-		})
-	}
-	return msg
-}
-
-type KeepMessage struct {
-	Role        string             `json:"role"`
-	Content     string             `json:"content"`
-	ToolUses    []ToolUseRecord    `json:"tool_uses,omitempty"`
-	ToolResults []ToolResultRecord `json:"tool_results,omitempty"`
-}
-
-func FromConversationKeep(msg conversation.Message) KeepMessage {
-	rec := FromConversation(msg)
-	return KeepMessage{
-		Role:        rec.Role,
-		Content:     rec.Content,
-		ToolUses:    rec.ToolUses,
-		ToolResults: rec.ToolResults,
-	}
-}
 
 type CompactBoundary struct {
 	Summary string        `json:"summary"`
 	Keep    []KeepMessage `json:"keep"`
 }
 
-func SaveCompactBoundary(workDir, sessionID, summary string, keep []KeepMessage) {
+func SaveCompactBoundary(workDir, sessionID, summary string, keep []KeepMessage) error {
+	if keep == nil {
+		keep = []KeepMessage{}
+	}
 	blob, err := json.Marshal(CompactBoundary{Summary: summary, Keep: keep})
 	if err != nil {
-		return
+		return err
 	}
-	SaveMessage(workDir, sessionID, Message{
-		Role:    "system",
-		Type:    TypeCompactBoundary,
-		Content: string(blob),
-		Ts:      time.Now().Unix(),
+	return SaveMessage(workDir, sessionID, Message{
+		Role:      "system",
+		Type:      TypeCompactBoundary,
+		Content:   string(blob),
+		Timestamp: time.Now().Unix(),
 	})
 }
 
 func FindLastCompactBoundary(msgs []Message) (boundary CompactBoundary, after []Message, ok bool) {
-	last := -1
-	for i, m := range msgs {
-		if m.Type == TypeCompactBoundary {
-			last = i
-		}
-	}
-	if last < 0 {
-		return CompactBoundary{}, nil, false
-	}
-	if err := json.Unmarshal([]byte(msgs[last].Content), &boundary); err != nil {
-		return CompactBoundary{}, nil, false
-	}
-	for _, m := range msgs[last+1:] {
-		if m.Type == TypeCompactBoundary {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Type != TypeCompactBoundary {
 			continue
 		}
-		after = append(after, m)
+		var raw map[string]json.RawMessage
+		if json.Unmarshal([]byte(msgs[i].Content), &raw) != nil || raw["summary"] == nil || raw["keep"] == nil {
+			continue
+		}
+		var candidate CompactBoundary
+		if json.Unmarshal([]byte(msgs[i].Content), &candidate) != nil || strings.TrimSpace(candidate.Summary) == "" || candidate.Keep == nil {
+			continue
+		}
+		for _, message := range msgs[i+1:] {
+			if message.Type != TypeCompactBoundary {
+				after = append(after, message)
+			}
+		}
+		return candidate, after, true
 	}
-	return boundary, after, true
+	return CompactBoundary{}, nil, false
+}
+
+func RebuildFromSession(saved []Message, includeExcludedUserBash bool) []conversation.Message {
+	boundary, after, compacted := FindLastCompactBoundary(saved)
+	var messages []Message
+	if compacted {
+		summary := fmt.Sprintf("The conversation history before this point was compacted into the following summary:\n\n<summary>\n%s\n</summary>", boundary.Summary)
+		if len(boundary.Keep) > 0 {
+			summary += "\n\nRecent messages have been preserved verbatim."
+		}
+		messages = append(messages, Message{Role: "user", Content: summary})
+		for _, kept := range boundary.Keep {
+			messages = append(messages, Message(kept))
+		}
+		messages = append(messages, after...)
+	} else {
+		messages = saved
+	}
+	var restored []conversation.Message
+	for _, message := range messages {
+		if message.Type == TypeCompactBoundary || message.Role != "user" && message.Role != "assistant" || message.Empty() {
+			continue
+		}
+		if message.UserBash != nil && message.UserBash.ExcludeFromContext && !includeExcludedUserBash {
+			continue
+		}
+		restored = append(restored, message.ToConversation())
+	}
+	return restored
 }
 
 type SessionInfo struct {
@@ -169,7 +124,9 @@ type SessionInfo struct {
 func NewID() string {
 	timestamp := strconv.FormatInt(time.Now().UnixMilli(), 36)
 	buf := make([]byte, 4)
-	_, _ = rand.Read(buf)
+	if _, err := rand.Read(buf); err != nil {
+		panic(err)
+	}
 	return timestamp + "-" + hex.EncodeToString(buf)
 }
 
@@ -184,14 +141,40 @@ func SessionFilePath(workDir, id string) string {
 	return filepath.Join(dir, id+SessionFileExtension)
 }
 
-func SaveMessage(workDir, sessionID string, msg Message) {
+func SaveMessage(workDir, sessionID string, msg Message) error {
+	if err := history.RegisterProject(workDir); err != nil {
+		return err
+	}
 	path := SessionFilePath(workDir, sessionID)
 	if path == "" {
-		return
+		return errors.New(storage.InvalidSessionIDError)
 	}
-	data, _ := json.Marshal(msg)
-	data = append(data, '\n')
-	_ = storage.AppendPrivateFileSync(path, data)
+	return SaveTranscriptMessage(path, msg)
+}
+
+func SaveUserMessage(workDir, sessionID string, input history.InputEntry, message Message) (Message, error) {
+	canonical, err := utils.CanonicalPath(workDir, 0)
+	if err != nil {
+		return Message{}, err
+	}
+	if input.Cwd != canonical || input.SessionID == nil || *input.SessionID != sessionID {
+		return Message{}, errors.New("User input does not belong to this project and session.")
+	}
+	message.Role = "user"
+	message.Timestamp = input.Timestamp / 1000
+	message.UserInput = &conversation.UserInput{ID: input.ID, Timestamp: input.Timestamp}
+	return message, SaveMessage(workDir, sessionID, message)
+}
+
+func SaveTranscriptMessage(path string, msg Message) error {
+	if path == "" {
+		return errors.New("Transcript path must not be empty")
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	return storage.AppendPrivateFileSync(path, append(data, '\n'))
 }
 
 // parseTranscriptRecords returns every parsable record, mirroring
@@ -202,10 +185,8 @@ func parseTranscriptRecords(path string) []Message {
 		return nil
 	}
 	var msgs []Message
-	scanner := bufio.NewScanner(bytes.NewReader(data))
-	scanner.Buffer(make([]byte, 0, 256*1024), 1024*1024)
-	for scanner.Scan() {
-		line := bytes.TrimSpace(scanner.Bytes())
+	for _, line := range bytes.Split(data, []byte("\n")) {
+		line = bytes.TrimSpace(line)
 		if len(line) == 0 {
 			continue
 		}
@@ -221,8 +202,15 @@ func parseTranscriptRecords(path string) []Message {
 // LoadSessionForResume reads the transcript under the file lock and renews
 // its mtime so an actively resumed session is not swept as expired.
 func LoadSessionForResume(workDir, sessionID string) []Message {
-	path := SessionFilePath(workDir, sessionID)
+	_ = history.RegisterProject(workDir)
+	return loadTranscript(SessionFilePath(workDir, sessionID), true)
+}
+
+func loadTranscript(path string, renew bool) []Message {
 	if path == "" {
+		return nil
+	}
+	if _, err := os.Stat(filepath.Dir(path)); err != nil {
 		return nil
 	}
 	var msgs []Message
@@ -231,12 +219,12 @@ func LoadSessionForResume(workDir, sessionID string) []Message {
 			return nil
 		}
 		for _, msg := range parseTranscriptRecords(path) {
-			if msg.Content == "" && len(msg.ToolUses) == 0 && len(msg.ToolResults) == 0 {
+			if msg.Empty() {
 				continue
 			}
 			msgs = append(msgs, msg)
 		}
-		if len(msgs) > 0 {
+		if renew && len(msgs) > 0 {
 			now := time.Now()
 			_ = os.Chtimes(path, now, now)
 		}
@@ -246,18 +234,73 @@ func LoadSessionForResume(workDir, sessionID string) []Message {
 }
 
 func LoadSession(workDir, sessionID string) []Message {
-	path := SessionFilePath(workDir, sessionID)
+	return loadTranscript(SessionFilePath(workDir, sessionID), false)
+}
+
+func LoadTranscript(path string) []Message { return loadTranscript(path, false) }
+
+func SessionLineCount(path string) (int, bool, error) {
+	if path == "" {
+		return 0, false, nil
+	}
+	if _, err := os.Stat(filepath.Dir(path)); errors.Is(err, os.ErrNotExist) {
+		return 0, false, nil
+	}
+	count, exists := 0, false
+	err := storage.WithFileSyncLock(path, func() error {
+		data, err := storage.ReadPrivateFileSync(path)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		exists = true
+		for _, line := range bytes.Split(data, []byte("\n")) {
+			if len(bytes.TrimSpace(line)) > 0 {
+				count++
+			}
+		}
+		return nil
+	})
+	return count, exists, err
+}
+
+func TruncateSessionLines(path string, keepLines int) error {
 	if path == "" {
 		return nil
 	}
-	var msgs []Message
-	for _, msg := range parseTranscriptRecords(path) {
-		if msg.Content == "" && len(msg.ToolUses) == 0 && len(msg.ToolResults) == 0 {
-			continue
-		}
-		msgs = append(msgs, msg)
+	if _, err := os.Stat(filepath.Dir(path)); errors.Is(err, os.ErrNotExist) {
+		return nil
 	}
-	return msgs
+	return storage.WithFileSyncLock(path, func() error {
+		data, err := storage.ReadPrivateFileSync(path)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		var kept [][]byte
+		for _, line := range bytes.Split(data, []byte("\n")) {
+			if len(kept) >= keepLines {
+				break
+			}
+			if len(bytes.TrimSpace(line)) > 0 {
+				kept = append(kept, line)
+			}
+		}
+		content := bytes.Join(kept, []byte("\n"))
+		if len(kept) > 0 {
+			content = append(content, '\n')
+		}
+		temp := fmt.Sprintf("%s.%d.rewind-tmp", path, os.Getpid())
+		defer os.Remove(temp)
+		if err := storage.WritePrivateFileSync(temp, content, os.O_WRONLY|os.O_CREATE|os.O_TRUNC); err != nil {
+			return err
+		}
+		return os.Rename(temp, path)
+	})
 }
 
 // sweptSessionDirs tracks the session directories already swept in this
@@ -306,11 +349,12 @@ func ListSessions(workDir string) []SessionInfo {
 					continue
 				}
 				messageCount++
-				if msg.Role == "user" && len(msg.ToolResults) == 0 && msg.Ts > lastUserTs {
-					lastUserTs = msg.Ts
+				if msg.Role == "user" && msg.UserInput != nil && len(msg.ToolResults) == 0 && msg.UserInput.Timestamp > lastUserTs {
+					lastUserTs = msg.UserInput.Timestamp
 				}
-				if firstMessage == "" && msg.Role == "user" && msg.Content != "" {
-					firstMessage = string([]rune(msg.Content)[:min(len([]rune(msg.Content)), FirstMessagePreviewChars)])
+				if firstMessage == "" && msg.Role == "user" && !msg.Empty() {
+					text := msg.ToConversation().ContentText()
+					firstMessage = string([]rune(text)[:min(len([]rune(text)), FirstMessagePreviewChars)])
 				}
 			}
 			entry := SessionInfo{
@@ -321,7 +365,7 @@ func ListSessions(workDir string) []SessionInfo {
 				ModTime:      stat.ModTime(),
 			}
 			if lastUserTs >= 0 {
-				t := time.Unix(lastUserTs, 0)
+				t := time.UnixMilli(lastUserTs)
 				entry.LastUserMessageTime = &t
 			}
 			info = &entry
@@ -363,6 +407,12 @@ func CleanExpiredSessions(workDir string) int {
 	now := time.Now()
 	expiry := time.Duration(SessionExpiryDays) * 24 * time.Hour
 	removed := 0
+	for _, entry := range entries {
+		if rewindTempPattern.MatchString(entry.Name()) {
+			base := rewindTempPattern.ReplaceAllString(entry.Name(), "")
+			_ = storage.WithFileSyncLock(filepath.Join(dir, base), func() error { return os.Remove(filepath.Join(dir, entry.Name())) })
+		}
+	}
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), SessionFileExtension) {
 			continue
@@ -377,6 +427,9 @@ func CleanExpiredSessions(workDir string) int {
 				return nil
 			}
 			if os.Remove(filePath) == nil {
+				if artifacts, err := storage.SessionPath(strings.TrimSuffix(e.Name(), SessionFileExtension)); err == nil {
+					_ = os.RemoveAll(artifacts)
+				}
 				removed++
 			}
 			return nil

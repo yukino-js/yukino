@@ -10,130 +10,52 @@ import (
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/tools"
 )
 
-func TestBuildForkedConversationPreservesThinkingBlocks(t *testing.T) {
+func TestForkConversationPairsOnlyOutstandingToolsAndDeepCopies(t *testing.T) {
 	parent := conversation.NewManager()
-	thinking := []conversation.ThinkingBlock{{Thinking: "secret plan", Signature: "sig-1"}}
-	parent.AddAssistantFull("hello", thinking, []conversation.ToolUseBlock{
-		{ToolUseID: "tool_1", ToolName: "Bash", Arguments: map[string]any{"command": "ls"}},
-	})
-
-	forked := buildForkedConversation(parent, "do work")
-	msgs := forked.GetMessages()
-	var found *conversation.Message
-	for i := range msgs {
-		if len(msgs[i].ThinkingBlocks) > 0 {
-			found = &msgs[i]
-			break
-		}
+	parent.AddAssistantFull("first", []conversation.ThinkingBlock{{Thinking: "private", Signature: "sig"}}, []conversation.ToolUseBlock{{ToolUseID: "done", ToolName: "Bash", Arguments: map[string]any{"command": "ls"}}})
+	parent.AddToolResultMessage("done", "real result", false)
+	parent.AddAssistantFull("pending", nil, []conversation.ToolUseBlock{{ToolUseID: "pending", ToolName: "EnterPlanMode"}})
+	forked, err := forkConversation(parent)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if found == nil {
-		t.Fatal("forked conversation lost thinking blocks")
+	messages := forked.GetMessages()
+	if len(messages) != 4 || len(messages[3].ToolResults) != 1 || messages[3].ToolResults[0].ToolUseID != "pending" || messages[3].ToolResults[0].Content != InheritedToolResult {
+		t.Fatal(messages)
 	}
-	if found.ThinkingBlocks[0].Thinking != "secret plan" || found.ThinkingBlocks[0].Signature != "sig-1" {
-		t.Errorf("thinking blocks not preserved verbatim: %+v", found.ThinkingBlocks)
+	messages[0].ToolUses[0].Arguments["command"] = "changed"
+	if parent.GetMessages()[0].ToolUses[0].Arguments["command"] != "ls" || messages[0].ThinkingBlocks[0].Signature != "sig" {
+		t.Fatal("fork leaked mutation or lost thinking")
 	}
 }
-
 func TestDeriveSubAgentCheckerOverrideMode(t *testing.T) {
-	sb := permissions.NewPathSandbox("/tmp", true)
-	eng := &permissions.RuleEngine{}
-	parent := permissions.NewChecker(sb, eng, permissions.ModeDefault)
-
-	if derived := deriveSubAgentChecker(parent, ""); derived == parent || !derived.IsSubagent() {
-		t.Error("delegation must create a child checker")
-	}
+	parent := permissions.NewChecker(permissions.NewPathSandbox(t.TempDir(), true), &permissions.RuleEngine{}, permissions.ModeDefault)
 	derived := deriveSubAgentChecker(parent, "plan")
-	if derived == parent {
-		t.Fatal("plan override should produce a new checker instance")
-	}
-	if derived.Mode() != permissions.ModePlan {
-		t.Errorf("derived.Mode() = %q, want plan", derived.Mode())
-	}
-	if derived.Sandbox == sb || derived.RuleEngine != eng {
-		t.Error("child needs its own sandbox and the shared rule engine")
-	}
-	if deriveSubAgentChecker(nil, "plan") != nil {
-		t.Error("nil parent should propagate nil")
+	if derived == parent || !derived.IsSubagent() || derived.Mode() != permissions.ModePlan || derived.Sandbox == parent.Sandbox || derived.RuleEngine != parent.RuleEngine {
+		t.Fatal("child checker did not preserve isolation")
 	}
 }
-
-func TestRunForkRejectedWhenQuerySourceIsFork(t *testing.T) {
-	tool := &AgentTool{
-		Registry:     tools.NewRegistry(),
-		Conversation: conversation.NewManager(),
-		QuerySource:  ForkQuerySource,
-		TaskMgr:      NewTaskManager(),
-	}
-	result := tool.runFork(context.Background(), "desc", "do work", "", "")
-	if !result.IsError {
-		t.Fatal("runFork should reject when QuerySource is fork")
-	}
-	if !strings.Contains(result.Output, "cannot fork from a forked agent") {
-		t.Errorf("unexpected error message: %s", result.Output)
-	}
-}
-
-func TestRunForkRejectedWhenBoilerplateInHistory(t *testing.T) {
-	conv := conversation.NewManager()
-	conv.AddUserMessage(ForkBoilerplateTag + " stale message from a prior fork")
-	tool := &AgentTool{
-		Registry:     tools.NewRegistry(),
-		Conversation: conv,
-		TaskMgr:      NewTaskManager(),
-	}
-	result := tool.runFork(context.Background(), "desc", "do work", "", "")
-	if !result.IsError {
-		t.Fatal("runFork should reject when conversation history contains ForkBoilerplateTag")
-	}
-}
-
-func TestCloneRegistryForForkSetsQuerySource(t *testing.T) {
-	reg := tools.NewRegistry()
-	reg.Register(&AgentTool{})
-	reg.Register(&dummyTool{name: "Bash", category: tools.CategoryCommand})
-
-	forked := cloneRegistryForFork(reg)
-	if forked.Get("Bash") == nil {
-		t.Error("Bash should still be present in forked registry")
-	}
-	at, ok := forked.Get("Agent").(*AgentTool)
-	if !ok {
-		t.Fatal("Agent tool should still be present (tool pool inherited verbatim)")
-	}
-	if at.QuerySource != ForkQuerySource {
-		t.Errorf("cloned Agent tool QuerySource = %q, want %q", at.QuerySource, ForkQuerySource)
-	}
-}
-
-func TestExecuteRoutesBackgroundSpecToAsync(t *testing.T) {
-	tool := &AgentTool{
-		Registry: tools.NewRegistry(),
-		TaskMgr:  NewTaskManager(),
-		Protocol: "anthropic",
-	}
-	result := tool.Execute(context.Background(), map[string]any{
-		"description":   "verify run",
-		"prompt":        "do it",
-		"subagent_type": "background-only",
-	})
-	if !result.IsError {
-		if !strings.Contains(result.Output, "unknown agent type") {
-			t.Errorf("expected unknown-agent-type error, got %q", result.Output)
+func TestAgentArgumentsAndDefaults(t *testing.T) {
+	tool := &AgentTool{Registry: tools.NewRegistry(), TaskMgr: NewTaskManager()}
+	for _, args := range []map[string]any{{"kind": "invalid"}, {"worktree": "true"}, {"fork": nil}, {"run_in_background": 1}} {
+		args["description"] = "task"
+		args["prompt"] = "do it"
+		if result := tool.Execute(context.Background(), args); !result.IsError || !strings.Contains(result.Output, "Error:") {
+			t.Fatal(args, result)
 		}
 	}
-}
-
-func TestExecuteValidatesMode(t *testing.T) {
-	tool := &AgentTool{
-		Registry: tools.NewRegistry(),
-		TaskMgr:  NewTaskManager(),
+	result := tool.Execute(context.Background(), map[string]any{"description": "task", "prompt": "do it"})
+	if !result.IsError || !strings.Contains(result.Output, "teammate execution") {
+		t.Fatal("default must be teammate", result)
 	}
-
-	badMode := tool.Execute(context.Background(), map[string]any{
-		"description": "x", "prompt": "y",
-		"mode": "not-a-real-mode",
-	})
-	if !badMode.IsError || !strings.Contains(badMode.Output, "invalid mode") {
-		t.Errorf("invalid mode must be rejected, got %q", badMode.Output)
+	result = tool.Execute(context.Background(), map[string]any{"kind": "subagent", "description": "task", "prompt": "do it"})
+	if !result.IsError || result.Output != ForkContextRequiredError {
+		t.Fatal("fork must be explicit and independent from role", result)
+	}
+	props := tool.Schema()["input_schema"].(map[string]any)["properties"].(map[string]any)
+	for _, key := range []string{"isolation", "name", "mode", "plan_mode_required"} {
+		if props[key] != nil {
+			t.Fatal("legacy schema field", key)
+		}
 	}
 }

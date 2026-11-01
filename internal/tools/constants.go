@@ -11,7 +11,20 @@ const (
 	MaxTraversedEntries       = 10000
 	MaxTraversalDepth         = 25
 	OperationInterruptedError = "Error: operation interrupted"
+	CommandInterruptedError   = "Error: command interrupted"
 	FileNotReadError          = "Error: file has not been read yet, read it first before editing."
 	FileDeletedError          = "Error: file was deleted or is no longer accessible; read it again before editing."
 	FileModifiedError         = "Error: file has been modified since last read, read it again before editing."
 )
+
+const PlanModeUnavailableError = "Plan mode is unavailable because no permission context exists."
+
+const PlanModeDelegatedError = "EnterPlanMode cannot be used from delegated agents."
+
+const NotInPlanModeContinueError = "You are not in plan mode. Continue within the user's requested scope and current permissions, or call EnterPlanMode first when the task genuinely needs planning. AskUserQuestion is for clarification, not approval."
+
+const NotInPlanModeError = "You are not in plan mode. This tool is only for exiting plan mode after writing a plan."
+
+const NoPlanFileError = "No non-empty plan file found. Write your plan to the declared plan file before calling ExitPlanMode."
+
+const NoPlanApprovalHandlerError = "No leader plan approval handler is available for this teammate."

@@ -1,26 +1,35 @@
 package agent
 
-import "time"
+import (
+	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/permissions"
+	"time"
+)
 
 type AgentEvent interface{ agentEvent() }
 
 type StreamText struct{ Text string }
 type ThinkingText struct{ Text string }
+type ThinkingComplete struct{ Thinking, Signature string }
 type ToolUseEvent struct {
 	ToolID   string
 	ToolName string
 	Args     map[string]any
 }
 type ToolResultEvent struct {
-	ToolID   string
-	ToolName string
-	Output   string
-	IsError  bool
-	Elapsed  time.Duration
+	ToolID        string
+	ToolName      string
+	Output        string
+	IsError       bool
+	Elapsed       time.Duration
+	ContentBlocks []map[string]any
 }
 type TurnComplete struct{ Turn int }
-type LoopComplete struct{ TotalTurns int }
-type UsageEvent struct{ InputTokens, OutputTokens int }
+type LoopComplete struct {
+	TotalTurns int
+	PlanReady  bool
+	StopReason string
+}
+type UsageEvent struct{ InputTokens, OutputTokens, CacheReadTokens, CacheCreationTokens int }
 type ErrorEvent struct{ Message string }
 type CompactEvent struct{ Message string }
 type RetryEvent struct {
@@ -42,6 +51,9 @@ type PermissionReply struct {
 }
 
 type PermissionRequestEvent struct {
+	ToolID     string
+	Args       map[string]any
+	Decision   permissions.Decision
 	ToolName   string
 	Desc       string
 	ResponseCh chan<- PermissionReply
@@ -49,7 +61,8 @@ type PermissionRequestEvent struct {
 
 func (StreamText) agentEvent() {}
 
-func (ThinkingText) agentEvent() {}
+func (ThinkingText) agentEvent()     {}
+func (ThinkingComplete) agentEvent() {}
 
 func (ToolUseEvent) agentEvent()    {}
 func (ToolResultEvent) agentEvent() {}

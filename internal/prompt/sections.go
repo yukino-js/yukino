@@ -40,31 +40,31 @@ const UpdatesPrompt = `# Updates
 The user may not see tool calls. Before starting, give a one-sentence plan; at milestones, briefly report findings, direction changes, or blockers. Do not expose internal deliberation. Finish with the outcome, verification, and remaining blockers; answer simple questions directly without headings.`
 
 func IdentitySection() Section {
-	return Section{Name: "Identity", Priority: 0, Content: IdentityPrompt}
+	return Section{Name: "Identity", Content: IdentityPrompt}
 }
 
 func SystemSection() Section {
-	return Section{Name: "System", Priority: 10, Content: SystemPrompt}
+	return Section{Name: "System", Content: SystemPrompt}
 }
 
 func DoingTasksSection() Section {
-	return Section{Name: "DoingTasks", Priority: 20, Content: GuidelinesPrompt}
+	return Section{Name: "DoingTasks", Content: GuidelinesPrompt}
 }
 
 func ExecutingActionsSection() Section {
-	return Section{Name: "ExecutingActions", Priority: 30, Content: ActionsPrompt}
+	return Section{Name: "ExecutingActions", Content: ActionsPrompt}
 }
 
 func UsingToolsSection() Section {
-	return Section{Name: "UsingTools", Priority: 40, Content: ToolsPrompt}
+	return Section{Name: "UsingTools", Content: ToolsPrompt}
 }
 
 func ToneStyleSection() Section {
-	return Section{Name: "ToneStyle", Priority: 50, Content: StylePrompt}
+	return Section{Name: "ToneStyle", Content: StylePrompt}
 }
 
 func OutputEfficiencySection() Section {
-	return Section{Name: "TextOutput", Priority: 60, Content: UpdatesPrompt}
+	return Section{Name: "TextOutput", Content: UpdatesPrompt}
 }
 
 func EnvironmentSection(env EnvironmentContext) Section {
@@ -83,8 +83,7 @@ func EnvironmentSection(env EnvironmentContext) Section {
 	}
 	lines = append(lines, fmt.Sprintf(" - Date: %s", env.Date))
 	return Section{
-		Name:     "Environment",
-		Priority: 70,
-		Content:  strings.Join(lines, "\n"),
+		Name:    "Environment",
+		Content: strings.Join(lines, "\n"),
 	}
 }

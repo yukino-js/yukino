@@ -80,6 +80,7 @@ func (m *Model) activateInitialProvider(p *config.ProviderConfig) tea.Cmd {
 		ag.Hooks = eng
 	}
 	m.ag = ag
+	m.teamMgr.SetPermissionChecker(ag.Checker)
 	if at, ok := m.registry.Get("Agent").(*subagent.AgentTool); ok {
 		at.ParentChecker = ag.Checker
 	}

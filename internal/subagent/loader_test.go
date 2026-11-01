@@ -7,309 +7,66 @@ import (
 	"testing"
 )
 
-func TestParseAgentFile(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "test-agent.md")
-	content := `---
-name: test-agent
-description: A test agent for unit testing
-disallowedTools:
-  - EditFile
-  - WriteFile
-model: haiku
-maxTurns: 25
----
-
-You are a test agent. Do test things.`
-
-	os.WriteFile(path, []byte(content), 0644)
-
-	def, err := ParseAgentFile(path)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+func writeAgent(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "agent.md")
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+		t.Fatal(err)
 	}
-	if def.AgentType != "test-agent" {
-		t.Errorf("AgentType = %q, want %q", def.AgentType, "test-agent")
-	}
-	if def.WhenToUse != "A test agent for unit testing" {
-		t.Errorf("WhenToUse = %q", def.WhenToUse)
-	}
-	if len(def.DisallowedTools) != 2 {
-		t.Errorf("DisallowedTools = %v, want 2 items", def.DisallowedTools)
-	}
-	if def.Model != "haiku" {
-		t.Errorf("Model = %q, want %q", def.Model, "haiku")
-	}
-	if def.MaxTurns != 25 {
-		t.Errorf("MaxTurns = %d, want 25", def.MaxTurns)
-	}
-	if def.SystemPrompt != "You are a test agent. Do test things." {
-		t.Errorf("SystemPrompt = %q", def.SystemPrompt)
-	}
+	return path
 }
-
-func TestParseAgentFileMissingName(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "bad.md")
-	content := `---
-description: No name field
----
-
-Body text.`
-	os.WriteFile(path, []byte(content), 0644)
-
-	_, err := ParseAgentFile(path)
-	if err == nil {
-		t.Error("expected error for missing name, got nil")
-	}
-}
-
-func TestParseAgentFileThirdPartyModelAllowed(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "glm.md")
-	content := `---
-name: glm
-description: Third-party model agent
-model: glm-5.1
----
-
-Body.`
-	os.WriteFile(path, []byte(content), 0644)
-
-	def, err := ParseAgentFile(path)
-	if err != nil {
-		t.Fatalf("third-party model name must parse, got %v", err)
-	}
-	if def.Model != "glm-5.1" {
-		t.Errorf("Model = %q, want %q", def.Model, "glm-5.1")
-	}
-}
-
-func TestParseAgentFileInheritNormalization(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "inherit.md")
-	content := `---
-name: inh
-description: Mixed-case inherit
-model: INHERIT
----
-
-Body.`
-	os.WriteFile(path, []byte(content), 0644)
+func TestAgentDefinitionReferenceFields(t *testing.T) {
+	path := writeAgent(t, "\ufeff---\nname: ' custom '\ndisallowed_tools: [EditFile, WriteFile]\nsystem_prompt: custom system\nmax_turns: 25\npermission_mode: acceptEdits\nbackground: true\nworktree: true\nmodel: INHERIT\n---\n\nTask body.")
 	def, err := ParseAgentFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if def.Model != "inherit" {
-		t.Errorf("INHERIT should normalize to inherit, got %q", def.Model)
+	if def.AgentType != "custom" || def.WhenToUse != "Task body." || def.InitialPrompt != "Task body." || def.SystemPrompt != "custom system" || def.Model != "INHERIT" || def.MaxTurns != 25 || def.PermissionMode != "acceptEdits" || !def.Worktree || !def.Background || len(def.DisallowedTools) != 2 {
+		t.Fatalf("%+v", def)
 	}
-}
-
-func TestLoaderBuiltinsAvailable(t *testing.T) {
-	loader := NewAgentLoader(t.TempDir())
-	loader.LoadAll()
-
-	expected := []string{"explore", "general-purpose", "plan"}
-	names := loader.ListNames()
-	if len(names) != len(expected) {
-		t.Fatalf("got %d agents, want %d: %v", len(names), len(expected), names)
-	}
-	for i, name := range names {
-		if name != expected[i] {
-			t.Errorf("names[%d] = %q, want %q", i, name, expected[i])
-		}
-	}
-
-	gp := loader.Get("general-purpose")
-	if gp == nil {
-		t.Fatal("general-purpose not found")
-	}
-	if gp.Source != "built-in" {
-		t.Errorf("Source = %q, want %q", gp.Source, "built-in")
-	}
-}
-
-func TestLoaderRecordsFailedFilesAndWarns(t *testing.T) {
-	dir := t.TempDir()
-	agentsDir := filepath.Join(dir, ".yukino", "agents")
-	os.MkdirAll(agentsDir, 0o755)
-
-	good := `---
-name: ok-one
-description: parses fine
----
-body`
-	bad := `---
-name: missing-description
----
-body`
-	os.WriteFile(filepath.Join(agentsDir, "ok.md"), []byte(good), 0o644)
-	os.WriteFile(filepath.Join(agentsDir, "bad.md"), []byte(bad), 0o644)
-
-	var buf strings.Builder
-	loader := NewAgentLoader(dir)
-	loader.ErrorWriter = &buf
-	loader.LoadAll()
-
-	if loader.Get("ok-one") == nil {
-		t.Error("ok-one should be loaded despite a sibling failure")
-	}
-	if len(loader.FailedFiles) != 1 {
-		t.Fatalf("FailedFiles = %v, want 1 entry", loader.FailedFiles)
-	}
-	if !strings.Contains(loader.FailedFiles[0], "bad.md") {
-		t.Errorf("FailedFiles entry should mention bad.md, got %q", loader.FailedFiles[0])
-	}
-	if !strings.Contains(buf.String(), "agent definition skipped") {
-		t.Errorf("ErrorWriter should receive a warning, got: %q", buf.String())
-	}
-}
-
-func TestParseAgentDefinitionExtendedFields(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "verify.md")
-	content := `---
-name: verify
-description: extended-field smoke test
-model: inherit
-permissionMode: acceptEdits
-background: true
-isolation: worktree
-memory: project
-omitYukinoMd: true
-initialPrompt: "kick off with this"
-skills: ["lint", "test"]
-requiredMcpServers: ["github"]
-maxTurns: 5
----
-body`
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-	def, err := ParseAgentFile(path)
-	if err != nil {
-		t.Fatalf("ParseAgentFile failed: %v", err)
-	}
-	if def.PermissionMode != "acceptEdits" {
-		t.Errorf("PermissionMode = %q, want %q", def.PermissionMode, "acceptEdits")
-	}
-	if !def.Background {
-		t.Error("Background should be true")
-	}
-	if def.Isolation != IsolationWorktree {
-		t.Errorf("Isolation = %q, want %q", def.Isolation, IsolationWorktree)
-	}
-	if def.Memory != AgentMemoryScopeProject {
-		t.Errorf("Memory = %q, want %q", def.Memory, AgentMemoryScopeProject)
-	}
-	if !def.OmitYukinoMd {
-		t.Error("OmitYukinoMd should be true")
-	}
-	if def.InitialPrompt != "kick off with this" {
-		t.Errorf("InitialPrompt = %q", def.InitialPrompt)
-	}
-	if len(def.Skills) != 2 || def.Skills[0] != "lint" {
-		t.Errorf("Skills = %v", def.Skills)
-	}
-	if len(def.RequiredMcpServers) != 1 || def.RequiredMcpServers[0] != "github" {
-		t.Errorf("RequiredMcpServers = %v", def.RequiredMcpServers)
-	}
-
 	spec := def.ToSpec()
-	if spec.PermissionMode != "acceptEdits" || !spec.Background || spec.Isolation != IsolationWorktree {
-		t.Errorf("ToSpec did not forward extended fields: %+v", spec)
-	}
-	if spec.InitialPrompt != "kick off with this" {
-		t.Errorf("ToSpec.InitialPrompt = %q, want %q", spec.InitialPrompt, "kick off with this")
+	if spec.InitialPrompt != def.InitialPrompt || spec.SystemPromptOverride != def.SystemPrompt || spec.MaxTurns != 25 {
+		t.Fatalf("%+v", spec)
 	}
 }
-
-func TestParseAgentInvalidPermissionMode(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "bad.md")
-	content := `---
-name: bad
-description: invalid mode
-permissionMode: bogus
----
-body`
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+func TestAgentDefinitionRejectsInvalidFields(t *testing.T) {
+	for _, fields := range []string{"name: ' '", "name: x\ndescription: null", "name: x\nmodel: 12", "name: x\nbackground: yes", "name: x\nworktree: null", "name: x\nmax_turns: 0", "name: x\nmax_turns: 1.2", "name: x\npermission_mode: bogus", "name: x\ntools: [2]"} {
+		t.Run(strings.ReplaceAll(fields, "\n", "/"), func(t *testing.T) {
+			if _, err := ParseAgentFile(writeAgent(t, "---\n"+fields+"\n---\nbody")); err == nil {
+				t.Fatal("invalid definition accepted")
+			}
+		})
+	}
+}
+func TestAgentDefinitionDropsOldFields(t *testing.T) {
+	def, err := ParseAgentFile(writeAgent(t, "---\nname: x\nmaxTurns: 12\npermissionMode: bogus\ndisallowedTools: [Bash]\n---\nbody"))
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ParseAgentFile(path); err == nil {
-		t.Fatal("ParseAgentFile should reject invalid permissionMode")
+	if def.MaxTurns != 0 || def.PermissionMode != "" || len(def.DisallowedTools) != 0 {
+		t.Fatalf("obsolete fields interpreted: %+v", def)
 	}
 }
-
-func TestHasRequiredMcpServers(t *testing.T) {
-	def := &AgentDefinition{RequiredMcpServers: []string{"github", "slack"}}
-	if !def.HasRequiredMcpServers([]string{"GitHub-Server", "slack-mcp", "filesystem"}) {
-		t.Error("should match case-insensitive substring")
+func TestAgentLoaderUsesUserDirectoryAndResets(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dir := filepath.Join(home, ".yukino", "agents")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
 	}
-	if def.HasRequiredMcpServers([]string{"github"}) {
-		t.Error("should fail when slack is missing")
-	}
-	empty := &AgentDefinition{}
-	if !empty.HasRequiredMcpServers(nil) {
-		t.Error("no requirements should always pass")
-	}
-}
-
-func TestLoaderProjectOverridesBuiltin(t *testing.T) {
-	dir := t.TempDir()
-	agentsDir := filepath.Join(dir, ".yukino", "agents")
-	os.MkdirAll(agentsDir, 0755)
-
-	content := `---
-name: explore
-description: Custom explore agent for this project
-model: sonnet
-maxTurns: 50
----
-
-You are a custom explore agent.`
-
-	os.WriteFile(filepath.Join(agentsDir, "explore.md"), []byte(content), 0644)
-
-	loader := NewAgentLoader(dir)
+	path := filepath.Join(dir, "explore.md")
+	os.WriteFile(path, []byte("---\nname: explore\nmodel: test-model\n---\ncustom explore"), 0600)
+	project := t.TempDir()
+	os.MkdirAll(filepath.Join(project, ".yukino", "agents"), 0700)
+	os.WriteFile(filepath.Join(project, ".yukino", "agents", "plan.md"), []byte("---\nname: plan\n---\nproject override"), 0600)
+	loader := NewAgentLoader()
 	loader.LoadAll()
-
-	explore := loader.Get("explore")
-	if explore == nil {
-		t.Fatal("explore not found")
+	if len(loader.ListNames()) != 4 || loader.Get("explore").Source != "user" || loader.Get("explore").Model != "test-model" || !loader.Get("plan").ReadOnly {
+		t.Fatal(loader.agents)
 	}
-	if explore.Source != "project" {
-		t.Errorf("Source = %q, want %q", explore.Source, "project")
-	}
-	if explore.Model != "sonnet" {
-		t.Errorf("Model = %q, want %q", explore.Model, "sonnet")
-	}
-	if explore.MaxTurns != 50 {
-		t.Errorf("MaxTurns = %d, want 50", explore.MaxTurns)
-	}
-}
-
-func TestAgentDefinitionToSpec(t *testing.T) {
-	def := &AgentDefinition{
-		AgentType:       "test",
-		WhenToUse:       "testing",
-		DisallowedTools: []string{"Bash"},
-		Model:           "haiku",
-		MaxTurns:        10,
-		SystemPrompt:    "You are a test agent.",
-	}
-
-	spec := def.ToSpec()
-	if spec.Name != "test" {
-		t.Errorf("Name = %q", spec.Name)
-	}
-	if spec.Model != "haiku" {
-		t.Errorf("Model = %q", spec.Model)
-	}
-	if spec.MaxTurns != 10 {
-		t.Errorf("MaxTurns = %d", spec.MaxTurns)
-	}
-	if spec.SystemPromptOverride != "You are a test agent." {
-		t.Errorf("SystemPromptOverride = %q", spec.SystemPromptOverride)
+	os.Remove(path)
+	loader.LoadAll()
+	if !loader.Get("explore").ReadOnly || loader.Get("explore").Model != "" {
+		t.Fatal("removed definition survived reload")
 	}
 }

@@ -25,8 +25,8 @@ func TestSaveAndLoad(t *testing.T) {
 	dir := t.TempDir()
 	sid := "test-session"
 
-	SaveMessage(dir, sid, Message{Role: "user", Content: "hello", Ts: 1})
-	SaveMessage(dir, sid, Message{Role: "assistant", Content: "hi", Ts: 2})
+	SaveMessage(dir, sid, Message{Role: "user", Content: "hello", Timestamp: 1})
+	SaveMessage(dir, sid, Message{Role: "assistant", Content: "hi", Timestamp: 2})
 
 	msgs := LoadSession(dir, sid)
 	if len(msgs) != 2 {
@@ -54,10 +54,10 @@ func TestListSessions(t *testing.T) {
 	dir := t.TempDir()
 
 	long := strings.Repeat("x", FirstMessagePreviewChars+50)
-	SaveMessage(dir, "s1", Message{Role: "user", Content: "first session", Ts: 100})
-	SaveMessage(dir, "s2", Message{Role: "user", Content: long, Ts: 200})
-	SaveMessage(dir, "s2", Message{Role: "assistant", Content: "reply", Ts: 300})
-	SaveMessage(dir, "s3", Message{Role: "assistant", Content: "no user input", Ts: 400})
+	SaveMessage(dir, "s1", Message{Role: "user", Content: "first session", Timestamp: 100, UserInput: &conversation.UserInput{ID: "00000000-0000-0000-0000-000000000001", Timestamp: 100000}})
+	SaveMessage(dir, "s2", Message{Role: "user", Content: long, Timestamp: 200, UserInput: &conversation.UserInput{ID: "00000000-0000-0000-0000-000000000002", Timestamp: 200000}})
+	SaveMessage(dir, "s2", Message{Role: "assistant", Content: "reply", Timestamp: 300})
+	SaveMessage(dir, "s3", Message{Role: "assistant", Content: "no user input", Timestamp: 400})
 
 	sessions := ListSessions(dir)
 	if len(sessions) != 3 {
@@ -84,7 +84,7 @@ func TestListSessions(t *testing.T) {
 func TestFileCreated(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
-	SaveMessage(dir, "test", Message{Role: "user", Content: "hi", Ts: 1})
+	SaveMessage(dir, "test", Message{Role: "user", Content: "hi", Timestamp: 1})
 
 	path := SessionFilePath(dir, "test")
 	if path == "" {
@@ -100,9 +100,9 @@ func TestFindLastCompactBoundary_RebuildsCompactedState(t *testing.T) {
 	dir := t.TempDir()
 	sid := "compacted-session"
 
-	SaveMessage(dir, sid, Message{Role: "user", Content: "ORIGINAL-PREFIX-1", Ts: 1})
-	SaveMessage(dir, sid, Message{Role: "assistant", Content: "ORIGINAL-PREFIX-2", Ts: 2})
-	SaveMessage(dir, sid, Message{Role: "user", Content: "ORIGINAL-PREFIX-3", Ts: 3})
+	SaveMessage(dir, sid, Message{Role: "user", Content: "ORIGINAL-PREFIX-1", Timestamp: 1})
+	SaveMessage(dir, sid, Message{Role: "assistant", Content: "ORIGINAL-PREFIX-2", Timestamp: 2})
+	SaveMessage(dir, sid, Message{Role: "user", Content: "ORIGINAL-PREFIX-3", Timestamp: 3})
 
 	keep := []KeepMessage{
 		{Role: "user", Content: "KEPT-TAIL-USER"},
@@ -110,8 +110,8 @@ func TestFindLastCompactBoundary_RebuildsCompactedState(t *testing.T) {
 	}
 	SaveCompactBoundary(dir, sid, "THE-SUMMARY", keep)
 
-	SaveMessage(dir, sid, Message{Role: "user", Content: "AFTER-BOUNDARY-USER", Ts: 5})
-	SaveMessage(dir, sid, Message{Role: "assistant", Content: "AFTER-BOUNDARY-ASSISTANT", Ts: 6})
+	SaveMessage(dir, sid, Message{Role: "user", Content: "AFTER-BOUNDARY-USER", Timestamp: 5})
+	SaveMessage(dir, sid, Message{Role: "assistant", Content: "AFTER-BOUNDARY-ASSISTANT", Timestamp: 6})
 
 	msgs := LoadSession(dir, sid)
 
@@ -170,11 +170,11 @@ func TestFindLastCompactBoundary_UsesLastBoundary(t *testing.T) {
 	dir := t.TempDir()
 	sid := "twice-compacted"
 
-	SaveMessage(dir, sid, Message{Role: "user", Content: "GEN0", Ts: 1})
+	SaveMessage(dir, sid, Message{Role: "user", Content: "GEN0", Timestamp: 1})
 	SaveCompactBoundary(dir, sid, "SUMMARY-1", []KeepMessage{{Role: "user", Content: "KEEP-1"}})
-	SaveMessage(dir, sid, Message{Role: "assistant", Content: "BETWEEN-BOUNDARIES", Ts: 3})
+	SaveMessage(dir, sid, Message{Role: "assistant", Content: "BETWEEN-BOUNDARIES", Timestamp: 3})
 	SaveCompactBoundary(dir, sid, "SUMMARY-2", []KeepMessage{{Role: "assistant", Content: "KEEP-2"}})
-	SaveMessage(dir, sid, Message{Role: "user", Content: "NEWEST", Ts: 5})
+	SaveMessage(dir, sid, Message{Role: "user", Content: "NEWEST", Timestamp: 5})
 
 	msgs := LoadSession(dir, sid)
 	boundary, after, ok := FindLastCompactBoundary(msgs)
@@ -197,9 +197,9 @@ func TestFindLastCompactBoundary_NoBoundaryFullReplay(t *testing.T) {
 	dir := t.TempDir()
 	sid := "legacy-session"
 
-	SaveMessage(dir, sid, Message{Role: "user", Content: "hello", Ts: 1})
-	SaveMessage(dir, sid, Message{Role: "assistant", Content: "hi", Ts: 2})
-	SaveMessage(dir, sid, Message{Role: "user", Content: "again", Ts: 3})
+	SaveMessage(dir, sid, Message{Role: "user", Content: "hello", Timestamp: 1})
+	SaveMessage(dir, sid, Message{Role: "assistant", Content: "hi", Timestamp: 2})
+	SaveMessage(dir, sid, Message{Role: "user", Content: "again", Timestamp: 3})
 
 	msgs := LoadSession(dir, sid)
 	_, _, ok := FindLastCompactBoundary(msgs)
@@ -277,7 +277,7 @@ func TestLoadKeepsEmptyContentToolResult(t *testing.T) {
 	}
 }
 
-func TestLoadLegacyRecordsWithoutToolFields(t *testing.T) {
+func TestLoadRejectsLegacyTimestampRecords(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
 	id := "legacy"
@@ -293,10 +293,7 @@ func TestLoadLegacyRecordsWithoutToolFields(t *testing.T) {
 	}
 
 	loaded := LoadSession(dir, id)
-	if len(loaded) != 2 {
-		t.Fatalf("expected 2 legacy records, got %d", len(loaded))
-	}
-	if loaded[0].Content != "hi" || len(loaded[0].ToolUses) != 0 {
-		t.Errorf("legacy record parsed wrong: %+v", loaded[0])
+	if len(loaded) != 0 {
+		t.Fatalf("obsolete timestamp records must be rejected, got %+v", loaded)
 	}
 }

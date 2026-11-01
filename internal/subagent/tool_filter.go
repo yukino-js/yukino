@@ -17,6 +17,8 @@ var TeammateDisallowedTools = []string{"TeamCreate", "TeamDelete"}
 func IsMCPTool(name string) bool { return strings.HasPrefix(name, tools.MCPToolPrefix) }
 func registerScopedTool(registry *tools.Registry, tool tools.Tool) {
 	switch t := tool.(type) {
+	case *tools.EnterPlanModeTool:
+		registry.Register(&tools.EnterPlanModeTool{Registry: registry})
 	case *tools.ToolSearchTool:
 		registry.Register(&tools.ToolSearchTool{Registry: registry})
 	case *tools.McpCallTool:

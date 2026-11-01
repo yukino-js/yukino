@@ -6,12 +6,23 @@ import (
 	"sync"
 
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/file_history"
+	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/plan_file"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/utils"
 )
 
 type executionContextKey struct{}
 
+type PlanContext struct {
+	Owner         plan_file.Owner
+	IsPlanMode    func() bool
+	EnterPlanMode func()
+	IsSubagent    bool
+	IsTeammate    bool
+}
+
 type ExecutionContext struct {
+	RequestPermission     func(context.Context, string, string) (int, string)
+	Plan                  *PlanContext
 	FileStateCache        *FileStateCache
 	FileHistory           *file_history.History
 	IsAgentRuntime        bool
@@ -25,6 +36,11 @@ type ExecutionContext struct {
 	CanReadSearchPath     func(string) bool
 	CanTraverseSearchPath func(string) bool
 	CheckPermission       func(string, map[string]any) *ToolResult
+}
+
+func PlanningContext(ctx context.Context) *PlanContext {
+	execution, _ := ctx.Value(executionContextKey{}).(ExecutionContext)
+	return execution.Plan
 }
 
 func WithExecutionContext(ctx context.Context, execution ExecutionContext) context.Context {
@@ -146,4 +162,9 @@ func fileHistoryForContext(ctx context.Context, fallback *file_history.History) 
 		return execution.FileHistory
 	}
 	return fallback
+}
+
+func RuntimeContext(ctx context.Context) (ExecutionContext, bool) {
+	value, ok := ctx.Value(executionContextKey{}).(ExecutionContext)
+	return value, ok
 }

@@ -76,49 +76,18 @@ func TestFileMailBoxNonexistentAgent(t *testing.T) {
 func TestTeamSendMessageIntegration(t *testing.T) {
 	useTempHome(t)
 	dir := t.TempDir()
-	team := NewTeam(t.TempDir(), "test-team", ModeInProcess)
+	team := NewTeam(t.TempDir(), "test-team")
 	team.MailBox = NewFileMailBox(filepath.Join(dir, "inboxes"))
 
-	team.SendMessage("leader", "worker", "do task X")
+	if _, err := team.AddMember("worker", nil, nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := team.SendMessage("leader", "worker", "do task X"); err != nil {
+		t.Fatal(err)
+	}
 
 	unread, _ := team.MailBox.ReadUnread("worker")
 	if len(unread) != 1 || unread[0].From != "leader" || unread[0].Text != "do task X" {
 		t.Fatalf("Unexpected: %+v", unread)
 	}
-}
-
-func TestInjectPendingMessages(t *testing.T) {
-	useTempHome(t)
-	dir := t.TempDir()
-	team := NewTeam(t.TempDir(), "test-team", ModeInProcess)
-	team.MailBox = NewFileMailBox(filepath.Join(dir, "inboxes"))
-
-	team.SendMessage("alice", "bob", "hello bob")
-	team.SendMessage("carol", "bob", "hey bob")
-
-	result := InjectPendingMessages(team, "bob")
-	if result == "" {
-		t.Fatal("Expected non-empty result")
-	}
-	if !contains(result, "From alice: hello bob") || !contains(result, "From carol: hey bob") {
-		t.Fatalf("Missing messages in result: %s", result)
-	}
-
-	result2 := InjectPendingMessages(team, "bob")
-	if result2 != "" {
-		t.Fatalf("Expected empty after consume, got: %s", result2)
-	}
-}
-
-func contains(s, sub string) bool {
-	return len(s) >= len(sub) && (s == sub || len(s) > 0 && containsStr(s, sub))
-}
-
-func containsStr(s, sub string) bool {
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
 }

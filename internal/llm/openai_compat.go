@@ -114,10 +114,12 @@ func (c *openaiCompatClient) Stream(ctx context.Context, conv *conversation.Mana
 		defer close(events)
 		defer close(errs)
 
+		requestConfig := c.cfg
+		requestConfig.MaxOutputTokens = float64(maxOutputTokens(ctx, c.maxOutputTokens))
 		reqParams := openai.ChatCompletionNewParams{
 			Model:               c.model,
 			Messages:            messages,
-			MaxCompletionTokens: param.NewOpt(int64(c.maxOutputTokens)),
+			MaxCompletionTokens: param.NewOpt(int64(config.GetMaxOutputTokens(&requestConfig))),
 			StreamOptions: openai.ChatCompletionStreamOptionsParam{
 				IncludeUsage: param.NewOpt(true),
 			},

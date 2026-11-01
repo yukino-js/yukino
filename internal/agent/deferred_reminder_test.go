@@ -7,6 +7,7 @@ import (
 
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/conversation"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/llm"
+	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/prompt"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/tools"
 )
 
@@ -26,7 +27,7 @@ func (t *deferredMockTool) Execute(context.Context, map[string]any) tools.ToolRe
 func countDeferredReminders(conv *conversation.Manager) int {
 	n := 0
 	for _, m := range conv.GetMessages() {
-		if m.Role == "user" && strings.Contains(m.Content, deferredReminderMarker) {
+		if m.Role == "user" && strings.Contains(m.Content, prompt.DeferredGuidanceMarker) {
 			n++
 		}
 	}
@@ -47,6 +48,8 @@ func TestDeferredReminderNotRepeatedAcrossIterations(t *testing.T) {
 	}}
 
 	reg := tools.NewRegistry()
+	reg.ExposeToolSearch = true
+	reg.Register(&tools.ToolSearchTool{Registry: reg})
 	reg.Register(&mockTool{name: "Glob", result: "ok"})
 	reg.Register(&deferredMockTool{name: "mcp__linear__create_issue"})
 	reg.Register(&deferredMockTool{name: "mcp__sentry__resolve_issue"})
@@ -69,6 +72,8 @@ func TestDeferredReminderReannouncedWhenPoolChanges(t *testing.T) {
 		{llm.TextDelta{Text: "two"}, llm.StreamEnd{StopReason: "end_turn"}},
 	}}
 	reg := tools.NewRegistry()
+	reg.ExposeToolSearch = true
+	reg.Register(&tools.ToolSearchTool{Registry: reg})
 	reg.Register(&deferredMockTool{name: "mcp__linear__create_issue"})
 
 	ag := New(client, reg, "anthropic")
@@ -92,6 +97,8 @@ func TestDeferredReminderReannouncedAfterHistoryWiped(t *testing.T) {
 		{llm.TextDelta{Text: "two"}, llm.StreamEnd{StopReason: "end_turn"}},
 	}}
 	reg := tools.NewRegistry()
+	reg.ExposeToolSearch = true
+	reg.Register(&tools.ToolSearchTool{Registry: reg})
 	reg.Register(&deferredMockTool{name: "mcp__linear__create_issue"})
 
 	ag := New(client, reg, "anthropic")
@@ -113,6 +120,8 @@ func TestDeferredReminderReannouncedAfterHistoryWiped(t *testing.T) {
 
 func TestDeferredToolNamesSorted(t *testing.T) {
 	reg := tools.NewRegistry()
+	reg.ExposeToolSearch = true
+	reg.Register(&tools.ToolSearchTool{Registry: reg})
 	for _, n := range []string{"mcp__z__b", "mcp__a__c", "mcp__m__a"} {
 		reg.Register(&deferredMockTool{name: n})
 	}

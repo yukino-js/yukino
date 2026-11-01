@@ -275,8 +275,8 @@ func (m Model) handleAgentEvent(ev agent.AgentEvent) (tea.Model, tea.Cmd) {
 		m.updateViewport()
 
 	case agent.UsageEvent:
-		m.totalInput = e.InputTokens
-		m.totalOutput = e.OutputTokens
+		m.totalInput += e.InputTokens
+		m.totalOutput += e.OutputTokens
 
 	case agent.PermissionRequestEvent:
 		m.permDialog = true
@@ -337,10 +337,11 @@ func (m Model) handleAgentEvent(ev agent.AgentEvent) (tea.Model, tea.Cmd) {
 		m.committedUpTo = len(m.chatMessages)
 		m.thinkingDone = 0
 		m.finishStreaming()
-		if m.ag != nil && m.ag.Checker != nil && m.ag.Checker.Mode() == permissions.ModePlan {
+		if e.PlanReady && m.ag != nil && m.ag.Checker != nil && m.ag.Checker.Mode() == permissions.ModePlan {
 			m.planApprovalDialog = true
 			m.planApprovalCursor = 0
 			m.planApprovalInput = ""
+			m.planFeedbackRequired = false
 			m.updateViewport()
 		}
 		pollCmd := m.pollMailbox()

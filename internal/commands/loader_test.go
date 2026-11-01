@@ -162,3 +162,28 @@ func TestHelpListingExcludesSkillCommands(t *testing.T) {
 		t.Error("help listing must exclude skill-derived commands")
 	}
 }
+
+func TestCommandRawBodyAndAtomicFrontmatterValidation(t *testing.T) {
+	dir := setupPromptsDir(t)
+	writePrompt(t, dir, "raw.md", "\ufeff  indented\n\n")
+	writePrompt(t, dir, "invalid.md", "---\ndescription: accepted?\nargument-hint: 42\n---\n  body  \n")
+	for _, cmd := range LoadUserCommands() {
+		switch cmd.Name {
+		case "raw":
+			if got := cmd.Handler(&Context{}); got != "  indented\n\n" {
+				t.Fatal(got)
+			}
+		case "invalid":
+			if cmd.Description != "custom command [custom]" || cmd.Handler(&Context{}) != "body" {
+				t.Fatal(cmd.Description, cmd.Handler(&Context{}))
+			}
+		}
+	}
+	if got := RenderBody("before${@:1:0}after", "one two"); got != "beforeafter" {
+		t.Fatal(got)
+	}
+	name, args, ok := Parse("/review\u3000target")
+	if !ok || name != "review" || args != "target" {
+		t.Fatal(name, args, ok)
+	}
+}

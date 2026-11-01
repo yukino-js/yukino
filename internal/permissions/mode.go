@@ -2,6 +2,17 @@ package permissions
 
 import "sync"
 
+func (c *Checker) CurrentPlanPath() string {
+	c.planPathMu.RLock()
+	defer c.planPathMu.RUnlock()
+	return c.planFilePath
+}
+func (c *Checker) SetPlanFilePath(path string) {
+	c.planPathMu.Lock()
+	defer c.planPathMu.Unlock()
+	c.planFilePath = path
+}
+
 type permissionModeState struct {
 	mu     sync.RWMutex
 	value  PermissionMode
@@ -115,7 +126,7 @@ func (c *Checker) ForCwd(cwd string) *Checker {
 	checker.modeState = c.modeState
 	checker.planModeState = c.planModeState
 	checker.parent = c.parent
-	checker.PlanFilePath = c.PlanFilePath
+	checker.SetPlanFilePath(c.CurrentPlanPath())
 	checker.Teammate = c.Teammate
 	checker.ReadOnly = c.ReadOnly
 	checker.RequiresLeaderPlanApproval = c.RequiresLeaderPlanApproval
@@ -134,7 +145,7 @@ func (c *Checker) ForSubagent(cwd string, mode PermissionMode) *Checker {
 	checker.modeState = &permissionModeState{value: mode, events: c.modeState.events}
 	checker.planModeState = &planModeState{}
 	if !c.Teammate {
-		checker.PlanFilePath = ""
+		checker.SetPlanFilePath("")
 	}
 	return checker
 }

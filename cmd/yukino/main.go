@@ -37,15 +37,6 @@ func main() {
 	// anything reads it.
 	config.HydrateConfigEnv()
 
-	if args, ok := parseTeammateFlags(os.Args[1:]); ok {
-		if err := runTeammate(args); err != nil {
-			fmt.Fprintf(os.Stderr, "teammate: %s\n", err)
-			tools.RunExitCleanups()
-			os.Exit(1)
-		}
-		return
-	}
-
 	remoteAddr := ""
 	var filteredArgs []string
 	for i := 1; i < len(os.Args); i++ {

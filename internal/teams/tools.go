@@ -3,342 +3,218 @@ package teams
 import (
 	"context"
 	"fmt"
-	"strings"
-
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/tools"
+	"strings"
 )
 
+func teamToolSchema(name, description string, properties map[string]any, required ...string) map[string]any {
+	if required == nil {
+		required = []string{}
+	}
+	return map[string]any{"name": name, "description": description, "input_schema": map[string]any{"type": "object", "properties": properties, "required": required}}
+}
+func stringProperty(description string) map[string]any {
+	return map[string]any{"type": "string", "description": description}
+}
+func teamResult(err error, output string) tools.ToolResult {
+	if err != nil {
+		return tools.ToolResult{Output: err.Error(), IsError: true}
+	}
+	return tools.ToolResult{Output: output}
+}
+
+type TeamCreateTool struct{ TeamMgr *TeamManager }
+
+func (t *TeamCreateTool) Name() string                 { return "TeamCreate" }
+func (t *TeamCreateTool) Description() string          { return TeamCreateToolDescription }
+func (t *TeamCreateTool) Category() tools.ToolCategory { return tools.CategoryCommand }
+func (t *TeamCreateTool) Schema() map[string]any {
+	return teamToolSchema(t.Name(), t.Description(), map[string]any{"name": stringProperty(TeamCreateNameParamDescription), "description": stringProperty(TeamDescriptionParamDescription)})
+}
+func (t *TeamCreateTool) Execute(_ context.Context, args map[string]any) tools.ToolResult {
+	name, _ := args["name"].(string)
+	description, _ := args["description"].(string)
+	team, err := t.TeamMgr.CreateTeam(strings.TrimSpace(name), LeadName, description)
+	if err != nil {
+		return teamResult(err, "")
+	}
+	return teamResult(nil, fmt.Sprintf("Team '%s' created. Use Agent with kind=\"teammate\" and team_name=\"%s\" to add teammates.", team.Name, team.Name))
+}
+
+type TeamDeleteTool struct{ TeamMgr *TeamManager }
+
+func (t *TeamDeleteTool) Name() string                 { return "TeamDelete" }
+func (t *TeamDeleteTool) Description() string          { return TeamDeleteToolDescription }
+func (t *TeamDeleteTool) Category() tools.ToolCategory { return tools.CategoryCommand }
+func (t *TeamDeleteTool) Schema() map[string]any {
+	return teamToolSchema(t.Name(), t.Description(), map[string]any{"team_name": stringProperty(teamNameParamDescription)})
+}
+func (t *TeamDeleteTool) Execute(_ context.Context, args map[string]any) tools.ToolResult {
+	name, _ := args["team_name"].(string)
+	team, err := t.TeamMgr.ResolveTeam(name)
+	if err != nil {
+		return teamResult(err, "")
+	}
+	if team == nil {
+		return teamResult(nil, "No active team.")
+	}
+	t.TeamMgr.DeleteTeam(team.Name)
+	return teamResult(nil, fmt.Sprintf("Team '%s' deleted.", team.Name))
+}
+
+type TeamListTool struct{ TeamMgr *TeamManager }
+
+func (t *TeamListTool) Name() string                 { return "TeamList" }
+func (t *TeamListTool) Description() string          { return ListTeamToolDescription }
+func (t *TeamListTool) Category() tools.ToolCategory { return tools.CategoryRead }
+func (t *TeamListTool) Schema() map[string]any {
+	return teamToolSchema(t.Name(), t.Description(), map[string]any{})
+}
+func (t *TeamListTool) Execute(_ context.Context, _ map[string]any) tools.ToolResult {
+	lines := []string{}
+	for _, name := range t.TeamMgr.ListTeams() {
+		team := t.TeamMgr.GetTeam(name)
+		members := []string{}
+		team.mu.Lock()
+		for _, m := range team.membersInOrder() {
+			label := m.Name
+			if m.Active {
+				label += " (active)"
+			}
+			members = append(members, label)
+		}
+		team.mu.Unlock()
+		listing := strings.Join(members, ", ")
+		if listing == "" {
+			listing = "(no members)"
+		}
+		lines = append(lines, name+": "+listing)
+	}
+	if len(lines) == 0 {
+		return teamResult(nil, "No active team.")
+	}
+	return teamResult(nil, strings.Join(lines, "\n"))
+}
+
 type SendMessageTool struct {
+	TeamName   string
 	TeamMgr    *TeamManager
 	SenderName string
 }
 
 func (t *SendMessageTool) Name() string                 { return "SendMessage" }
+func (t *SendMessageTool) Description() string          { return SendMessageToolDescription }
 func (t *SendMessageTool) Category() tools.ToolCategory { return tools.CategoryCommand }
-func (t *SendMessageTool) Description() string {
-	return "Send a message to another named agent in the team. The recipient will see it on their next turn."
-}
-
-func (t *SendMessageTool) Schema() map[string]any {
-	return map[string]any{
-		"name":        t.Name(),
-		"description": t.Description(),
-		"input_schema": map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"to": map[string]any{
-					"type":        "string",
-					"description": "Name of the recipient agent",
-				},
-				"content": map[string]any{
-					"type":        "string",
-					"description": "Message content to send. For shutdown_request this is the reason; for plan_approval_response this is your feedback when rejecting.",
-				},
-				"type": map[string]any{
-					"type": "string",
-					"enum": []string{
-						MsgText, MsgShutdownRequest, MsgShutdownResponse, MsgPlanApprovalResponse,
-					},
-					"description": "Message kind, defaults to 'text'. Use 'shutdown_request' to ask a teammate to wrap up (it replies with shutdown_response). Use 'plan_approval_response' to answer a teammate's plan, together with 'approve' and, when rejecting, feedback in 'content'.",
-				},
-				"request_id": map[string]any{
-					"type":        "string",
-					"description": "Required for plan_approval_response: copy the requestId from the teammate's plan approval request so it knows which plan you are answering.",
-				},
-				"approve": map[string]any{
-					"type":        "boolean",
-					"description": "Required for plan_approval_response: true to let the teammate start executing, false to send it back to revise.",
-				},
-			},
-			"required": []string{"to", "content"},
-		},
+func (t *SendMessageTool) sender() string {
+	if t.SenderName == "" {
+		return LeadName
 	}
+	return t.SenderName
 }
-
+func (t *SendMessageTool) Schema() map[string]any {
+	kinds := []string{MsgText, MsgShutdownRequest, MsgShutdownResponse}
+	description := "Message kind, defaults to 'text'. Use 'shutdown_request' to ask a teammate to wrap up (it replies with shutdown_response). "
+	if t.TeamMgr.CoordinatorMode {
+		kinds = append(kinds, MsgPlanApprovalResponse)
+		description += "The leader must review each plan_approval_request and reply with plan_approval_response, approve, request_id, and substantive feedback in content."
+	} else {
+		description += "Teammate plans are automatically approved by the runtime."
+	}
+	return teamToolSchema(t.Name(), t.Description(), map[string]any{"team_name": stringProperty(teamNameParamDescription), "to": stringProperty(SendMessageToDescription), "content": stringProperty(SendMessageContentDescription), "type": map[string]any{"type": "string", "enum": kinds, "description": description}, "request_id": stringProperty(SendMessageRequestIdDescription), "approve": map[string]any{"type": "boolean", "description": SendMessageApproveDescription}}, "to", "content")
+}
 func (t *SendMessageTool) Execute(ctx context.Context, args map[string]any) tools.ToolResult {
 	to, _ := args["to"].(string)
 	content, _ := args["content"].(string)
-	msgType, _ := args["type"].(string)
-	requestID, _ := args["request_id"].(string)
-	approve, hasApprove := args["approve"].(bool)
-	if to == "" || content == "" {
-		return tools.ToolResult{Output: "Error: 'to' and 'content' are required", IsError: true}
-	}
-
-	if msgType != "" && msgType != MsgText {
-		return t.sendTyped(to, msgType, requestID, content, approve, hasApprove)
-	}
-
-	if to == "*" {
-		for _, teamName := range t.TeamMgr.ListTeams() {
-			team := t.TeamMgr.GetTeam(teamName)
-			if team == nil {
-				continue
-			}
-			if _, ok := team.Members[t.SenderName]; !ok {
-				continue
-			}
-			count := 0
-			for member := range team.Members {
-				if member == t.SenderName {
-					continue
-				}
-				team.SendMessage(t.SenderName, member, content)
-				count++
-			}
-			return tools.ToolResult{Output: fmt.Sprintf("Message broadcast to %d teammate(s).", count)}
-		}
-		return tools.ToolResult{
-			Output:  fmt.Sprintf("Error: cannot find team for sender '%s'", t.SenderName),
-			IsError: true,
-		}
-	}
-
-	if to == LeadName {
-		for _, teamName := range t.TeamMgr.ListTeams() {
-			team := t.TeamMgr.GetTeam(teamName)
-			if team == nil {
-				continue
-			}
-			if _, ok := team.Members[t.SenderName]; ok {
-				team.SendMessage(t.SenderName, LeadName, content)
-				return tools.ToolResult{
-					Output: fmt.Sprintf("Message sent to %s.", LeadName),
-				}
-			}
-		}
-		return tools.ToolResult{
-			Output:  fmt.Sprintf("Error: cannot find team for sender '%s'", t.SenderName),
-			IsError: true,
-		}
-	}
-
-	recipient := to
-	if resolved := GetNameRegistry().Resolve(to); resolved != "" {
-		recipient = resolved
-	}
-
-	for _, teamName := range t.TeamMgr.ListTeams() {
-		team := t.TeamMgr.GetTeam(teamName)
-		if team == nil {
-			continue
-		}
-		if _, ok := team.Members[recipient]; ok {
-			team.SendMessage(t.SenderName, recipient, content)
-			return tools.ToolResult{
-				Output: fmt.Sprintf("Message sent to %s.", to),
-			}
-		}
-		if _, ok := team.Members[t.SenderName]; ok {
-			team.SendMessage(t.SenderName, recipient, content)
-			return tools.ToolResult{
-				Output: fmt.Sprintf("Message sent to %s.", to),
-			}
-		}
-	}
-
-	return tools.ToolResult{
-		Output:  fmt.Sprintf("Error: recipient '%s' not found in any team", to),
-		IsError: true,
-	}
-}
-
-type TeamCreateTool struct {
-	TeamMgr *TeamManager
-}
-
-func (t *TeamCreateTool) Name() string                 { return "TeamCreate" }
-func (t *TeamCreateTool) Category() tools.ToolCategory { return tools.CategoryCommand }
-func (t *TeamCreateTool) Description() string {
-	return `Create a new team for coordinating multiple subagent.
-
-## When to Use
-
-Use this tool proactively whenever:
-- The user explicitly asks to use a team, swarm, or group of agents
-- The user mentions wanting agents to work together, coordinate, or collaborate
-- A task requires sequential or parallel collaboration between multiple agents
-
-When in doubt about whether a task warrants a team, prefer spawning a team.
-
-## Team Workflow
-
-1. **Create a team** with TeamCreate
-2. **Spawn teammates** using the Agent tool with team_name and name parameters — this is REQUIRED to create long-running team members
-3. Teammates work independently and communicate via **SendMessage**
-4. When a teammate finishes, it sends its result to "leader" via SendMessage, then goes idle
-5. The lead collects and synthesizes all teammate results
-
-## CRITICAL: Spawning Teammates
-
-To add a member to a team, you MUST pass both team_name and name to the Agent tool:
-` + "```" + `
-Agent({
-  "team_name": "<team name from step 1>",
-  "name": "<member name, e.g. reviewer>",
-  "prompt": "...",
-  "description": "..."
-})
-` + "```" + `
-Without team_name, the agent runs as a one-shot sub-agent that blocks and returns inline — it will NOT be a team member.
-
-## Teammate Idle State
-
-Teammates go idle after every turn — this is completely normal. A teammate going idle after sending a message does NOT mean they are done or unavailable. Sending a message to an idle teammate wakes them up.
-
-## Communication
-
-- Use SendMessage to talk to teammates by name
-- Messages from teammates arrive as system reminders at the start of each turn
-- Messages are delivered automatically — you do NOT need to manually check your inbox`
-}
-
-func (t *TeamCreateTool) Schema() map[string]any {
-	return map[string]any{
-		"name":        t.Name(),
-		"description": t.Description(),
-		"input_schema": map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"team_name": map[string]any{
-					"type":        "string",
-					"description": "Name for the team",
-				},
-				"description": map[string]any{
-					"type":        "string",
-					"description": "What this team will work on",
-				},
-			},
-			"required": []string{"team_name"},
-		},
-	}
-}
-
-func (t *TeamCreateTool) Execute(ctx context.Context, args map[string]any) tools.ToolResult {
 	name, _ := args["team_name"].(string)
-	if name == "" {
-		return tools.ToolResult{Output: "Error: team_name is required", IsError: true}
+	sender := t.sender()
+	if t.TeamName != "" {
+		if name != "" && sanitizeTeamName(name) != sanitizeTeamName(t.TeamName) {
+			return teamResult(fmt.Errorf("Teammates can only access their own team."), "")
+		}
+		name = t.TeamName
 	}
-
-	baseName := name
-	for i := 2; t.TeamMgr.GetTeam(name) != nil; i++ {
-		name = fmt.Sprintf("%s-%d", baseName, i)
+	member := ""
+	if sender != LeadName {
+		member = sender
 	}
-
-	mode := detectBackend()
-	desc, _ := args["description"].(string)
-	team, err := t.TeamMgr.CreateTeamFull(name, mode, LeadName, desc)
+	team, err := t.TeamMgr.ResolveTeamForMember(name, member)
 	if err != nil {
+		return teamResult(err, "")
+	}
+	if team == nil {
+		return teamResult(fmt.Errorf("No active team found for this sender."), "")
+	}
+	kind, ok := args["type"].(string)
+	if !ok {
+		kind = MsgText
+	}
+	if kind != MsgText {
+		id, _ := args["request_id"].(string)
+		approve, hasApprove := args["approve"].(bool)
+		var msg FileMailMessage
+		switch kind {
+		case MsgPlanApprovalResponse:
+			plan := tools.PlanningContext(ctx)
+			if sender != LeadName || plan != nil && (plan.IsTeammate || plan.IsSubagent) {
+				return teamResult(fmt.Errorf("Only the leader can approve or reject teammate plans."), "")
+			}
+			if id == "" || !hasApprove || strings.TrimSpace(content) == "" {
+				return teamResult(fmt.Errorf("plan_approval_response requires request_id, approve, and review feedback in content."), "")
+			}
+			if err := team.RespondToPlan(to, id, approve, content); err != nil {
+				return teamResult(err, "")
+			}
+			decision := "revision feedback"
+			if approve {
+				decision = "approval"
+			}
+			return teamResult(nil, fmt.Sprintf("Plan %s sent to '%s'.", decision, to))
+		case MsgShutdownRequest:
+			if sender != LeadName {
+				return teamResult(fmt.Errorf("Only the leader can request teammate shutdown."), "")
+			}
+			msg = NewShutdownRequest(sender, content)
+		case MsgShutdownResponse:
+			if !hasApprove {
+				return teamResult(fmt.Errorf("shutdown_response requires 'approve'."), "")
+			}
+			msg = NewShutdownResponse(sender, id, approve, content)
+		default:
+			return teamResult(fmt.Errorf("Unsupported message type %s.", kind), "")
+		}
+		if to != LeadName && !team.HasMember(to) {
+			return teamResult(fmt.Errorf("Teammate '%s' not found.", to), "")
+		}
+		return teamResult(team.MailBox.Send(to, msg), fmt.Sprintf("%s sent to '%s'.", kind, to))
+	}
+	if to == "*" {
+		count := 0
+		for _, m := range team.ListMembers() {
+			team.mu.Lock()
+			skip := m.Name == sender || !m.Active && m.Progress != nil
+			team.mu.Unlock()
+			if skip {
+				continue
+			}
+			if err := team.SendMessage(sender, m.Name, content); err != nil {
+				return teamResult(err, "")
+			}
+			count++
+		}
+		return teamResult(nil, fmt.Sprintf("Message broadcast to %d teammate(s).", count))
+	}
+	if to == LeadName {
+		return teamResult(team.MailBox.Send(to, NewFileMailMessage(sender, content)), fmt.Sprintf("Message sent to '%s'.", to))
+	}
+	recipient := to
+	for _, m := range team.ListMembers() {
+		if m.Name == to || m.AgentID == to {
+			recipient = m.Name
+			break
+		}
+	}
+	if err := team.SendMessage(sender, recipient, content); err != nil {
 		return tools.ToolResult{Output: "Error: " + err.Error(), IsError: true}
 	}
-	return tools.ToolResult{
-		Output: fmt.Sprintf("Team \"%s\" created (mode: %s). Use Agent tool with team_name=\"%s\" to add teammates.\nDescription: %s",
-			team.Name, team.Mode, team.Name, desc),
-	}
-}
-
-type TeamDeleteTool struct {
-	TeamMgr *TeamManager
-}
-
-func (t *TeamDeleteTool) Name() string { return "TeamDelete" }
-
-func (t *TeamDeleteTool) Category() tools.ToolCategory { return tools.CategoryCommand }
-func (t *TeamDeleteTool) Description() string {
-	return "Delete a team, stopping all its members."
-}
-
-func (t *TeamDeleteTool) Schema() map[string]any {
-	return map[string]any{
-		"name":        t.Name(),
-		"description": t.Description(),
-		"input_schema": map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"team_name": map[string]any{
-					"type":        "string",
-					"description": "Name of the team to delete",
-				},
-			},
-			"required": []string{"team_name"},
-		},
-	}
-}
-
-func (t *TeamDeleteTool) Execute(ctx context.Context, args map[string]any) tools.ToolResult {
-	name, _ := args["team_name"].(string)
-	if name == "" {
-		return tools.ToolResult{Output: "Error: team_name is required", IsError: true}
-	}
-
-	team := t.TeamMgr.GetTeam(name)
-	if team == nil {
-		return tools.ToolResult{
-			Output:  fmt.Sprintf("Error: team '%s' not found", name),
-			IsError: true,
-		}
-	}
-
-	memberCount := len(team.Members)
-	var memberNames []string
-	for n := range team.Members {
-		memberNames = append(memberNames, n)
-	}
-
-	t.TeamMgr.DeleteTeam(name)
-	return tools.ToolResult{
-		Output: fmt.Sprintf("Team \"%s\" deleted. Stopped %d member(s): %s", name, memberCount, strings.Join(memberNames, ", ")),
-	}
-}
-
-func (t *SendMessageTool) sendTyped(to, msgType, requestID, content string, approve, hasApprove bool) tools.ToolResult {
-	var msg FileMailMessage
-	switch msgType {
-	case MsgShutdownRequest:
-		msg = NewShutdownRequest(t.SenderName, content)
-	case MsgShutdownResponse:
-		if !hasApprove {
-			return tools.ToolResult{Output: "Error: shutdown_response requires 'approve'", IsError: true}
-		}
-		msg = NewShutdownResponse(t.SenderName, requestID, approve, content)
-	case MsgPlanApprovalResponse:
-		if requestID == "" || !hasApprove {
-			return tools.ToolResult{
-				Output:  "Error: plan_approval_response requires both 'request_id' and 'approve'",
-				IsError: true,
-			}
-		}
-		msg = NewPlanApprovalResponse(t.SenderName, requestID, approve, content)
-	default:
-		return tools.ToolResult{Output: "Error: unsupported message type " + msgType, IsError: true}
-	}
-
-	team := t.senderTeam()
-	if team == nil {
-		return tools.ToolResult{
-			Output:  fmt.Sprintf("Error: cannot find team for sender '%s'", t.SenderName),
-			IsError: true,
-		}
-	}
-	if err := team.MailBox.Send(to, msg); err != nil {
-		return tools.ToolResult{Output: "Error sending message: " + err.Error(), IsError: true}
-	}
-	return tools.ToolResult{Output: fmt.Sprintf("%s sent to %s.", msgType, to)}
-}
-
-func (t *SendMessageTool) senderTeam() *Team {
-	names := t.TeamMgr.ListTeams()
-	for _, name := range names {
-		team := t.TeamMgr.GetTeam(name)
-		if team == nil {
-			continue
-		}
-		if _, ok := team.Members[t.SenderName]; ok {
-			return team
-		}
-	}
-	if t.SenderName == LeadName && len(names) > 0 {
-		return t.TeamMgr.GetTeam(names[0])
-	}
-	return nil
+	return teamResult(nil, fmt.Sprintf("Message sent to '%s'.", to))
 }

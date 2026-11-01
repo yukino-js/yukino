@@ -18,9 +18,10 @@ type toolCallEntry struct {
 }
 
 type toolCallInfo struct {
-	toolID    string
-	toolName  string
-	arguments map[string]any
+	toolID     string
+	toolName   string
+	arguments  map[string]any
+	parseError string
 }
 
 type StreamingExecutor struct {
@@ -67,6 +68,7 @@ func (se *StreamingExecutor) ExecuteAll(ctx context.Context, agent *Agent) []too
 				go func(e toolCallEntry) {
 					defer wg.Done()
 					r := agent.executeSingleTool(ctx, se.eventCh, e.tc)
+					se.emitResult(r)
 					se.mu.Lock()
 					results[e.index] = r
 					se.mu.Unlock()
@@ -76,6 +78,7 @@ func (se *StreamingExecutor) ExecuteAll(ctx context.Context, agent *Agent) []too
 		} else {
 			for _, entry := range batch.calls {
 				r := agent.executeSingleTool(ctx, se.eventCh, entry.tc)
+				se.emitResult(r)
 				results[entry.index] = r
 			}
 		}
@@ -83,6 +86,10 @@ func (se *StreamingExecutor) ExecuteAll(ctx context.Context, agent *Agent) []too
 
 	se.results = results
 	return results
+}
+
+func (se *StreamingExecutor) emitResult(r toolExecResult) {
+	se.eventCh <- ToolResultEvent{ToolID: r.toolID, ToolName: r.toolName, Output: r.output, IsError: r.isError, Elapsed: r.elapsed, ContentBlocks: r.contentBlocks}
 }
 
 func partitionToolCalls(entries []toolCallEntry, registry *tools.Registry) []toolBatch {

@@ -90,6 +90,8 @@ func CreateDefaultToolsWithWorkDir(workDir string) DefaultTools {
 	reg.Register(&GrepTool{})
 	reg.Register(&LSPTool{})
 	reg.Register(&WebFetchTool{})
+	reg.Register(&ExitPlanModeTool{})
+	reg.Register(&EnterPlanModeTool{Registry: reg})
 	return DefaultTools{Registry: reg, WriteFile: wf, EditFile: ef}
 }
 

@@ -18,7 +18,10 @@ const (
 	OutsideStorageMessage = "current plan path is outside plan storage"
 )
 
-var currentPlanPath string
+type Owner interface {
+	CurrentPlanPath() string
+	SetPlanFilePath(string)
+}
 
 func plansDir() string {
 	return storage.YukinoPath(PlansDirName)
@@ -27,7 +30,9 @@ func plansDir() string {
 func generateSlug() string {
 	timestamp := strconv.FormatInt(time.Now().UnixMilli(), 36)
 	buf := make([]byte, 6)
-	_, _ = rand.Read(buf)
+	if _, err := rand.Read(buf); err != nil {
+		panic(err)
+	}
 	return timestamp + "-" + hex.EncodeToString(buf)
 }
 
@@ -40,39 +45,42 @@ func isPlanInStorage(planPath string) bool {
 	if err != nil {
 		return false
 	}
-	return rel != "" && !strings.HasPrefix(rel, "..") && !filepath.IsAbs(rel)
+	return rel != "" && rel != "." && !strings.HasPrefix(rel, "..") && !filepath.IsAbs(rel)
 }
 
-func createPlanPath() string {
+func CreatePlanPath() (string, error) {
 	dir := plansDir()
-	_ = storage.MkdirPrivateSync(dir)
+	if err := storage.MkdirPrivateSync(dir); err != nil {
+		return "", err
+	}
 	path := filepath.Join(dir, generateSlug()+PlanFileExt)
-	_ = storage.WritePrivateFileSync(path, nil, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|os.O_EXCL)
-	return path
+	if err := storage.WritePrivateFileSync(path, nil, os.O_WRONLY|os.O_CREATE|os.O_EXCL); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
-func GetOrCreatePlanPath() string {
+func GetOrCreatePlanPath(owner Owner) (string, error) {
+	currentPlanPath := owner.CurrentPlanPath()
 	if currentPlanPath != "" {
 		if _, err := os.Stat(currentPlanPath); err == nil && isPlanInStorage(currentPlanPath) {
-			return currentPlanPath
+			return currentPlanPath, nil
 		}
 	}
-	currentPlanPath = createPlanPath()
-	return currentPlanPath
-}
-
-func GetPlanFilePath() string {
-	if currentPlanPath != "" {
-		return currentPlanPath
+	path, err := CreatePlanPath()
+	if err != nil {
+		return "", err
 	}
-	return GetOrCreatePlanPath()
+	owner.SetPlanFilePath(path)
+	return path, nil
 }
 
-func ResetPlanPath() {
-	currentPlanPath = ""
+func ResetPlanPath(owner Owner) {
+	owner.SetPlanFilePath("")
 }
 
-func PlanExists() bool {
+func PlanExists(owner Owner) bool {
+	currentPlanPath := owner.CurrentPlanPath()
 	if currentPlanPath == "" {
 		return false
 	}
@@ -82,7 +90,8 @@ func PlanExists() bool {
 	return isPlanInStorage(currentPlanPath)
 }
 
-func LoadPlan() (string, error) {
+func LoadPlan(owner Owner) (string, error) {
+	currentPlanPath := owner.CurrentPlanPath()
 	if currentPlanPath == "" {
 		return "", nil
 	}
@@ -99,11 +108,14 @@ func LoadPlan() (string, error) {
 	return string(data), nil
 }
 
-func SavePlan(content string) error {
-	path := GetOrCreatePlanPath()
+func SavePlan(owner Owner, content string) error {
+	path, err := GetOrCreatePlanPath(owner)
+	if err != nil {
+		return err
+	}
 	return storage.WritePrivateFileSync(path, []byte(content), os.O_WRONLY|os.O_CREATE|os.O_TRUNC)
 }
 
-func GetCurrentPlanPath() string {
-	return currentPlanPath
+func GetCurrentPlanPath(owner Owner) string {
+	return owner.CurrentPlanPath()
 }

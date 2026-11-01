@@ -239,7 +239,7 @@ func TestAgentWithThinking(t *testing.T) {
 func TestMultiRoundConversation(t *testing.T) {
 	client := &dynamicMock{handlers: []func([]conversation.Message) []llm.StreamEvent{
 		func(msgs []conversation.Message) []llm.StreamEvent {
-			last := msgs[len(msgs)-1]
+			last := lastUserRequest(msgs)
 			if !strings.Contains(last.Content, "refactor") {
 				t.Errorf("round 1: expected user msg about refactor, got %q", last.Content)
 			}
@@ -249,7 +249,7 @@ func TestMultiRoundConversation(t *testing.T) {
 			}
 		},
 		func(msgs []conversation.Message) []llm.StreamEvent {
-			last := msgs[len(msgs)-1]
+			last := lastUserRequest(msgs)
 			if !strings.Contains(last.Content, "main.go") {
 				t.Errorf("round 2: expected user msg about main.go, got %q", last.Content)
 			}
@@ -310,7 +310,7 @@ func TestMultiRoundConversation(t *testing.T) {
 	if msgs[0].Content != "please refactor this code" {
 		t.Error("msg[0] should be first user message")
 	}
-	if msgs[2].Content != "main.go, extract functions please" {
+	if lastUserRequest(msgs).Content != "main.go, extract functions please" {
 		t.Error("msg[2] should be second user message")
 	}
 }
@@ -346,7 +346,7 @@ Output files directly using WriteFile.
 
 	client := &dynamicMock{handlers: []func([]conversation.Message) []llm.StreamEvent{
 		func(msgs []conversation.Message) []llm.StreamEvent {
-			last := msgs[len(msgs)-1]
+			last := lastUserRequest(msgs)
 			if !strings.Contains(last.Content, "Frontend Design Skill") {
 				t.Errorf("skill body not in user message: %s", last.Content[:min(100, len(last.Content))])
 			}
@@ -356,7 +356,7 @@ Output files directly using WriteFile.
 			}
 		},
 		func(msgs []conversation.Message) []llm.StreamEvent {
-			last := msgs[len(msgs)-1]
+			last := lastUserRequest(msgs)
 			if !strings.Contains(last.Content, "login") {
 				t.Errorf("expected user to say login, got: %s", last.Content)
 			}
@@ -519,7 +519,7 @@ The full path should be .yukino/skills/<skill-name>/SKILL.md.
 			}
 		},
 		func(msgs []conversation.Message) []llm.StreamEvent {
-			last := msgs[len(msgs)-1]
+			last := lastUserRequest(msgs)
 			if !strings.Contains(last.Content, "git") {
 				t.Errorf("expected user to mention git, got: %s", last.Content)
 			}
@@ -922,4 +922,14 @@ func contains(list []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func lastUserRequest(messages []conversation.Message) conversation.Message {
+	for i := len(messages) - 1; i >= 0; i-- {
+		message := messages[i]
+		if message.Role == "user" && message.Content != "" && !strings.HasPrefix(message.Content, "<system-reminder>") {
+			return message
+		}
+	}
+	return conversation.Message{}
 }
