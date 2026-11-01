@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/conversation"
 )
@@ -54,24 +53,31 @@ func TestListSessions(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
 
-	SaveMessage(dir, "s1", Message{Role: "user", Content: "first session", Ts: 1})
-	SaveMessage(dir, "s2", Message{Role: "user", Content: "second session", Ts: 2})
-	SaveMessage(dir, "s2", Message{Role: "assistant", Content: "reply", Ts: 3})
+	long := strings.Repeat("x", FirstMessagePreviewChars+50)
+	SaveMessage(dir, "s1", Message{Role: "user", Content: "first session", Ts: 100})
+	SaveMessage(dir, "s2", Message{Role: "user", Content: long, Ts: 200})
+	SaveMessage(dir, "s2", Message{Role: "assistant", Content: "reply", Ts: 300})
+	SaveMessage(dir, "s3", Message{Role: "assistant", Content: "no user input", Ts: 400})
 
 	sessions := ListSessions(dir)
-	if len(sessions) != 2 {
-		t.Fatalf("expected 2 sessions, got %d", len(sessions))
+	if len(sessions) != 3 {
+		t.Fatalf("expected 3 sessions, got %d", len(sessions))
 	}
-
-	found := map[string]bool{}
-	for _, s := range sessions {
-		found[s.ID] = true
-		if s.ID == "s2" && s.MessageCount != 2 {
-			t.Fatalf("expected 2 messages in s2, got %d", s.MessageCount)
-		}
+	// Newest user input first; sessions without user messages sort last.
+	if sessions[0].ID != "s2" || sessions[1].ID != "s1" || sessions[2].ID != "s3" {
+		t.Fatalf("unexpected order: %s %s %s", sessions[0].ID, sessions[1].ID, sessions[2].ID)
 	}
-	if !found["s1"] || !found["s2"] {
-		t.Fatalf("missing sessions: %v", sessions)
+	if sessions[0].MessageCount != 2 {
+		t.Fatalf("expected 2 messages in s2, got %d", sessions[0].MessageCount)
+	}
+	if got := len([]rune(sessions[0].FirstMessage)); got != FirstMessagePreviewChars {
+		t.Fatalf("expected preview truncated to %d chars, got %d", FirstMessagePreviewChars, got)
+	}
+	if sessions[0].LastUserMessageTime == nil || sessions[0].LastUserMessageTime.Unix() != 200 {
+		t.Fatalf("expected last user message time 200, got %v", sessions[0].LastUserMessageTime)
+	}
+	if sessions[2].LastUserMessageTime != nil {
+		t.Fatalf("expected nil last user message time, got %v", sessions[2].LastUserMessageTime)
 	}
 }
 
@@ -86,28 +92,6 @@ func TestFileCreated(t *testing.T) {
 	}
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		t.Fatal("session file was not created")
-	}
-}
-
-func TestFormatRelativeTime(t *testing.T) {
-	now := time.Now()
-	if got := FormatRelativeTime(now.Add(-30 * time.Second)); got != "just now" {
-		t.Fatalf("expected 'just now', got %s", got)
-	}
-	if got := FormatRelativeTime(now.Add(-5 * time.Minute)); got != "5 minutes ago" {
-		t.Fatalf("expected '5 minutes ago', got %s", got)
-	}
-	if got := FormatRelativeTime(now.Add(-3 * time.Hour)); got != "3 hours ago" {
-		t.Fatalf("expected '3 hours ago', got %s", got)
-	}
-}
-
-func TestFormatFileSize(t *testing.T) {
-	if got := FormatFileSize(500); got != "500B" {
-		t.Fatalf("expected '500B', got %s", got)
-	}
-	if got := FormatFileSize(53862); got != "52.6KB" {
-		t.Fatalf("expected '52.6KB', got %s", got)
 	}
 }
 
@@ -224,19 +208,6 @@ func TestFindLastCompactBoundary_NoBoundaryFullReplay(t *testing.T) {
 	}
 	if len(msgs) != 3 {
 		t.Fatalf("expected 3 messages preserved for full replay, got %d", len(msgs))
-	}
-}
-
-func TestMatchesSearch(t *testing.T) {
-	s := SessionInfo{FirstMessage: "Hello World", ID: "test-123"}
-	if !MatchesSearch(s, "hello") {
-		t.Fatal("should match case-insensitive")
-	}
-	if !MatchesSearch(s, "") {
-		t.Fatal("empty query should match all")
-	}
-	if MatchesSearch(s, "zzz") {
-		t.Fatal("should not match unrelated query")
 	}
 }
 

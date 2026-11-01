@@ -46,10 +46,38 @@ func tokenLimit(value any, fallback, min, max int) (int, error) {
 		}
 		number = n
 	}
-	if number != float64(int64(number)) || number < float64(min) || number > float64(max) {
-		return 0, fmt.Errorf("expected a whole number between %d and %d", min, max)
+	if number != float64(int64(number)) {
+		return 0, fmt.Errorf("Expected integer, received float")
+	}
+	if number < float64(min) {
+		return 0, fmt.Errorf("Number must be greater than or equal to %d", min)
+	}
+	if number > float64(max) {
+		return 0, fmt.Errorf("Number must be less than or equal to %d", max)
 	}
 	return int(number), nil
+}
+
+// LoginValidationError reports login-form validation failures: Fields maps a
+// field key to its message and Form joins them in schema order.
+type LoginValidationError struct {
+	Fields map[string]string
+	Form   string
+}
+
+var loginFieldOrder = []string{"name", "protocol", "base_url", "api_key", "model", "thinking", "context_window", "max_output_tokens"}
+
+func (e *LoginValidationError) Error() string {
+	if len(e.Fields) == 0 {
+		return e.Form
+	}
+	messages := make([]string, 0, len(e.Fields))
+	for _, key := range loginFieldOrder {
+		if message, ok := e.Fields[key]; ok {
+			messages = append(messages, message)
+		}
+	}
+	return strings.Join(messages, "; ")
 }
 
 // ParseProviderLogin validates login-form input, fills optional defaults, and
@@ -60,29 +88,34 @@ func ParseProviderLogin(input map[string]any) (ProviderConfig, error) {
 	if err != nil {
 		return p, err
 	}
+	fields := map[string]string{}
 	if strings.TrimSpace(p.Name) == "" {
-		return p, fmt.Errorf("name: Name is required")
+		fields["name"] = "Name is required"
 	}
-	parsedURL, err := url.Parse(strings.TrimSpace(p.BaseURL))
-	if err != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") || parsedURL.Host == "" {
-		return p, fmt.Errorf("base_url: Enter a valid HTTP(S) URL")
+	parsedURL, urlErr := url.Parse(strings.TrimSpace(p.BaseURL))
+	if urlErr != nil || parsedURL.Host == "" {
+		fields["base_url"] = "Enter a valid HTTP(S) URL"
+	} else if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+		fields["base_url"] = "Use an HTTP(S) URL"
 	}
 	if strings.TrimSpace(p.APIKey) == "" {
-		return p, fmt.Errorf("api_key: API key is required")
+		fields["api_key"] = "API key is required"
 	}
 	if strings.TrimSpace(p.Model) == "" {
-		return p, fmt.Errorf("model: Model is required")
+		fields["model"] = "Model is required"
 	}
-	contextWindow, err := tokenLimit(input["context_window"], DefaultContextWindow, 1_000, 10_000_000)
-	if err != nil {
-		return p, fmt.Errorf("context_window: %w", err)
+	contextWindow, cwErr := tokenLimit(input["context_window"], DefaultContextWindow, 1_000, 10_000_000)
+	if cwErr != nil {
+		fields["context_window"] = cwErr.Error()
 	}
-	maxOutputTokens, err := tokenLimit(input["max_output_tokens"], DefaultMaxOutputTokens, 1, 1_000_000)
-	if err != nil {
-		return p, fmt.Errorf("max_output_tokens: %w", err)
+	maxOutputTokens, motErr := tokenLimit(input["max_output_tokens"], DefaultMaxOutputTokens, 1, 1_000_000)
+	if motErr != nil {
+		fields["max_output_tokens"] = motErr.Error()
+	} else if cwErr == nil && maxOutputTokens > contextWindow {
+		fields["max_output_tokens"] = "Max output tokens must not exceed the context window"
 	}
-	if maxOutputTokens > contextWindow {
-		return p, fmt.Errorf("max_output_tokens: Max output tokens must not exceed the context window")
+	if len(fields) > 0 {
+		return p, &LoginValidationError{Fields: fields, Form: (&LoginValidationError{Fields: fields}).Error()}
 	}
 	p.ContextWindow = float64(contextWindow)
 	p.MaxOutputTokens = float64(maxOutputTokens)

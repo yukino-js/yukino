@@ -3,7 +3,6 @@ package ui
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -12,15 +11,12 @@ import (
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/config"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/conversation"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/file_history"
-	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/history"
-	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/hooks"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/llm"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/mcp"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/memory"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/memory/consolidation"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/memory/extractor"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/permissions"
-	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/sandbox"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/session"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/skills"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/subagent"
@@ -40,7 +36,6 @@ type appState int
 const (
 	stateProviderSelect appState = iota
 	stateChat
-	stateResume
 )
 
 type Model struct {
@@ -156,25 +151,57 @@ type Model struct {
 	EnableCoordinatorMode bool
 	ForkDisabled          bool
 
-	modelDialog     bool
-	modelState      modelPickerState
-	modelCursor     int
-	modelQuery      string
-	modelCustomMode bool
-	modelCustomText string
+	modelDialog bool
+	modelState  modelPickerState
+	modelQuery  string
+	// modelFocusedID tracks focus by model id (the entry identity), matching
+	// the reference focusedId; modelFocusOther marks the free-text row.
+	modelFocusedID  string
+	modelFocusOther bool
 
-	loginDialog bool
-	loginForm   providerLoginForm
-	loginCursor int
-	loginError  string
+	modelCustomMode   bool
+	modelCustomText   string
+	modelCustomCursor int
 
-	resumeSessions  []session.SessionInfo
-	resumeFiltered  []session.SessionInfo
-	resumeCursor    int
-	resumeSearch    string
-	resumeScrollTop int
+	loginDialog      bool
+	loginInitial     *config.ProviderConfig
+	loginForm        providerLoginForm
+	loginCursor      int
+	loginFieldCursor int
+	loginFieldErrors map[string]string
+	loginFormError   string
+	loginSubmitting  bool
+	// loginModelEdited blocks the discovery auto-fill once the user typed in
+	// the model field.
+	loginModelEdited   bool
+	loginDiscovery     loginDiscoveryState
+	loginDiscoveryGen  int
+	loginCompletedConn *loginConnection
+
+	providerDialog   bool
+	providerQuery    string
+	providerFocusURL string
+	providerFocusSet bool
+
+	resumeSessions []session.SessionInfo
+	resumeDialog   bool
+	resumeQuery    string
+	// resumeFocusedID tracks focus by session id, matching the reference
+	// focusedId.
+	resumeFocusedID string
+	resumeFocusSet  bool
 
 	hasExitedPlanMode bool
+}
+
+// dialogAvailableRows is the row budget for a docked dialog: the terminal
+// height minus the separator, input and status bar.
+func (m Model) dialogAvailableRows() int {
+	rows := m.height - m.textarea.Height() - 4
+	if rows < 0 {
+		rows = 0
+	}
+	return rows
 }
 
 func New(providers []config.ProviderConfig, mcpConfigs []config.MCPServerConfig, hookConfigs []config.HookConfig, sandboxCfg *config.SandboxYamlConfig, defaultProvider int) Model {
@@ -216,7 +243,7 @@ func New(providers []config.ProviderConfig, mcpConfigs []config.MCPServerConfig,
 		conversation:       conversation.NewManager(),
 		registry:           reg,
 		defaultTools:       dt,
-		cmdRegistry:        commands.CreateDefaultRegistry(),
+		cmdRegistry:        newUICommandRegistry(),
 		spinner:            sp,
 		askUserCh:          askCh,
 		subAgentProgressCh: subProgressCh,
@@ -227,6 +254,10 @@ func New(providers []config.ProviderConfig, mcpConfigs []config.MCPServerConfig,
 
 	if len(providers) > 0 {
 		m.state = stateChat
+		// The transcript header renders on the first WindowSizeMsg, before the
+		// init command lands, so the remembered provider must be resolved here
+		// (the reference initializes selectedProvider in useState).
+		m.selectedProvider = config.ResolveDefaultProvider(providers, defaultProvider)
 	}
 
 	return m
@@ -260,7 +291,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewport.MouseWheelEnabled = false
 			m.ready = true
 			m.updateViewport()
-			return m, nil
+			return m, tea.Println(m.renderTranscriptHeader())
 		} else {
 			m.viewport.Width = msg.Width
 			m.viewport.Height = vpHeight
@@ -342,73 +373,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleProviderSelect(msg)
 		case stateChat:
 			return m.handleChat(msg)
-		case stateResume:
-			return m.handleResumeKeys(msg)
 		}
+
+	case loginDiscoveryTickMsg:
+		return m.handleLoginDiscoveryTick(msg)
+
+	case loginDiscoveryDoneMsg:
+		return m.handleLoginDiscoveryDone(msg)
 
 	case initSingleProviderMsg:
 		p := config.ResolveDefaultProvider(m.providers, m.defaultProvider)
 		m.selectedProvider = p
-		wd, _ := os.Getwd()
-		systemPrompt := m.loadSkillsAndBuildPrompt(wd)
-		client, err := llm.NewClient(p, systemPrompt)
-		if err != nil {
-			m.chatMessages = append(m.chatMessages, chatMessage{role: "error", content: err.Error()})
-			m.updateViewport()
-			return m, nil
-		}
-		m.client = client
-		m.sessionID = session.NewID()
-		m.fileHistory = file_history.New(m.sessionID)
-		m.defaultTools.EditFile.FileHistory = m.fileHistory
-		m.defaultTools.WriteFile.FileHistory = m.fileHistory
-		m.registerAgentTools(client, p, p.Protocol, wd)
-		ag := agent.New(client, m.registry, p.Protocol)
-		ag.ContextWindow = config.GetContextWindow(p)
-		ag.MaxOutputTokens = config.GetMaxOutputTokens(p)
-		ag.Instructions = m.instructionsContent
-		ag.MemoryContent = m.memoryContent
-		ag.SkillSection = m.skillDelta()
-		ag.SkillDeltaFn = m.skillDelta
-		ag.FileHistory = m.fileHistory
-		ag.SetSessionID(m.sessionID)
-		pathSandbox := permissions.NewPathSandbox(wd, true)
-		ag.Checker = permissions.NewChecker(
-			pathSandbox,
-			permissions.NewRuleEngine(wd),
-			permissions.ModeDefault,
-		)
-		ag.Checker.SandboxEnabled = m.sandboxCfg.SandboxEnabled()
-		ag.Checker.SandboxAutoAllow = m.sandboxCfg.SandboxAutoAllow()
-		if m.sandboxCfg.SandboxEnabled() {
-			sb := sandbox.New()
-			if bashTool, ok := m.registry.Get("Bash").(*tools.BashTool); ok && sb != nil {
-				bashTool.Sandbox = sb
-				bashTool.SandboxConfig = sandbox.Config{
-					AllowWrite:     []string{wd, os.TempDir()},
-					DenyWrite:      nil,
-					NetworkEnabled: m.sandboxCfg.SandboxNetworkEnabled(),
-				}
-			}
-		}
-		ag.NotificationFn = m.drainTaskNotifications
-		ag.ToolNameFilter = teams.CoordinatorToolFilter(m.EnableCoordinatorMode)
-		ag.CoordinatorActiveFn = teams.CoordinatorActiveFn(m.EnableCoordinatorMode)
-		if len(m.hookConfigs) > 0 {
-			eng := hooks.NewEngine(m.hookConfigs)
-			eng.AgentRunner = newAgentHookRunner(client)
-			ag.Hooks = eng
-		}
-		m.ag = ag
-		if at, ok := m.registry.Get("Agent").(*subagent.AgentTool); ok {
-			at.ParentChecker = ag.Checker
-		}
-		m.wireSkillsToAgent()
-		m.memoryExtractor = m.installMemoryExtractor(ag, wd, p.Protocol)
-		m.historyEntries = history.LoadInputTexts()
-		m.textarea.Focus()
-		m.updateViewport()
-		return m, m.initMCPServersCmd()
+		return m, m.activateInitialProvider(p)
 
 	case forkSkillDoneMsg:
 		var commit string
@@ -451,7 +427,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.modelState = modelPickerState{status: ModelPickerReady, models: msg.models}
 		}
-		m.modelCursor = 0
 		m.updateViewport()
 		return m, nil
 
@@ -576,8 +551,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleChat(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.askUserDialog {
-		return m.handleAskUserDialog(msg)
+	// Dialog key dispatch follows the InteractionDock priority in
+	// src/ui/interaction-dock.tsx (the permission dialog is handled above).
+	if m.loginDialog {
+		return m.handleLoginDialog(msg)
+	}
+
+	if m.providerDialog {
+		return m.handleProviderDialog(msg)
+	}
+
+	if m.modelDialog {
+		return m.handleModelDialog(msg)
 	}
 
 	if m.planApprovalDialog {
@@ -588,16 +573,16 @@ func (m Model) handleChat(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleRewindKeys(msg)
 	}
 
+	if m.resumeDialog {
+		return m.handleResumeDialog(msg)
+	}
+
+	if m.askUserDialog {
+		return m.handleAskUserDialog(msg)
+	}
+
 	if m.sandboxDialog {
 		return m.handleSandboxDialog(msg)
-	}
-
-	if m.modelDialog {
-		return m.handleModelDialog(msg)
-	}
-
-	if m.loginDialog {
-		return m.handleLoginDialog(msg)
 	}
 
 	if msg.String() == "ctrl+o" {

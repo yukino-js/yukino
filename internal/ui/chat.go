@@ -9,6 +9,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/permissions"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/teams"
+	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/utils"
+	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/version"
 )
 
 type chatMessage struct {
@@ -60,8 +62,6 @@ func (m Model) View() string {
 		return m.renderProviderSelectView()
 	case stateChat:
 		return m.renderChatView()
-	case stateResume:
-		return m.renderResumeView()
 	}
 	return ""
 }
@@ -126,15 +126,42 @@ func (m Model) renderTeammateTree() string {
 	return sb.String()
 }
 
+// renderActiveDialog mirrors the InteractionDock priority in
+// src/ui/interaction-dock.tsx: the first active dialog replaces the composer.
+func (m Model) renderActiveDialog() string {
+	switch {
+	case m.loginDialog:
+		return m.renderLoginDialog()
+	case m.providerDialog:
+		return m.renderProviderDialog()
+	case m.modelDialog:
+		return m.renderModelDialog()
+	case m.planApprovalDialog:
+		return m.renderPlanApprovalDialog()
+	case m.rewindDialog:
+		return m.renderRewindDialog()
+	case m.resumeDialog:
+		return m.renderResumeDialog()
+	case m.permDialog:
+		return m.renderPermDialog()
+	case m.askUserDialog:
+		return m.renderAskUserDialog()
+	case m.sandboxDialog:
+		return m.renderSandboxDialog()
+	}
+	return ""
+}
+
 func (m Model) renderChatView() string {
 	var sb strings.Builder
 
+	dialog := m.renderActiveDialog()
 	hasActiveContent := len(m.chatMessages) > m.committedUpTo || m.streaming
 
 	if hasActiveContent {
 		bottomLines := 4
-		if m.permDialog {
-			bottomLines += lipgloss.Height(m.renderPermDialog())
+		if dialog != "" {
+			bottomLines = lipgloss.Height(dialog) + 3
 		}
 		vpH := m.height - bottomLines
 		if vpH < 1 {
@@ -145,46 +172,58 @@ func (m Model) renderChatView() string {
 		sb.WriteString("\n")
 	}
 
-	if m.permDialog {
-		sb.WriteString(m.renderPermDialog())
-	}
-	if m.planApprovalDialog {
-		sb.WriteString(m.renderPlanApprovalDialog())
-	}
-	if m.askUserDialog {
-		sb.WriteString(m.renderAskUserDialog())
-	}
-	if m.rewindDialog {
-		sb.WriteString(m.renderRewindDialog())
-	}
-	if m.sandboxDialog {
-		sb.WriteString(m.renderSandboxDialog())
-	}
-	if m.modelDialog {
-		sb.WriteString(m.renderModelDialog())
-	}
-	if m.loginDialog {
-		sb.WriteString(m.renderLoginDialog())
-	}
 	sb.WriteString(m.renderSeparator())
 	sb.WriteString("\n")
-	if m.planApprovalDialog {
-		sb.WriteString(lipgloss.NewStyle().Foreground(dimText).Render("  Select an option above..."))
+	if dialog != "" {
+		sb.WriteString(dialog)
 	} else {
 		sb.WriteString(promptStyle.Render("❯ "))
 		sb.WriteString(m.textarea.View())
-	}
-	sb.WriteString("\n")
-	sb.WriteString(m.renderSeparator())
-	sb.WriteString("\n")
-	if m.slashMenuOpen && len(m.slashMatches) > 0 {
-		sb.WriteString(m.renderSlashMenu())
-	}
-	if m.atMenuOpen && len(m.atMatches) > 0 {
-		sb.WriteString(m.renderAtMenu())
+		sb.WriteString("\n")
+		sb.WriteString(m.renderSeparator())
+		sb.WriteString("\n")
+		if m.slashMenuOpen && len(m.slashMatches) > 0 {
+			sb.WriteString(m.renderSlashMenu())
+		}
+		if m.atMenuOpen && len(m.atMatches) > 0 {
+			sb.WriteString(m.renderAtMenu())
+		}
 	}
 	sb.WriteString(m.renderStatusBar())
 	return sb.String()
+}
+
+// renderTranscriptHeader mirrors the Static transcript header in
+// src/ui/transcript.tsx; it is reprinted whenever the scrollback is reset
+// (startup, /clear, rewind, resume).
+func (m Model) renderTranscriptHeader() string {
+	padding := 0
+	if m.width > 2 {
+		padding = 1
+	}
+	width := max(1, m.width-padding*2)
+	hint := "/help · Esc interrupt"
+	if m.width >= 80 {
+		hint = "Esc interrupt · /commands · Ctrl+O details"
+	} else if m.width >= 40 {
+		hint = "/help · Esc interrupt · Ctrl+O details"
+	}
+	provider := ""
+	model := ""
+	if m.selectedProvider != nil {
+		provider = m.selectedProvider.Name
+		model = m.selectedProvider.Model
+		if model == "" {
+			model = provider
+		}
+	}
+	pad := strings.Repeat(" ", padding)
+	title := lipgloss.NewStyle().Bold(true).Foreground(accentColor).Render("Yukino") +
+		lipgloss.NewStyle().Foreground(dimText).Render(" v"+version.Version)
+	line2 := lipgloss.NewStyle().Foreground(mutedText).Render(truncateToWidth(hint, width, "…"))
+	line3 := lipgloss.NewStyle().Foreground(dimText).Render(truncateToWidth(
+		plainTerminalLine(fmt.Sprintf("%s/%s · %s", provider, model, utils.CompactPath(m.getWorkDir()))), width, "…"))
+	return "\n" + pad + title + "\n" + pad + line2 + "\n" + pad + line3
 }
 
 func (m Model) renderSeparator() string {

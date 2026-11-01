@@ -127,10 +127,10 @@ func TestEscClosesRewindDialog(t *testing.T) {
 
 func TestEscLeavesResumeList(t *testing.T) {
 	m := newChatModel(t)
-	m.state = stateResume
+	m.resumeDialog = true
 	m = pressEsc(t, m)
-	if m.state != stateChat {
-		t.Error("esc should leave the resume list")
+	if m.resumeDialog {
+		t.Error("esc should close the resume dialog")
 	}
 }
 

@@ -14,6 +14,8 @@ import (
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/subagent"
 )
 
+// Port of src/ui/model-select.tsx.
+
 type ModelPickerStatus string
 
 const (
@@ -33,6 +35,20 @@ type modelDiscoveryDoneMsg struct {
 	err    error
 }
 
+// modelEntry mirrors the Entry union: a discovered model or the free-text row.
+type modelEntry struct {
+	kind  string // "model" | "other"
+	model llm.DiscoveredModel
+}
+
+func modelFuseKeys() []fuseKey[llm.DiscoveredModel] {
+	return []fuseKey[llm.DiscoveredModel]{
+		{weight: 1, get: func(d llm.DiscoveredModel) (string, bool) { return d.ID, true }},
+		{weight: 1, get: func(d llm.DiscoveredModel) (string, bool) { return d.DisplayName, d.DisplayName != "" }},
+		{weight: 1, get: func(d llm.DiscoveredModel) (string, bool) { return d.Name, d.Name != "" }},
+	}
+}
+
 func (m Model) startModelDiscovery() tea.Cmd {
 	if m.selectedProvider == nil {
 		return nil
@@ -49,20 +65,17 @@ func (m Model) startModelDiscovery() tea.Cmd {
 }
 
 func (m Model) openModelDialog() (tea.Model, tea.Cmd) {
-	if m.selectedProvider == nil {
-		m.chatMessages = append(m.chatMessages, chatMessage{
-			role:    "error",
-			content: "Model switching requires an active provider.",
-		})
-		m.updateViewport()
-		return m, nil
-	}
 	m.modelDialog = true
 	m.modelState = modelPickerState{status: ModelPickerLoading}
-	m.modelCursor = 0
 	m.modelQuery = ""
+	m.modelFocusedID = ""
+	if m.selectedProvider != nil {
+		m.modelFocusedID = m.selectedProvider.Model
+	}
+	m.modelFocusOther = false
 	m.modelCustomMode = false
 	m.modelCustomText = ""
+	m.modelCustomCursor = 0
 	m.updateViewport()
 	return m, m.startModelDiscovery()
 }
@@ -73,94 +86,159 @@ func (m Model) closeModelDialog() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// modelEntries lists the visible model ids followed by the free-text entry.
-func (m Model) modelEntries() []string {
-	query := strings.ToLower(strings.TrimSpace(m.modelQuery))
-	var ids []string
-	for _, model := range m.modelState.models {
-		if query == "" ||
-			strings.Contains(strings.ToLower(model.ID), query) ||
-			strings.Contains(strings.ToLower(model.DisplayName), query) ||
-			strings.Contains(strings.ToLower(model.Name), query) {
-			ids = append(ids, model.ID)
-		}
+// modelEntries lists the matched models followed by the free-text entry.
+func (m Model) modelEntries() []modelEntry {
+	query := strings.TrimSpace(m.modelQuery)
+	var matched []llm.DiscoveredModel
+	if query == "" {
+		matched = m.modelState.models
+	} else {
+		matched = NewFuse(m.modelState.models, modelFuseKeys(), 0.35, true).Search(query)
 	}
-	return append(ids, otherModelSentinel)
+	entries := make([]modelEntry, 0, len(matched)+1)
+	for _, model := range matched {
+		entries = append(entries, modelEntry{kind: "model", model: model})
+	}
+	return append(entries, modelEntry{kind: "other"})
 }
 
-const otherModelSentinel = "\x00other"
-
-func (m Model) handleModelDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.modelCustomMode || m.modelState.status == ModelPickerEmpty || m.modelState.status == ModelPickerError {
-		switch msg.String() {
-		case "esc":
-			if m.modelCustomMode {
-				m.modelCustomMode = false
-				m.modelCustomText = ""
-				return m, nil
-			}
-			return m.closeModelDialog()
-		case "enter":
-			text := strings.TrimSpace(m.modelCustomText)
-			if text == "" {
-				return m, nil
-			}
-			return m.applyModelSelection(text)
-		case "backspace":
-			if len(m.modelCustomText) > 0 {
-				m.modelCustomText = m.modelCustomText[:len(m.modelCustomText)-1]
-			}
-			return m, nil
-		default:
-			if len(msg.Runes) > 0 {
-				m.modelCustomText += string(msg.Runes)
-			}
-			return m, nil
+func (m Model) modelDialogCursor(entries []modelEntry) int {
+	if m.modelFocusOther {
+		return len(entries) - 1
+	}
+	for i, entry := range entries {
+		if entry.kind == "model" && entry.model.ID == m.modelFocusedID {
+			return i
 		}
 	}
+	return 0
+}
 
+// modelForcedTextEntry reports whether discovery left the free-text field as
+// the only dialog content.
+func (m Model) modelForcedTextEntry() bool {
+	return m.modelState.status == ModelPickerEmpty || m.modelState.status == ModelPickerError
+}
+
+func (m Model) handleModelDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.modelCustomMode || m.modelForcedTextEntry() {
+		return m.handleModelTextField(msg)
+	}
+	if msg.String() == "esc" {
+		return m.closeModelDialog()
+	}
+	if m.modelState.status != ModelPickerReady {
+		return m, nil
+	}
 	entries := m.modelEntries()
+	cursor := m.modelDialogCursor(entries)
+	switch msg.String() {
+	case "up", "down":
+		if len(entries) > 0 {
+			next := cursor - 1
+			if msg.String() == "down" {
+				next = cursor + 1
+			}
+			next = (next + len(entries)) % len(entries)
+			entry := entries[next]
+			if entry.kind == "other" {
+				m.modelFocusOther = true
+				m.modelFocusedID = ""
+			} else {
+				m.modelFocusOther = false
+				m.modelFocusedID = entry.model.ID
+			}
+		}
+	case "enter":
+		if cursor < len(entries) {
+			entry := entries[cursor]
+			if entry.kind == "other" {
+				m.modelCustomMode = true
+				m.modelCustomText = strings.TrimSpace(m.modelQuery)
+				m.modelCustomCursor = len([]rune(m.modelCustomText))
+			} else {
+				return m.applyModelSelection(entry.model.ID)
+			}
+		}
+	default:
+		nextQuery := updateSelectorQuery(m.modelQuery, msg)
+		if nextQuery != m.modelQuery {
+			m.modelQuery = nextQuery
+			m.modelFocusOther = false
+			if strings.TrimSpace(nextQuery) != "" {
+				m.modelFocusedID = ""
+			} else if m.selectedProvider != nil {
+				m.modelFocusedID = m.selectedProvider.Model
+			}
+		}
+	}
+	m.updateViewport()
+	return m, nil
+}
+
+// handleModelTextField mirrors the TextField-owned keys while the free-text
+// row is mounted.
+func (m Model) handleModelTextField(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	value := m.modelCustomText
+	runes := []rune(value)
+	position := min(m.modelCustomCursor, len(runes))
+	bounds := graphemeBounds(value)
 	switch msg.String() {
 	case "esc":
 		return m.closeModelDialog()
-	case "up":
-		if len(entries) > 0 {
-			m.modelCursor = (m.modelCursor - 1 + len(entries)) % len(entries)
-		}
-		return m, nil
-	case "down":
-		if len(entries) > 0 {
-			m.modelCursor = (m.modelCursor + 1) % len(entries)
-		}
-		return m, nil
 	case "enter":
-		if m.modelCursor >= len(entries) {
-			return m, nil
-		}
-		if entries[m.modelCursor] == otherModelSentinel {
-			m.modelCustomMode = true
-			m.modelCustomText = strings.TrimSpace(m.modelQuery)
-			return m, nil
-		}
-		return m.applyModelSelection(entries[m.modelCursor])
-	case "backspace":
-		if len(m.modelQuery) > 0 {
-			m.modelQuery = m.modelQuery[:len(m.modelQuery)-1]
-			m.modelCursor = 0
+		id := strings.TrimSpace(m.modelCustomText)
+		if id != "" {
+			return m.applyModelSelection(id)
 		}
 		return m, nil
+	case "left", "ctrl+b":
+		m.modelCustomCursor = previousGraphemeBoundary(bounds, position)
+	case "right", "ctrl+f":
+		m.modelCustomCursor = nextGraphemeBoundary(bounds, position)
+	case "home", "ctrl+a":
+		m.modelCustomCursor = 0
+	case "end", "ctrl+e":
+		m.modelCustomCursor = len(runes)
+	case "backspace":
+		if position > 0 {
+			previous := previousGraphemeBoundary(bounds, position)
+			m.modelCustomText = string(runes[:previous]) + string(runes[position:])
+			m.modelCustomCursor = previous
+		}
+	case "delete":
+		if position < len(runes) {
+			next := nextGraphemeBoundary(bounds, position)
+			m.modelCustomText = string(runes[:position]) + string(runes[next:])
+			m.modelCustomCursor = position
+		}
 	default:
 		if len(msg.Runes) > 0 {
-			m.modelQuery += string(msg.Runes)
-			m.modelCursor = 0
+			inserted := []rune(strings.ReplaceAll(string(msg.Runes), "\n", " "))
+			m.modelCustomText = string(runes[:position]) + string(inserted) + string(runes[position:])
+			m.modelCustomCursor = position + len(inserted)
 		}
-		return m, nil
 	}
+	m.updateViewport()
+	return m, nil
 }
 
 func (m Model) applyModelSelection(modelID string) (tea.Model, tea.Cmd) {
+	nextModel := strings.TrimSpace(modelID)
+	if nextModel == "" || m.client == nil || m.selectedProvider == nil {
+		return m, nil
+	}
+	if nextModel == m.selectedProvider.Model {
+		m.modelDialog = false
+		m.chatMessages = append(m.chatMessages, chatMessage{
+			role:    "system",
+			content: fmt.Sprintf("Model already set to %s.", nextModel),
+		})
+		m.updateViewport()
+		return m, nil
+	}
 	updated := *m.selectedProvider
-	updated.Model = modelID
+	updated.Model = nextModel
 	wd := m.getWorkDir()
 	client, err := llm.NewClient(&updated, m.loadSkillsAndBuildPrompt(wd))
 	if err != nil {
@@ -174,8 +252,8 @@ func (m Model) applyModelSelection(modelID string) (tea.Model, tea.Cmd) {
 	}
 	m.client = client
 	for i := range m.providers {
-		if m.providers[i].BaseURL == updated.BaseURL && m.providers[i].Name == updated.Name {
-			m.providers[i].Model = modelID
+		if m.providers[i].BaseURL == updated.BaseURL {
+			m.providers[i].Model = updated.Model
 			m.selectedProvider = &m.providers[i]
 			break
 		}
@@ -195,6 +273,10 @@ func (m Model) applyModelSelection(modelID string) (tea.Model, tea.Cmd) {
 	saved := true
 	if err := config.PersistModel(updated.BaseURL, updated.Model); err != nil {
 		saved = false
+		m.chatMessages = append(m.chatMessages, chatMessage{
+			role:    "error",
+			content: fmt.Sprintf("Model switched but saving failed: %s", err),
+		})
 	}
 	note := fmt.Sprintf("Model set to %s and saved.", updated.Model)
 	if !saved {
@@ -205,55 +287,116 @@ func (m Model) applyModelSelection(modelID string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// renderDialogTextField renders a free-text row: a dim prompt followed by the
+// cursor-centered value.
+func renderDialogTextField(prompt, value string, cursor, width int) string {
+	window := cursorWindow(value, cursor, max(1, width-visibleWidth(prompt)))
+	before := window.before
+	if window.leadingEllipsis {
+		before = "…" + before
+	}
+	after := window.after
+	if window.trailingEllipsis {
+		after += "…"
+	}
+	style := lipgloss.NewStyle().Foreground(normalText)
+	return selectorHintStyle.Render(prompt) +
+		style.Render(before) +
+		style.Reverse(true).Render(window.current) +
+		style.Render(after)
+}
+
 func (m Model) renderModelDialog() string {
 	if !m.modelDialog {
 		return ""
 	}
-	border := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(Theme.BorderAccent)).
-		Padding(1, 2)
-
-	var inner strings.Builder
-	inner.WriteString(selectLabelStyle.Render("Select model"))
-	inner.WriteString("\n")
-
-	switch m.modelState.status {
-	case ModelPickerLoading:
-		inner.WriteString(permDimStyle.Render("Fetching models…"))
-		inner.WriteString("\n")
-	case ModelPickerEmpty:
-		inner.WriteString(permDimStyle.Render("No models returned by this provider — type a model id"))
-		inner.WriteString("\n")
-	case ModelPickerError:
-		inner.WriteString(permDimStyle.Render("Model discovery failed for this provider — type a model id"))
-		inner.WriteString("\n")
+	currentModel := ""
+	if m.selectedProvider != nil {
+		currentModel = m.selectedProvider.Model
 	}
+	rows := m.dialogAvailableRows()
 
-	if m.modelCustomMode || m.modelState.status == ModelPickerEmpty || m.modelState.status == ModelPickerError {
-		inner.WriteString(fmt.Sprintf("%s %s█\n", promptStyle.Render(">"), m.modelCustomText))
-		inner.WriteString(permDimStyle.Render("Enter set model · Esc cancel"))
-		return border.Render(inner.String()) + "\n"
-	}
-
-	if m.modelState.status == ModelPickerReady {
-		entries := m.modelEntries()
-		if m.modelCursor >= len(entries) {
-			m.modelCursor = 0
+	if m.modelForcedTextEntry() {
+		status := "empty"
+		if m.modelState.status == ModelPickerError {
+			status = "error"
 		}
-		for i, entry := range entries {
-			label := entry
-			if entry == otherModelSentinel {
-				label = "Other (type your own)"
-			}
-			if i == m.modelCursor {
-				inner.WriteString(selectedItemStyle.Render("❯ " + label))
-			} else {
-				inner.WriteString(normalItemStyle.Render("  " + label))
-			}
-			inner.WriteString("\n")
-		}
-		inner.WriteString(permDimStyle.Render(fmt.Sprintf("Filter: %s · ↑↓ navigate · Enter select · Esc cancel", m.modelQuery)))
+		content := renderDialogTextField("Model id: ", m.modelCustomText, m.modelCustomCursor, max(1, m.width-4)) + "\n" +
+			selectorHintStyle.Render("Any id is accepted, even one the provider does not list.")
+		return renderSelectorFrame(selectorFrameParams{
+			title:    "Select model",
+			subtitle: StatusMessages[status] + " — type a model id",
+			hint:     "Enter set model · Esc cancel",
+			content:  content,
+			width:    m.width,
+			rows:     rows,
+			compact:  true,
+		})
 	}
-	return border.Render(inner.String()) + "\n"
+
+	if m.modelState.status != ModelPickerReady {
+		return renderSelectorFrame(selectorFrameParams{
+			title:    "Select model",
+			subtitle: "Current model: " + currentModel,
+			hint:     "Esc cancel",
+			content:  lipgloss.NewStyle().Foreground(mutedText).Render(StatusMessages["loading"]),
+			width:    m.width,
+			rows:     rows,
+			compact:  true,
+		})
+	}
+
+	entries := m.modelEntries()
+	cursor := m.modelDialogCursor(entries)
+	hint := "↑↓ navigate · Enter select · Esc cancel"
+	if m.modelCustomMode {
+		hint = "Type model id · Enter select · Esc cancel"
+	}
+	selectedBg := lipgloss.Color(Theme.SelectedBg)
+	return renderSelectorList(selectorListParams{
+		title:        "Select model",
+		hint:         hint,
+		query:        m.modelQuery,
+		emptyText:    "No models available",
+		itemCount:    len(entries),
+		itemHeight:   1,
+		totalCount:   len(m.modelState.models),
+		cursor:       cursor,
+		searchActive: !m.modelCustomMode,
+		width:        m.width,
+		rows:         rows,
+		renderRows: func(start, count, width int) string {
+			var sb strings.Builder
+			for i := start; i < start+count && i < len(entries); i++ {
+				entry := entries[i]
+				switch {
+				case entry.kind == "other" && m.modelCustomMode:
+					row := renderDialogTextField(Icons.Arrow+" Model id: ", m.modelCustomText, m.modelCustomCursor, max(0, width-2))
+					sb.WriteString(lipgloss.NewStyle().Background(selectedBg).Width(width).Render(" " + row))
+					sb.WriteString("\n")
+				case entry.kind == "other":
+					sb.WriteString(renderSelectorListRow(selectorListRowParams{
+						label:   OtherLabel,
+						focused: i == cursor,
+						width:   width,
+					}))
+				default:
+					detail := ""
+					hasDetail := entry.model.DisplayName != "" && entry.model.DisplayName != entry.model.ID
+					if hasDetail {
+						detail = entry.model.DisplayName
+					}
+					sb.WriteString(renderSelectorListRow(selectorListRowParams{
+						label:     entry.model.ID,
+						detail:    detail,
+						hasDetail: hasDetail,
+						focused:   i == cursor,
+						current:   entry.model.ID == currentModel,
+						width:     width,
+					}))
+				}
+			}
+			return sb.String()
+		},
+	})
 }

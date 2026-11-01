@@ -3,50 +3,215 @@ package ui
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/conversation"
+	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/file_history"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/session"
+	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/todo"
 )
+
+// Port of src/ui/session-selector.tsx and the /resume command flow in
+// src/ui/app.tsx.
+
+func sessionFuseKeys() []fuseKey[session.SessionInfo] {
+	return []fuseKey[session.SessionInfo]{
+		{weight: 1, get: func(s session.SessionInfo) (string, bool) { return s.ID, true }},
+		{weight: 1, get: func(s session.SessionInfo) (string, bool) { return s.FirstMessage, true }},
+	}
+}
+
+func listResumableSessions(wd string) []session.SessionInfo {
+	var sessions []session.SessionInfo
+	for _, s := range session.ListSessions(wd) {
+		if s.MessageCount > 0 {
+			sessions = append(sessions, s)
+		}
+	}
+	return sessions
+}
 
 func (m Model) handleResume(args string) (tea.Model, tea.Cmd) {
 	wd, _ := os.Getwd()
-	sessions := session.ListSessions(wd)
-
-	if args != "" {
-		return m.doResumeSession(wd, args, sessions)
+	arg := strings.TrimSpace(args)
+	if arg == "" {
+		sessions := listResumableSessions(wd)
+		if len(sessions) == 0 {
+			m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: "No sessions found."})
+			m.updateViewport()
+			return m, nil
+		}
+		return m.openResumeDialog(sessions)
 	}
 
-	if len(sessions) == 0 {
+	saved := session.LoadSessionForResume(wd, arg)
+	if len(saved) == 0 {
 		m.chatMessages = append(m.chatMessages, chatMessage{
-			role: "system", content: "No previous sessions found.",
+			role:    "system",
+			content: fmt.Sprintf("Session %q not found or empty.", arg),
 		})
+		sessions := listResumableSessions(wd)
+		if len(sessions) > 0 {
+			return m.openResumeDialog(sessions)
+		}
 		m.updateViewport()
 		return m, nil
 	}
+	return m.doResumeSession(wd, arg, saved)
+}
 
+func (m Model) openResumeDialog(sessions []session.SessionInfo) (tea.Model, tea.Cmd) {
 	m.resumeSessions = sessions
-	m.resumeFiltered = sessions
-	m.resumeCursor = 0
-	m.resumeSearch = ""
-	m.resumeScrollTop = 0
-	m.state = stateResume
+	m.resumeQuery = ""
+	m.resumeFocusedID = m.sessionID
+	m.resumeFocusSet = true
+	m.resumeDialog = true
+	m.updateViewport()
 	return m, nil
 }
 
-func (m Model) doResumeSession(wd, targetID string, sessions []session.SessionInfo) (tea.Model, tea.Cmd) {
-	var idx int
-	if n, _ := fmt.Sscanf(targetID, "%d", &idx); n == 1 && idx >= 1 && idx <= len(sessions) {
-		targetID = sessions[idx-1].ID
+func (m Model) resumeMatches() []session.SessionInfo {
+	query := strings.TrimSpace(m.resumeQuery)
+	if query == "" {
+		return m.resumeSessions
 	}
+	return NewFuse(m.resumeSessions, sessionFuseKeys(), 0.35, true).Search(query)
+}
 
-	msgs := session.LoadSession(wd, strings.TrimSpace(targetID))
-	if len(msgs) == 0 {
+func (m Model) resumeCursor(matches []session.SessionInfo) int {
+	if m.resumeFocusSet {
+		for i, s := range matches {
+			if s.ID == m.resumeFocusedID {
+				return i
+			}
+		}
+	}
+	return 0
+}
+
+func (m Model) handleResumeDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	matches := m.resumeMatches()
+	switch msg.String() {
+	case "esc":
+		m.resumeDialog = false
+		m.updateViewport()
+		return m, nil
+	case "up", "down":
+		if len(matches) > 0 {
+			cursor := m.resumeCursor(matches)
+			next := cursor - 1
+			if msg.String() == "down" {
+				next = cursor + 1
+			}
+			next = (next + len(matches)) % len(matches)
+			m.resumeFocusedID = matches[next].ID
+			m.resumeFocusSet = true
+		}
+		m.updateViewport()
+		return m, nil
+	case "enter":
+		if len(matches) > 0 {
+			selected := matches[m.resumeCursor(matches)]
+			m.resumeDialog = false
+			wd, _ := os.Getwd()
+			return m.doResumeSession(wd, selected.ID, nil)
+		}
+		return m, nil
+	default:
+		nextQuery := updateSelectorQuery(m.resumeQuery, msg)
+		if nextQuery != m.resumeQuery {
+			m.resumeQuery = nextQuery
+			if strings.TrimSpace(nextQuery) != "" {
+				m.resumeFocusSet = false
+			} else {
+				m.resumeFocusedID = m.sessionID
+				m.resumeFocusSet = true
+			}
+		}
+		m.updateViewport()
+		return m, nil
+	}
+}
+
+// formatSessionAgo mirrors formatRelativeTime in src/ui/session-selector.tsx.
+func formatSessionAgo(t time.Time) string {
+	seconds := int64(time.Since(t).Seconds())
+	if seconds < 0 {
+		seconds = 0
+	}
+	switch {
+	case seconds < 60:
+		return fmt.Sprintf("%ds ago", seconds)
+	case seconds < 3600:
+		return fmt.Sprintf("%dm ago", seconds/60)
+	case seconds < 86400:
+		return fmt.Sprintf("%dh ago", seconds/3600)
+	default:
+		return fmt.Sprintf("%dd ago", seconds/86400)
+	}
+}
+
+func (m Model) renderResumeDialog() string {
+	if !m.resumeDialog {
+		return ""
+	}
+	matches := m.resumeMatches()
+	cursor := m.resumeCursor(matches)
+	emptyText := "No saved sessions"
+	if strings.TrimSpace(m.resumeQuery) != "" {
+		emptyText = "No matching sessions"
+	}
+	return renderSelectorList(selectorListParams{
+		title:        "Resume session",
+		hint:         "↑↓ navigate · Enter resume · Esc cancel · Ctrl+U clear",
+		query:        m.resumeQuery,
+		emptyText:    emptyText,
+		itemCount:    len(matches),
+		itemHeight:   2,
+		totalCount:   len(m.resumeSessions),
+		cursor:       cursor,
+		searchActive: true,
+		width:        m.width,
+		rows:         m.dialogAvailableRows(),
+		renderRows: func(start, count, width int) string {
+			var sb strings.Builder
+			for i := start; i < start+count && i < len(matches); i++ {
+				s := matches[i]
+				label := s.FirstMessage
+				if label == "" {
+					label = "(empty session)"
+				}
+				activity := "no user messages"
+				if s.LastUserMessageTime != nil {
+					activity = formatSessionAgo(*s.LastUserMessageTime)
+				}
+				sb.WriteString(renderSelectorListRow(selectorListRowParams{
+					label:     label,
+					detail:    fmt.Sprintf("%s · %d messages · %s", s.ID, s.MessageCount, activity),
+					hasDetail: true,
+					focused:   i == cursor,
+					current:   s.ID == m.sessionID,
+					width:     width,
+				}))
+			}
+			return sb.String()
+		},
+	})
+}
+
+// doResumeSession rebuilds the conversation from the saved transcript and
+// continues under the resumed session id. `saved` may be nil to load fresh.
+func (m Model) doResumeSession(wd, targetID string, saved []session.Message) (tea.Model, tea.Cmd) {
+	if saved == nil {
+		saved = session.LoadSessionForResume(wd, targetID)
+	}
+	if len(saved) == 0 {
 		m.chatMessages = append(m.chatMessages, chatMessage{
-			role: "error", content: fmt.Sprintf("Session '%s' not found or empty.", targetID),
+			role:    "error",
+			content: fmt.Sprintf("Session %q not found or empty.", targetID),
 		})
 		m.updateViewport()
 		return m, nil
@@ -55,12 +220,24 @@ func (m Model) doResumeSession(wd, targetID string, sessions []session.SessionIn
 	m.chatMessages = nil
 	m.committedUpTo = 0
 	m.conversation = conversation.NewManager()
-	m.sessionID = strings.TrimSpace(targetID)
+	m.sessionID = targetID
+
+	// Re-key the session-derived stores to the resumed session.
+	m.fileHistory = file_history.New(m.sessionID)
+	m.defaultTools.EditFile.FileHistory = m.fileHistory
+	m.defaultTools.WriteFile.FileHistory = m.fileHistory
+	if store, err := todo.NewStore(m.sessionID); err == nil {
+		m.todoList = todo.NewTaskList(store)
+	}
 	if m.ag != nil {
 		m.ag.SetSessionID(m.sessionID)
+		m.ag.FileHistory = m.fileHistory
+		if m.ag.Checker != nil {
+			m.ag.Checker.PlanFilePath = ""
+		}
 	}
 
-	boundary, after, compacted := session.FindLastCompactBoundary(msgs)
+	boundary, after, compacted := session.FindLastCompactBoundary(saved)
 	var replay []session.Message
 	if compacted {
 		resumeSummary := fmt.Sprintf("The conversation history before this point was compacted into the following summary:\n\n<summary>\n%s\n</summary>", boundary.Summary)
@@ -78,7 +255,7 @@ func (m Model) doResumeSession(wd, targetID string, sessions []session.SessionIn
 		}
 		replay = append(replay, after...)
 	} else {
-		replay = msgs
+		replay = saved
 	}
 
 	for _, msg := range replay {
@@ -88,191 +265,19 @@ func (m Model) doResumeSession(wd, targetID string, sessions []session.SessionIn
 		m.conversation.AppendMessages([]conversation.Message{msg.ToConversation()})
 	}
 
-	restored := fmt.Sprintf("Session %s restored (%d messages).", strings.TrimSpace(targetID), len(replay))
-	if compacted {
-		restored = fmt.Sprintf("Session %s restored from compacted state (summary + %d kept + %d newer messages).",
-			strings.TrimSpace(targetID), len(boundary.Keep), len(after))
-	}
 	m.chatMessages = append(m.chatMessages, chatMessage{
 		role:    "system",
-		content: restored,
+		content: fmt.Sprintf("⟲ Resumed session %s (%d messages).", targetID, len(replay)),
 	})
-	commitText := m.renderMessagesRange(0, len(m.chatMessages))
+	// Resuming remounts the transcript in the reference (the Static key
+	// changes with the session id): clear the screen and replay under a
+	// fresh header.
+	commitText := m.renderTranscriptHeader() + "\n" + m.renderMessagesRange(0, len(m.chatMessages))
 	m.committedUpTo = len(m.chatMessages)
+	m.textarea.Focus()
 	m.updateViewport()
-	if commitText != "" {
-		return m, tea.Println(commitText)
-	}
-	return m, nil
-}
-
-func (m Model) handleResumeKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
-		m.state = stateChat
-		m.textarea.Focus()
-		return m, nil
-	case "enter":
-		if m.resumeCursor < len(m.resumeFiltered) {
-			selected := m.resumeFiltered[m.resumeCursor]
-			m.state = stateChat
-			m.textarea.Focus()
-			wd, _ := os.Getwd()
-			return m.doResumeSession(wd, selected.ID, m.resumeSessions)
-		}
-		return m, nil
-	case "up":
-		if m.resumeCursor > 0 {
-			m.resumeCursor--
-			if m.resumeCursor < m.resumeScrollTop {
-				m.resumeScrollTop = m.resumeCursor
-			}
-		}
-		return m, nil
-	case "down":
-		if m.resumeCursor < len(m.resumeFiltered)-1 {
-			m.resumeCursor++
-			maxVisible := m.resumeVisibleCount()
-			if m.resumeCursor >= m.resumeScrollTop+maxVisible {
-				m.resumeScrollTop = m.resumeCursor - maxVisible + 1
-			}
-		}
-		return m, nil
-	case "backspace":
-		if len(m.resumeSearch) > 0 {
-			m.resumeSearch = m.resumeSearch[:len(m.resumeSearch)-1]
-			m.resumeFilterSessions()
-		}
-		return m, nil
-	default:
-		if len(msg.String()) == 1 && msg.String() >= " " {
-			m.resumeSearch += msg.String()
-			m.resumeFilterSessions()
-			return m, nil
-		}
-	}
-	return m, nil
-}
-
-func (m *Model) resumeFilterSessions() {
-	m.resumeFiltered = nil
-	for _, s := range m.resumeSessions {
-		if session.MatchesSearch(s, m.resumeSearch) {
-			m.resumeFiltered = append(m.resumeFiltered, s)
-		}
-	}
-	m.resumeCursor = 0
-	m.resumeScrollTop = 0
-}
-
-func (m Model) resumeVisibleCount() int {
-	available := m.height - 8
-	perItem := 2
-	if available < perItem {
-		return 1
-	}
-	return available / perItem
-}
-
-func (m Model) renderResumeView() string {
-	var sb strings.Builder
-
-	total := len(m.resumeFiltered)
-	current := 0
-	if total > 0 {
-		current = m.resumeCursor + 1
-	}
-
-	sb.WriteString(lipgloss.NewStyle().Foreground(dimText).PaddingLeft(2).Render(
-		fmt.Sprintf("Resume session (%d of %d)", current, total),
-	))
-	sb.WriteString("\n")
-
-	searchText := m.resumeSearch
-	if searchText == "" {
-		searchText = lipgloss.NewStyle().Foreground(dimText).Render("⌕ Search…")
-	} else {
-		searchText = "⌕ " + searchText
-	}
-	boxWidth := m.width - 6
-	if boxWidth < 20 {
-		boxWidth = 20
-	}
-	border := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("240")).
-		Width(boxWidth).
-		PaddingLeft(1)
-	sb.WriteString(lipgloss.NewStyle().PaddingLeft(2).Render(border.Render(searchText)))
-	sb.WriteString("\n")
-
-	wd, _ := os.Getwd()
-	projectName := filepath.Base(wd)
-	sb.WriteString(lipgloss.NewStyle().Foreground(dimText).PaddingLeft(4).Render(projectName))
-	sb.WriteString("\n\n")
-
-	maxVisible := m.resumeVisibleCount()
-	if maxVisible > total {
-		maxVisible = total
-	}
-
-	for i := m.resumeScrollTop; i < m.resumeScrollTop+maxVisible && i < total; i++ {
-		s := m.resumeFiltered[i]
-
-		title := s.FirstMessage
-		if title == "" {
-			title = "(empty session)"
-		}
-		maxTitleLen := m.width - 8
-		if maxTitleLen > 0 && len(title) > maxTitleLen {
-			title = title[:maxTitleLen] + "…"
-		}
-
-		prefix := "  "
-		if i == m.resumeCursor {
-			prefix = "❯ "
-			title = lipgloss.NewStyle().Foreground(cyanText).Bold(true).Render(title)
-		} else {
-			title = lipgloss.NewStyle().Foreground(normalText).Render(title)
-		}
-		sb.WriteString(lipgloss.NewStyle().PaddingLeft(2).Render(prefix + title))
-		sb.WriteString("\n")
-
-		var meta []string
-		meta = append(meta, session.FormatRelativeTime(s.ModTime))
-		if s.GitBranch != "" {
-			meta = append(meta, s.GitBranch)
-		}
-		meta = append(meta, session.FormatFileSize(s.FileSize))
-		metaStr := strings.Join(meta, " · ")
-		sb.WriteString(lipgloss.NewStyle().Foreground(dimText).PaddingLeft(6).Render(metaStr))
-		sb.WriteString("\n")
-
-		if i < m.resumeScrollTop+maxVisible-1 && i < total-1 {
-			sb.WriteString("\n")
-		}
-	}
-
-	if total > maxVisible {
-		if m.resumeScrollTop+maxVisible < total {
-			sb.WriteString("\n")
-			sb.WriteString(lipgloss.NewStyle().Foreground(dimText).PaddingLeft(2).Render(
-				fmt.Sprintf("  ↓ %d more session(s)", total-m.resumeScrollTop-maxVisible),
-			))
-		}
-	}
-
-	rendered := strings.Count(sb.String(), "\n") + 1
-	footerHeight := 2
-	pad := m.height - rendered - footerHeight
-	if pad > 0 {
-		sb.WriteString(strings.Repeat("\n", pad))
-	}
-
-	sb.WriteString("\n")
-	sb.WriteString(lipgloss.NewStyle().Foreground(dimText).PaddingLeft(4).Render(
-		"Type to search · Enter to select · Esc to cancel",
-	))
-
-	return sb.String()
+	return m, tea.Batch(
+		func() tea.Msg { return tea.ClearScreen() },
+		tea.Println(commitText),
+	)
 }

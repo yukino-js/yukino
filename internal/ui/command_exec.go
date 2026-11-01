@@ -77,6 +77,18 @@ func (m Model) buildCommandContext(args string) *commands.Context {
 	}
 }
 
+// newUICommandRegistry mirrors the app-level command registration in
+// src/ui/app.tsx: /provider is registered by the UI, not the default registry.
+func newUICommandRegistry() *commands.Registry {
+	registry := commands.CreateDefaultRegistry()
+	registry.Register(&commands.Command{
+		Name:        "provider",
+		Type:        commands.TypeLocalUI,
+		Description: "Switch the active provider",
+	})
+	return registry
+}
+
 func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 	cmd := m.cmdRegistry.Find(name)
 	if cmd == nil {
@@ -170,7 +182,10 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 			m.totalInput = 0
 			m.totalOutput = 0
 			m.updateViewport()
-			return m, func() tea.Msg { return tea.ClearScreen() }
+			return m, tea.Batch(
+				func() tea.Msg { return tea.ClearScreen() },
+				tea.Println(m.renderTranscriptHeader()),
+			)
 		case "plan":
 			if m.ag != nil && m.ag.Checker != nil {
 				m.prePlanMode = m.ag.Checker.Mode
@@ -241,7 +256,17 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 		case "quit":
 			return m, tea.Quit
 		case "model":
+			if strings.TrimSpace(args) != "" {
+				return m.applyModelSelection(args)
+			}
+			if m.client == nil {
+				m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: ClientNotReady})
+				m.updateViewport()
+				return m, nil
+			}
 			return m.openModelDialog()
+		case "provider":
+			return m.openProviderDialog()
 		case "login":
 			return m.openLoginDialog()
 		case "worktree":
