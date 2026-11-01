@@ -1,0 +1,12 @@
+{
+  "folders": [
+    {
+      "name": "yukino-code/apps/yukino",
+      "path": "../yukino-code/apps/yukino"
+    },
+    {
+      "name": "yukino",
+      "path": "."
+    }
+  ]
+}

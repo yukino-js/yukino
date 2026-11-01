@@ -1,0 +1,67 @@
+package tools
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"sync"
+)
+
+type FileStateCache struct {
+	mu      sync.Mutex
+	entries map[string]int64
+}
+
+func NewFileStateCache() *FileStateCache {
+	return &FileStateCache{
+		entries: make(map[string]int64),
+	}
+}
+
+func (c *FileStateCache) Record(filePath string, mtime int64) {
+	abs := normalizePath(filePath)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.entries[abs] = mtime
+}
+
+func (c *FileStateCache) Check(filePath string) (bool, string) {
+	abs := normalizePath(filePath)
+	c.mu.Lock()
+	cachedMtime, exists := c.entries[abs]
+	c.mu.Unlock()
+
+	if !exists {
+		return false, fmt.Sprintf("Error: file has not been read yet. Read it first before editing.")
+	}
+
+	info, err := os.Stat(abs)
+	if err != nil {
+		return true, ""
+	}
+	currentMtime := info.ModTime().UnixMilli()
+	if currentMtime > cachedMtime {
+		return false, fmt.Sprintf("Error: file has been modified since last read. Read it again before editing.")
+	}
+
+	return true, ""
+}
+
+func (c *FileStateCache) Update(filePath string) {
+	abs := normalizePath(filePath)
+	info, err := os.Stat(abs)
+	if err != nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.entries[abs] = info.ModTime().UnixMilli()
+}
+
+func normalizePath(p string) string {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return p
+	}
+	return abs
+}

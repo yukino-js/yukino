@@ -1,0 +1,17 @@
+/yukino
+config.yaml
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+.idea/
+.vscode/
+.yukino/
+.claude/
+CLAUDE.md
+docs/
+
+.playwright-mcp/

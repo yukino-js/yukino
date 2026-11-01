@@ -1,0 +1,141 @@
+package teams
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"strings"
+
+	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/agent"
+	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/llm"
+	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/permissions"
+	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/tools"
+)
+
+type TeammateSpawnConfig struct {
+	Team       *Team
+	MemberName string
+	Task       string
+	Addendum   string
+
+	Client   llm.Client
+	Registry *tools.Registry
+	Protocol string
+
+	Workdir string
+
+	Checker *permissions.Checker
+}
+
+type SpawnResult struct {
+	Mode    TeamMode
+	EventCh <-chan agent.AgentEvent
+	PaneID  string
+}
+
+func SpawnTeammate(ctx context.Context, cfg TeammateSpawnConfig) (*SpawnResult, error) {
+	if cfg.Team == nil {
+		return nil, fmt.Errorf("SpawnTeammate: team is required")
+	}
+	if cfg.MemberName == "" {
+		return nil, fmt.Errorf("SpawnTeammate: member name is required")
+	}
+
+	GetNameRegistry().Register(cfg.MemberName, cfg.MemberName)
+
+	switch cfg.Team.Mode {
+	case ModeInProcess:
+		ch := StartInProcessMember(
+			ctx,
+			cfg.Team,
+			cfg.MemberName,
+			cfg.Client,
+			cfg.Registry,
+			cfg.Protocol,
+			cfg.Task,
+			cfg.Addendum,
+		)
+		if m, ok := cfg.Team.Members[cfg.MemberName]; ok && m.AgentRef != nil {
+			if cfg.Workdir != "" {
+				m.AgentRef.WorkDir = cfg.Workdir
+			}
+			m.AgentRef.Checker = cfg.Checker
+		}
+		return &SpawnResult{Mode: ModeInProcess, EventCh: ch}, nil
+
+	case ModeTmux:
+		if cfg.Task != "" {
+			_ = cfg.Team.MailBox.Send(cfg.MemberName, FileMailMessage{
+				From: LeadName,
+				Text: cfg.Task,
+			})
+		}
+		cliCommand, err := BuildTeammateCLI(cfg.Team.Name, cfg.MemberName, cfg.Workdir)
+		if err != nil {
+			return nil, err
+		}
+		paneID, err := spawnTmuxTeammate(cfg.Team.Name, cfg.MemberName, cliCommand)
+		if err != nil {
+			return nil, err
+		}
+		cfg.Team.recordExternalMember(cfg.MemberName, paneID)
+		return &SpawnResult{Mode: ModeTmux, PaneID: paneID}, nil
+
+	case ModeITerm:
+		if cfg.Task != "" {
+			_ = cfg.Team.MailBox.Send(cfg.MemberName, FileMailMessage{
+				From: LeadName,
+				Text: cfg.Task,
+			})
+		}
+		cliCommand, err := BuildTeammateCLI(cfg.Team.Name, cfg.MemberName, cfg.Workdir)
+		if err != nil {
+			return nil, err
+		}
+		tabID, err := spawnITermTeammate(cfg.Team.Name, cfg.MemberName, cliCommand)
+		if err != nil {
+			return nil, err
+		}
+		cfg.Team.recordExternalMember(cfg.MemberName, tabID)
+		return &SpawnResult{Mode: ModeITerm, PaneID: tabID}, nil
+	}
+
+	return nil, fmt.Errorf("unknown team mode: %s", cfg.Team.Mode)
+}
+
+func (t *Team) recordExternalMember(name, paneID string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.Members[name] = &Member{
+		Name:   name,
+		Active: true,
+		PaneID: paneID,
+	}
+}
+
+func BuildTeammateCLI(teamName, memberName, workdir string) (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("locate yukino binary: %w", err)
+	}
+	if workdir == "" {
+		workdir, _ = os.Getwd()
+	}
+	return fmt.Sprintf(
+		"cd %s && %s --teammate --team-name %s --agent-name %s",
+		shellQuote(workdir),
+		shellQuote(exe),
+		shellQuote(teamName),
+		shellQuote(memberName),
+	), nil
+}
+
+func shellQuote(s string) string {
+	if s == "" {
+		return "''"
+	}
+	if !strings.ContainsAny(s, " \t\n'\"\\$`") {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
