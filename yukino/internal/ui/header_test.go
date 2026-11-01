@@ -22,7 +22,7 @@ func TestTranscriptHeader(t *testing.T) {
 	if len(lines) != 4 || lines[0] != "" {
 		t.Fatalf("expected a blank line followed by 3 header lines, got %q", lines)
 	}
-	if got, want := stripANSI(lines[1]), " Yukino v"+version.Version; got != want {
+	if got, want := stripANSI(lines[1]), " Yukino "+version.Version; got != want {
 		t.Fatalf("title = %q, want %q", got, want)
 	}
 	if got, want := stripANSI(lines[2]), " Esc interrupt · /commands · Ctrl+O details"; got != want {

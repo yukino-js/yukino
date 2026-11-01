@@ -219,7 +219,7 @@ func (m Model) renderTranscriptHeader() string {
 	}
 	pad := strings.Repeat(" ", padding)
 	title := lipgloss.NewStyle().Bold(true).Foreground(accentColor).Render("Yukino") +
-		lipgloss.NewStyle().Foreground(dimText).Render(" v"+version.Version)
+		lipgloss.NewStyle().Foreground(dimText).Render(" "+version.Version)
 	line2 := lipgloss.NewStyle().Foreground(mutedText).Render(truncateToWidth(hint, width, "…"))
 	line3 := lipgloss.NewStyle().Foreground(dimText).Render(truncateToWidth(
 		plainTerminalLine(fmt.Sprintf("%s/%s · %s", provider, model, utils.CompactPath(m.getWorkDir()))), width, "…"))
