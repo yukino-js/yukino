@@ -23,7 +23,6 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/history"
 	"github.com/yukino-js/yukino/yukino/internal/hooks"
 	"github.com/yukino-js/yukino/yukino/internal/llm"
-	"github.com/yukino-js/yukino/yukino/internal/lsp"
 	"github.com/yukino-js/yukino/yukino/internal/mcp"
 	"github.com/yukino-js/yukino/yukino/internal/memory"
 	extractor "github.com/yukino-js/yukino/yukino/internal/memory/extractor"
@@ -75,7 +74,6 @@ type Server struct {
 	planApprovalTimer    *time.Timer
 	pendingPlanExecution string
 	MCPLoading           string
-	LSPServers           []lsp.ServerConfig
 	providers            []config.ProviderConfig
 	mcpConfigs           []config.MCPServerConfig
 	hookCfgs             []config.HookConfig
@@ -257,9 +255,6 @@ func (s *Server) initAgent() error {
 	s.askUserCh = make(chan tools.AskUserRequest, 1)
 	s.defaultTools = tools.CreateDefaultToolsWithWorkDir(wd)
 	s.registry = s.defaultTools.Registry
-	if server, ok := s.registry.Get("LSP").(*tools.LSPTool); ok {
-		server.Configs = s.LSPServers
-	}
 	s.registry.Register(&tools.AskUserQuestionTool{RequestCh: s.askUserCh})
 
 	s.cmdRegistry = commands.CreateDefaultRegistry()

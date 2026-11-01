@@ -12,7 +12,6 @@ import (
 
 	"github.com/goccy/go-yaml"
 
-	"github.com/yukino-js/yukino/yukino/internal/lsp"
 	"github.com/yukino-js/yukino/yukino/internal/storage"
 )
 
@@ -91,7 +90,6 @@ type AppConfig struct {
 	MCPLoading            string
 	Theme                 string
 	MCPServers            []MCPServerConfig
-	LspServers            []lsp.ServerConfig
 	Hooks                 []HookConfig
 	Sandbox               *SandboxYamlConfig
 	EnableCoordinatorMode bool
@@ -235,27 +233,6 @@ func parseAppConfig(raw map[string]any) (*AppConfig, error) {
 					return nil, fmt.Errorf("mcp_servers[%d]: %w", i, err)
 				}
 				cfg.MCPServers = append(cfg.MCPServers, server)
-			}
-		case "lsp_servers":
-			list, ok := value.([]any)
-			if !ok {
-				return nil, fmt.Errorf("lsp_servers: expected a list, got %T", value)
-			}
-			seen := map[string]bool{}
-			for i, item := range list {
-				rec, ok := item.(map[string]any)
-				if !ok {
-					return nil, fmt.Errorf("lsp_servers[%d]: expected a mapping, got %T", i, item)
-				}
-				server, err := parseLspServerConfig(rec)
-				if err != nil {
-					return nil, fmt.Errorf("lsp_servers[%d]: %w", i, err)
-				}
-				if seen[server.Name] {
-					return nil, fmt.Errorf("lsp_servers: names must be unique (duplicate '%s')", server.Name)
-				}
-				seen[server.Name] = true
-				cfg.LspServers = append(cfg.LspServers, server)
 			}
 		case "hooks":
 			list, ok := value.([]any)
@@ -455,75 +432,6 @@ func parseHookConfig(raw map[string]any) (HookConfig, error) {
 		}
 	}
 	return hook, nil
-}
-
-func parseLspServerConfig(raw map[string]any) (lsp.ServerConfig, error) {
-	var server lsp.ServerConfig
-	name, err := requireString(raw, "name")
-	if err != nil {
-		return server, err
-	}
-	server.Name = strings.TrimSpace(name)
-	command, err := requireString(raw, "command")
-	if err != nil {
-		return server, err
-	}
-	server.Command = command
-	if v, ok, err := optionalValue(raw, "args"); err != nil {
-		return server, err
-	} else if ok {
-		if server.Args, err = asStringList(v); err != nil {
-			return server, fmt.Errorf("args: %w", err)
-		}
-	}
-	languagesRaw, ok := raw["languages"]
-	if !ok || languagesRaw == nil {
-		return server, fmt.Errorf("languages: required")
-	}
-	if server.Languages, err = asStringMap(languagesRaw); err != nil {
-		return server, fmt.Errorf("languages: %w", err)
-	}
-	if v, ok, err := optionalValue(raw, "env"); err != nil {
-		return server, err
-	} else if ok {
-		if server.Env, err = asStringMap(v); err != nil {
-			return server, fmt.Errorf("env: %w", err)
-		}
-	}
-	if v, ok, err := optionalValue(raw, "initialization_options"); err != nil {
-		return server, err
-	} else if ok {
-		rec, ok := v.(map[string]any)
-		if !ok {
-			return server, fmt.Errorf("initialization_options: expected a mapping, got %T", v)
-		}
-		server.InitializationOptions = rec
-	}
-	if v, ok, err := optionalValue(raw, "settings"); err != nil {
-		return server, err
-	} else if ok {
-		rec, ok := v.(map[string]any)
-		if !ok {
-			return server, fmt.Errorf("settings: expected a mapping, got %T", v)
-		}
-		server.Settings = rec
-	}
-	if v, ok, err := optionalValue(raw, "timeout_ms"); err != nil {
-		return server, err
-	} else if ok {
-		n, err := asNumber(v)
-		if err != nil || n != float64(int(n)) {
-			return server, fmt.Errorf("timeout_ms: expected an integer, got %v", v)
-		}
-		if n < lsp.MinTimeoutMs || n > lsp.MaxTimeoutMs {
-			return server, fmt.Errorf("timeout_ms must be between %d and %d", lsp.MinTimeoutMs, lsp.MaxTimeoutMs)
-		}
-		server.TimeoutMs = int(n)
-	}
-	if err := lsp.ValidateServerConfig(server); err != nil {
-		return server, err
-	}
-	return server, nil
 }
 
 // parseEnvBlock accepts a plain mapping (env: {KEY: value}) or a list of

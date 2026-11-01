@@ -6,7 +6,7 @@ The long-term target is file-by-file alignment of existing Go modules with the r
 
 Every previously tracked reference file retains its own record. A module-level counterpart identifies the area to review; it does not certify the entire Go package. Full alignment requires reading the complete reference file, comparing its implementation, and validating the resulting behavior. Partial progress and unresolved differences are recorded explicitly. Shared browser inputs follow the artifact delivery policy below.
 
-Current inventory: **321 records**: 58 corrected, 16 reviewed, 47 partially aligned, 1 language-specific difference, 143 pending review, 1 deferred, 49 shared browser build inputs, 6 synchronized artifacts. **Full alignment is not complete.**
+Current inventory: **316 records**: 54 corrected, 15 reviewed, 47 partially aligned, 1 language-specific difference, 143 pending review, 1 deferred, 49 shared browser build inputs, 6 synchronized artifacts. **Full alignment is not complete.**
 
 ## Milestone M2 — scoped planning, delegation and conversation runtime (2026-11-01)
 
@@ -41,18 +41,15 @@ The file ledger is the continuation checklist. Do not infer package parity from 
 
 ## Milestone M1 — existing tool execution (2026-11-01)
 
-**Completed bounded delivery:** LSP, WebFetch, and the TodoWrite core, together with their integration into the existing interactive, print, remote, and teammate entrypoints. This is not a claim of full module or application parity. Entirely absent modules remain excluded.
+**Completed bounded delivery:** WebFetch and the TodoWrite core, together with their integration into the existing interactive, print, remote, and teammate entrypoints. This is not a claim of full module or application parity. Entirely absent modules remain excluded.
 
-- LSP now starts configured servers on demand and supports all reference read operations, document synchronization, diagnostics, cancellation, restart, and cleanup. Request writes remain cancellable when a server stops reading stdin.
 - TodoWrite replaces TaskCreate/Get/List/Update in private and shared boards. Writes are transactional, IDs are positive decimal strings, and the stored shape is `{nextId,tasks}`. Metadata, dependency links, claims, and assignment notifications follow the reference. The leader identity is `leader`; no old-name alias or snapshot migration is provided.
 - WebFetch handles HTTP(S) text retrieval, redirects, conversion, limits, and caching. The native Go HTML converter can produce different Markdown formatting from Turndown; exact converted bytes are outside this milestone's parity claim.
-- LSP configurations reach each entrypoint. Delegated agents get separate private TODO boards; teammates get their team's board. Clear/resume switches the existing private board's store. New LSP subprocess resources participate in registry disposal and exit cleanup.
+- Delegated agents get separate private TODO boards; teammates get their team's board. Clear/resume switches the existing private board's store.
 
-At the M1 cutoff, remaining work included leader-board subscriptions and aggregated TODO UI progress, teams/member lifecycle alignment, remote/WebSocket and bootstrap parity, EnterPlanMode, and ComputerUse. M2 implements EnterPlanMode and advances several of these areas; the M2 handoff supersedes this historical list. The shared store validates on access rather than in its Go constructor. Go also bounds the LSP outgoing queue at 64 messages and fails saturated connections rather than retaining an unbounded Node stream buffer. Other pending ledger records remain pending; they were not sampled or marked complete by association.
+At the M1 cutoff, remaining work included leader-board subscriptions and aggregated TODO UI progress, teams/member lifecycle alignment, remote/WebSocket and bootstrap parity, EnterPlanMode, and ComputerUse. M2 implements EnterPlanMode and advances several of these areas; the M2 handoff supersedes this historical list. The shared store validates on access rather than in its Go constructor. Other pending ledger records remain pending; they were not sampled or marked complete by association.
 
 Build and validation targets are available in `Makefile`: `build` (also the default), the six `win32`/`linux`/`darwin` arm64/x64 targets, `cross-compile`, `test`, `test-race`, `vet`, `fmt`, `fmt-check`, and `check`. Build outputs go to the ignored `dist/` directory; `BUILD_DIR`, `BUILD_FLAGS`, `LDFLAGS`, `BUILD_CGO_ENABLED`, `GO`, and `TEST_FLAGS` can be overridden. `check` runs formatting validation, vet, and race-enabled unit tests. The test targets now run the complete current suite without exclusions. The user deleted the external Context7 test during M2; its obsolete Makefile filter and dedicated target have been removed.
-
-The reference LSP server fixture is copied unchanged to `internal/tools/testdata/lsp-server.mjs`. Its protocol tests require Node and explicitly skip when Node is unavailable; they ran on this host. Windows subprocess behavior and file URIs still need native-platform integration testing.
 
 ## Status Definitions
 
@@ -95,7 +92,7 @@ The browser-serving fix has also passed the full race-enabled suite and `go vet 
 
 ## M1 Validation
 
-- Passed `go test -race ./... -skip '^TestContext7MCP$'` for all local packages, including the shared LSP fixture, HTTP fixtures, transaction rollback, session persistence, delegated board isolation, and simultaneous shared-board writers.
+- Passed `go test -race ./... -skip '^TestContext7MCP$'` for all local packages, including HTTP fixtures, transaction rollback, session persistence, delegated board isolation, and simultaneous shared-board writers.
 - Passed `go vet ./...` and `make check test` (formatting validation, vet, race-enabled unit tests, and ordinary unit tests).
 - Passed `make build` and `make -j2 cross-compile`; inspected all seven binaries with `go version -m` to verify OS, architecture, and CGO settings.
 - Passed `CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build ./...` and `CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build ./...`. The initial Linux amd64 attempt with CGO enabled failed in the host C assembler; disabling CGO permits the cross-build. Cross-compilation does not establish native Windows runtime parity.
@@ -155,10 +152,6 @@ The browser-serving fix has also passed the full race-enabled suite and `go vet 
 | `src/llm/model-discovery.ts` | `internal/llm` | Pending review |  |
 | `src/llm/openai.ts` | `internal/llm` | Pending review | M2: Complete reference-file comparison remains outstanding. Responses and Chat Completions honor request-scoped output caps; SDK boundary tests check that overrides do not leak into later calls. Structured content, provider item IDs and the broader provider contract remain open. |
 | `src/llm/retry.ts` | `internal/llm` | Reviewed | M2: Full source read. Existing LLMRetryDelay is now used by the agent, bounded to retries before visible output. Broader provider retry layering is not certified. |
-| `src/lsp/client.ts` | `internal/lsp/client.go`, `internal/lsp/process_unix.go`, `internal/lsp/process_other.go` | Corrected | M1: full source compared. Framed JSON-RPC, initialization, UTF-16 negotiation, settings, read-only server requests, cancellation, timeouts, bounded stderr, graceful shutdown, process-tree cleanup, and restart validated through the shared reference fixture in tools/lsp_test.go. Go uses a bounded asynchronous write queue; Windows process behavior is compile-checked only. |
-| `src/lsp/config.ts` | `internal/lsp/config.go`, `internal/config/config.go` | Corrected | M1: full schema compared. Trusted explicit servers, trimmed names, extension/language checks, optional-field null rejection, and 100–60000ms timeout bounds validated by config/lsp_test.go. |
-| `src/lsp/constants.ts` | `internal/lsp/constants.go`, `internal/lsp/client.go` | Corrected | M1: full source compared; framing limits, timeouts, protocol values, initialization metadata, read-only rejection, and error messages implemented. Go durations replace millisecond numbers. |
-| `src/lsp/index.ts` | `internal/lsp` | Reviewed | M1: full source compared. Go package exports replace the TypeScript namespace barrel. |
 | `src/main.tsx` | `cmd/yukino` | Pending review |  |
 | `src/mcp/apps.ts` | `internal/mcp` | Pending review |  |
 | `src/mcp/client.ts` | `internal/mcp` | Pending review |  |
@@ -317,7 +310,7 @@ The browser-serving fix has also passed the full race-enabled suite and `go vet 
 | `src/tools/atomic-write.ts` | `internal/tools/atomic_write.go` | Corrected | Same-directory temporary files, fsync and rename, symlink handling, and permission preservation aligned. Validated by file_tools_alignment_test.go. |
 | `src/tools/bash.ts` | `internal/tools/bash.go`, `internal/tools/shell_background.go` | Partially aligned | Cancellation, background execution, timeouts, persisted output, and sandboxing implemented. Isolated-worktree write roots and temporary-directory integration remain outstanding. |
 | `src/tools/computer-use.ts` | `internal/tools` | Pending review |  |
-| `src/tools/constants.ts` | `internal/tools/constants.go` and related files | Partially aligned | Full source reviewed. File, search, and shell budgets and error messages implemented. M1 adds LSP and WebFetch budgets and errors; ComputerUse constants and their consumers remain outstanding. |
+| `src/tools/constants.ts` | `internal/tools/constants.go` and related files | Partially aligned | Full source reviewed. File, search, and shell budgets and error messages implemented. M1 adds WebFetch budgets and errors; ComputerUse constants and their consumers remain outstanding. |
 | `src/tools/diff.ts` | `internal/tools/diff.go` | Corrected | Separate edit regions, accurate addition/deletion counts, new-file line numbers, and truncation aligned. Validated by diff_test.go and file_tools_alignment_test.go. |
 | `src/tools/edit-file-diagnostics.ts` | `internal/tools/edit_file_diagnostics.go` | Corrected | Whitespace candidates and Unicode difference positions aligned. Go uses rune-based character indexing. Validated by file_tools_alignment_test.go. |
 | `src/tools/edit-file.ts` | `internal/tools/edit_file.go` | Corrected | Only the batch edits interface is accepted. Original-text matching, atomic failure, and preservation of CRLF and stray carriage returns aligned. Validated by file_tools_alignment_test.go. |
@@ -334,10 +327,9 @@ The browser-serving fix has also passed the full race-enabled suite and `go vet 
 | `src/tools/grep.ts` | `internal/tools/grep.go` | Corrected | JavaScript Unicode-regex conversion, timeouts, file/directory handling, binary files, symlinks, and traversal/output budgets aligned. Validated by search_alignment_test.go. |
 | `src/tools/index.ts` | `internal/tools` | Partially aligned | Full source reviewed. Go package exports replace the TypeScript barrel; some tools remain unported. |
 | `src/tools/is-diff-tool.ts` | `internal/ui/tool_display.go` | Reviewed | Source reviewed. Only EditFile uses diff rendering; integration still requires validation during the complete UI review. |
-| `src/tools/lsp.ts` | `internal/tools/lsp.go` | Corrected | M1: full source compared. All 11 operations, lazy shared startup, serialized synchronization, 1-based UTF-16 validation, 40-document/8MB eviction, 2MB diagnostics, stale push rejection, pull diagnostics, call data, output bounds, cancellation, restart, and disposal implemented. tools/lsp_test.go uses the unchanged reference server fixture and also checks a server that stops reading stdin. |
 | `src/tools/mcp-call.ts` | `internal/tools/mcp_call.go` | Corrected | Calls are restricted to MCP tools on the same server. Argument-object validation and coercion aligned. Validated by mcp_call_test.go and registry_alignment_test.go. |
 | `src/tools/powershell.ts` | `internal/tools/powershell.go`, `internal/tools/shell_background.go` | Partially aligned | Shares the shell lifecycle and includes Windows taskkill arguments. PowerShell and Windows integration have not been exercised on this host. |
-| `src/tools/prompts.ts` | `internal/tools/descriptions.go` and related files | Partially aligned | Full source reviewed. Descriptions for the six file/search tools and shell tools synchronized. M1 also synchronizes LSP, WebFetch, and TodoWrite descriptions. Descriptions for the remaining tools still require individual alignment. |
+| `src/tools/prompts.ts` | `internal/tools/descriptions.go` and related files | Partially aligned | Full source reviewed. Descriptions for the six file/search tools and shell tools synchronized. M1 also synchronizes WebFetch and TodoWrite descriptions. Descriptions for the remaining tools still require individual alignment. |
 | `src/tools/read-file.ts` | `internal/tools/read_file.go` | Partially aligned | Text reads, size limits, paging, cancellation, and concurrent-modification checks corrected. Image support is deferred with the images module. |
 | `src/tools/registry.ts` | `internal/tools/registry.go` | Corrected | Ordered tool pools, borrowed/owned lifetimes, disposal, reloads, protocol schemas, and independent discovery aligned. Validated by registry_alignment_test.go. |
 | `src/tools/search-output.ts` | `internal/tools/search_output.go` | Corrected | Match-count and UTF-8 byte budgets aligned. Validated by search_alignment_test.go. |

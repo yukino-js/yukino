@@ -10,7 +10,7 @@ var SubagentDisallowedTools = map[string]bool{
 	"Workflow": true, "ComputerUse": true, "AskUserQuestion": true, "EnterPlanMode": true, "ExitPlanMode": true, "Goal": true, "Agent": true, "TeamCreate": true, "TeamDelete": true, "SendMessage": true,
 }
 var AsyncAgentAllowedTools = map[string]bool{
-	"TodoWrite": true, "TaskOutput": true, "TaskStop": true, "LSP": true, "ReadFile": true, "WebFetch": true, "Grep": true, "Glob": true, "Bash": true, "PowerShell": true, "EditFile": true, "WriteFile": true, "LoadSkill": true, "SyntheticOutput": true, "ToolSearch": true, "EnterWorktree": true, "ExitWorktree": true, "McpCall": true,
+	"TodoWrite": true, "TaskOutput": true, "TaskStop": true, "ReadFile": true, "WebFetch": true, "Grep": true, "Glob": true, "Bash": true, "PowerShell": true, "EditFile": true, "WriteFile": true, "LoadSkill": true, "SyntheticOutput": true, "ToolSearch": true, "EnterWorktree": true, "ExitWorktree": true, "McpCall": true,
 }
 var TeammateDisallowedTools = []string{"TeamCreate", "TeamDelete"}
 

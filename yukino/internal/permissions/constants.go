@@ -31,7 +31,6 @@ var ContentFields = map[string]string{
 	"PowerShell":   "command",
 	"ComputerUse":  "action",
 	"ReadFile":     "file_path",
-	"LSP":          "file_path",
 	"WebFetch":     "url",
 	"TaskOutput":   "task_id",
 	"WriteFile":    "file_path",
@@ -45,7 +44,6 @@ var FileTools = map[string]bool{
 	"ReadFile":  true,
 	"WriteFile": true,
 	"EditFile":  true,
-	"LSP":       true,
 }
 
 var PlanCoordinationTools = map[string]bool{

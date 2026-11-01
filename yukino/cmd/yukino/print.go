@@ -79,9 +79,6 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 	defaultTools := tools.CreateDefaultTools()
 	registry := defaultTools.Registry
 	defer registry.Dispose()
-	if server, ok := registry.Get("LSP").(*tools.LSPTool); ok {
-		server.Configs = cfg.LspServers
-	}
 
 	skillCatalog := skills.LoadCatalog(wd)
 	instructionsContent := loadPrintInstructions(wd)

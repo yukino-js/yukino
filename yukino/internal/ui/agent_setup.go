@@ -67,9 +67,6 @@ func newAgentHookRunner(client llm.Client) func(prompt string, ctx hooks.HookCon
 }
 
 func (m *Model) registerAgentTools(client llm.Client, providerCfg *config.ProviderConfig, protocol, wd string) {
-	if server, ok := m.registry.Get("LSP").(*tools.LSPTool); ok {
-		server.Configs = m.LSPServers
-	}
 	if m.taskMgr != nil {
 		_ = m.taskMgr.StopAll(context.Background())
 	}

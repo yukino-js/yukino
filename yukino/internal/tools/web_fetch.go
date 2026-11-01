@@ -79,6 +79,21 @@ func isBinaryContentType(contentType string) bool {
 	mediaType = strings.ToLower(strings.TrimSpace(mediaType))
 	return !(strings.HasPrefix(mediaType, "text/") || strings.HasSuffix(mediaType, "+json") || mediaType == "application/json" || strings.HasSuffix(mediaType, "+xml") || mediaType == "application/xml" || strings.HasPrefix(mediaType, "application/javascript") || mediaType == "application/x-www-form-urlencoded")
 }
+func truncateUTF16(text string, limit int) string {
+	units := 0
+	for i, r := range text {
+		count := 1
+		if r > 0xffff {
+			count = 2
+		}
+		if units+count > limit {
+			return text[:i]
+		}
+		units += count
+	}
+	return text
+}
+
 func formatFetch(markdown, requested, final string) string {
 	text := truncateUTF16(markdown, MaxMarkdownLength)
 	if len(text) < len(markdown) {

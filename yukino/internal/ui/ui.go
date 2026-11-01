@@ -12,7 +12,6 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/conversation"
 	"github.com/yukino-js/yukino/yukino/internal/file_history"
 	"github.com/yukino-js/yukino/yukino/internal/llm"
-	"github.com/yukino-js/yukino/yukino/internal/lsp"
 	"github.com/yukino-js/yukino/yukino/internal/mcp"
 	"github.com/yukino-js/yukino/yukino/internal/memory"
 	"github.com/yukino-js/yukino/yukino/internal/memory/consolidation"
@@ -149,7 +148,6 @@ type Model struct {
 	sandboxCursor         int
 	sandboxCfg            *config.SandboxYamlConfig
 	EnableCoordinatorMode bool
-	LSPServers            []lsp.ServerConfig
 	MCPLoading            string
 	ForkDisabled          bool
 
