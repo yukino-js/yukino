@@ -3,9 +3,6 @@ package subagent
 import (
 	"context"
 	"fmt"
-	"strings"
-	"sync"
-	"time"
 
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/agent"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/conversation"
@@ -13,170 +10,6 @@ import (
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/permissions"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/tools"
 )
-
-type TaskStatus string
-
-const (
-	TaskPending   TaskStatus = "pending"
-	TaskRunning   TaskStatus = "running"
-	TaskCompleted TaskStatus = "completed"
-	TaskFailed    TaskStatus = "failed"
-	TaskCancelled TaskStatus = "cancelled"
-)
-
-type Task struct {
-	ID        string
-	Name      string
-	Status    TaskStatus
-	Output    string
-	Error     string
-	CreatedAt time.Time
-	DoneAt    time.Time
-	Cancel    context.CancelFunc
-}
-
-type TaskManager struct {
-	mu            sync.Mutex
-	tasks         map[string]*Task
-	nextID        int
-	notifications []TaskNotification
-}
-
-type TaskNotification struct {
-	TaskID string
-	Name   string
-	Status TaskStatus
-	Output string
-}
-
-func NewTaskManager() *TaskManager {
-	return &TaskManager{
-		tasks: make(map[string]*Task),
-	}
-}
-
-func (tm *TaskManager) CreateTask(name string) string {
-	tm.mu.Lock()
-	defer tm.mu.Unlock()
-	tm.nextID++
-	id := fmt.Sprintf("task_%d", tm.nextID)
-	tm.tasks[id] = &Task{
-		ID:        id,
-		Name:      name,
-		Status:    TaskPending,
-		CreatedAt: time.Now(),
-	}
-	return id
-}
-
-func (tm *TaskManager) GetTask(id string) *Task {
-	tm.mu.Lock()
-	defer tm.mu.Unlock()
-	return tm.tasks[id]
-}
-
-func (tm *TaskManager) ListTasks() []*Task {
-	tm.mu.Lock()
-	defer tm.mu.Unlock()
-	var result []*Task
-	for _, t := range tm.tasks {
-		result = append(result, t)
-	}
-	return result
-}
-
-func (tm *TaskManager) SetRunning(id string, cancel context.CancelFunc) {
-	tm.mu.Lock()
-	defer tm.mu.Unlock()
-	if t, ok := tm.tasks[id]; ok {
-		t.Status = TaskRunning
-		t.Cancel = cancel
-	}
-}
-
-func (tm *TaskManager) SetCompleted(id, output string) {
-	tm.mu.Lock()
-	defer tm.mu.Unlock()
-	if t, ok := tm.tasks[id]; ok {
-		t.Status = TaskCompleted
-		t.Output = output
-		t.DoneAt = time.Now()
-		tm.notifications = append(tm.notifications, TaskNotification{
-			TaskID: id,
-			Name:   t.Name,
-			Status: TaskCompleted,
-			Output: output,
-		})
-	}
-}
-
-func (tm *TaskManager) SetFailed(id, errMsg string) {
-	tm.mu.Lock()
-	defer tm.mu.Unlock()
-	if t, ok := tm.tasks[id]; ok {
-		t.Status = TaskFailed
-		t.Error = errMsg
-		t.DoneAt = time.Now()
-		tm.notifications = append(tm.notifications, TaskNotification{
-			TaskID: id,
-			Name:   t.Name,
-			Status: TaskFailed,
-			Output: errMsg,
-		})
-	}
-}
-
-func (tm *TaskManager) DrainNotifications() []TaskNotification {
-	tm.mu.Lock()
-	defer tm.mu.Unlock()
-	n := tm.notifications
-	tm.notifications = nil
-	return n
-}
-
-func (tm *TaskManager) AdoptRunning(name string, eventCh <-chan agent.AgentEvent, cancel context.CancelFunc) string {
-	taskID := tm.CreateTask("adopted: " + truncate(name, 40))
-	tm.SetRunning(taskID, cancel)
-
-	go func() {
-		var output string
-		for ev := range eventCh {
-			switch e := ev.(type) {
-			case agent.StreamText:
-				output += e.Text
-			case agent.ErrorEvent:
-				tm.SetFailed(taskID, e.Message)
-				return
-			}
-		}
-		tm.SetCompleted(taskID, output)
-	}()
-
-	return taskID
-}
-
-func (tm *TaskManager) FindByName(name string) *Task {
-	tm.mu.Lock()
-	defer tm.mu.Unlock()
-	for _, t := range tm.tasks {
-		if t.Name == name || strings.HasPrefix(t.Name, name+":") {
-			return t
-		}
-	}
-	return nil
-}
-
-func (tm *TaskManager) CancelTask(id string) bool {
-	tm.mu.Lock()
-	defer tm.mu.Unlock()
-	if t, ok := tm.tasks[id]; ok && t.Cancel != nil {
-		t.Cancel()
-		t.Status = TaskCancelled
-		t.DoneAt = time.Now()
-		return true
-	}
-	return false
-}
 
 type SubAgentSpec struct {
 	Name                 string
@@ -273,14 +106,12 @@ func SpawnSubAgent(
 	taskPrompt string,
 	parentChecker *permissions.Checker,
 ) string {
-	taskID := taskMgr.CreateTask(spec.Name + ": " + truncate(taskPrompt, 50))
-
 	subCtx, cancel := context.WithCancel(ctx)
-	taskMgr.SetRunning(taskID, cancel)
 
 	subRegistry := FilterToolsForAgent(registry, spec.Tools, spec.DisallowedTools, true)
 
 	subAgent := agent.New(client, subRegistry, protocol)
+	childTasks := configureBackgroundRuntime(subAgent)
 	subAgent.Checker = deriveSubAgentChecker(parentChecker, spec.PermissionMode)
 	if spec.MaxTurns > 0 {
 		subAgent.MaxIterations = spec.MaxTurns
@@ -288,7 +119,8 @@ func SpawnSubAgent(
 		subAgent.MaxIterations = 200
 	}
 
-	go func() {
+	taskID, err := taskMgr.Create(spec.Name+": "+truncate(taskPrompt, 50), func(id string) (string, error) {
+		defer childTasks.StopAll(context.Background())
 		conv := conversation.NewManager()
 		if spec.SystemPromptOverride != "" {
 			conv.AddSystemReminder(spec.SystemPromptOverride)
@@ -307,13 +139,16 @@ func SpawnSubAgent(
 			case agent.PermissionRequestEvent:
 				e.ResponseCh <- agent.PermissionReply{Response: agent.PermDeny}
 			case agent.ErrorEvent:
-				taskMgr.SetFailed(taskID, e.Message)
-				return
+				return "", fmt.Errorf("%s", e.Message)
 			case agent.LoopComplete:
 			}
 		}
-		taskMgr.SetCompleted(taskID, output)
-	}()
+		return output, nil
+	}, cancel, tools.TaskOptions{})
+	if err != nil {
+		cancel()
+		return ""
+	}
 
 	return taskID
 }

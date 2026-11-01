@@ -1,68 +1,22 @@
 package tools
 
-const BashDescription = `Execute a shell command and return stdout and stderr.
+const BashDescription = "Execute command in Bash; return stdout and stderr. Prefer PowerShell on Windows.\n- timeout is in seconds: default 120, maximum 600. Each call starts a fresh, independent shell in the Agent's working directory; cd, variables, functions, and options do not persist.\n- Quote paths with spaces. To change directory, use cd \"path\" && command in the same call. Separate independent commands; chain dependent commands with &&, not ;.\n- Prefer dedicated file/search tools over cat, head, tail, sed, awk, echo, or find. Scope searches to a directory, never the filesystem root. Diagnose failures rather than retrying in sleep loops.\nGit: commit or push only when requested. Destructive operations (push --force, reset --hard, checkout ., clean -f, branch -D), amending, or skipping hooks/signing require explicit authorization; never bypass permission/hook denials. Prefer new commits. When committing, include Co-Authored-By: Yukino <usr161043261@outlook.com>."
+const ReadFileDescription = "Read text with 1-based display line numbers, or images (png, jpg, jpeg, gif, webp) as visual content; not directories.\n- file_path is absolute or relative to the Agent's working directory. offset skips lines (0-based, default 0); limit defaults to 2000 lines, with a 50KB text output cap. Displayed line 101 starts at offset=100. Follow continuation/readback instructions for partial output.\n- Images ignore offset/limit. A successful read refreshes the file-state cache used by EditFile/WriteFile; re-read after an external-change error."
+const EditFileDescription = "Replace exact text in an existing file and return a diff. Prefer this over whole-file rewrites; batch disjoint changes in one edits array to read and write the file once.\n- file_path is absolute or relative to the Agent's working directory. ReadFile is required first; stale file-state errors require a fresh read and revised edit.\n- Each edits entry contains old_string and new_string, with optional replace_all. All matches use the original file; overlapping edits are rejected before writing. Merge overlapping changes into one entry.\n- old_string must be non-empty and unique unless replace_all=true (default false). LF and CRLF line endings match equivalently. Use enough context to disambiguate; preserve all other whitespace and exclude display line numbers. If matching fails, stray carriage returns in both edit strings are removed before retrying.\n- new_string must differ from old_string; an empty string deletes the match. The file's line endings and unchanged text are preserved."
+const WriteFileDescription = "Write complete UTF-8 content to file_path, creating parent directories and overwriting existing content. Use for new files or complete rewrites; prefer EditFile for targeted changes.\n- file_path is absolute or relative to the Agent's working directory. Existing files require ReadFile first; re-read if the cached state is stale.\n- content includes any desired trailing newline; an empty string creates or truncates an empty file. Avoid unrelated files or unsolicited documentation."
+const GlobDescription = "Find files by glob pattern (e.g. \"**/*.ts\", \"*.{ts,tsx}\"). Return paths relative to path, sorted newest modification first.\n- path is absolute or relative to the Agent's working directory (default \".\"); never search the filesystem root.\n- Includes dotfiles; traversal skips fixed directories such as .git, .agents, .yukino, node_modules, dist, and __pycache__, not rules from .gitignore.\n- At most 1000 matches; narrow limited searches rather than treating them as exhaustive. Prefer this over shell find/ls."
+const GrepDescription = "Search file content with a case-insensitive, line-by-line JavaScript-style regex pattern; return file:line:content with 1-based lines and working-directory-relative paths.\n- path is a file or directory, absolute or relative to the Agent's working directory (default \".\"). Escape regex backslashes in JSON. No multiline matching or general PCRE support.\n- include is an optional glob: \"*.ts\" matches names at any depth; patterns with \"/\" match working-directory-relative paths. A direct file path is searched without this filter.\n- Traversal includes dotfiles but skips fixed directories such as .git, .agents, .yukino, node_modules, dist, and __pycache__, not .gitignore rules. Binary/unreadable files are skipped; directory symlinks are not traversed.\n- At most 500 matching lines. Narrow searches; never search the filesystem root. Use ReadFile for context and this tool instead of shell grep/rg."
+const ReadFileFilePathDescription = "File path, absolute or relative to the Agent's working directory. Supports text and image files."
+const ReadFileOffsetDescription = "Number of text lines to skip (0-based). Use 0 for the first line, 100 for displayed line 101. Ignored for images."
+const ReadFileLimitDescription = "Maximum number of text lines to return (default 2000), subject to a 50KB output limit. Ignored for images."
+const WriteFileFilePathDescription = "File path, absolute or relative to the Agent's working directory. Missing parent directories are created; existing files must be read first."
+const WriteFileContentDescription = "Complete UTF-8 file contents. Replaces all existing content; an empty string creates or truncates an empty file."
+const EditFileFilePathDescription = "Path to the existing file, absolute or relative to the Agent's working directory. Read it first with ReadFile."
+const EditFileEditsDescription = "Targeted replacements matched against the original file. Batch disjoint changes in one call; overlapping edits are rejected before writing."
+const EditFileOldStringDescription = "Non-empty text from the original file, without ReadFile line-number prefixes. LF and CRLF line endings match equivalently; all other whitespace must match exactly. If matching fails, stray carriage returns in the edit strings are removed and matching is retried. Must be unique unless replace_all is true."
+const EditFileNewStringDescription = "Replacement text. An empty string deletes the match. The file's line endings are preserved."
+const EditFileReplaceAllDescription = "Replace all occurrences (default false)"
 
-IMPORTANT: Avoid using this tool to run cat, head, tail, sed, awk, or echo commands. Instead use the dedicated ReadFile, EditFile, or WriteFile tools which provide a better experience.
+const BashBackgroundDescription = "- Set run_in_background to true to run the command in the background. The call returns a task ID immediately and the result arrives later as a task notification; do not poll or sleep waiting for it. Use this for long-running commands you do not need the result of right away. Use TaskStop with the task_id to kill a background command early. A foreground command that exceeds its timeout is moved to the background automatically instead of being killed."
 
-Usage notes:
-- The working directory persists between commands, but shell state does not.
-- Always quote file paths containing spaces with double quotes.
-- Try to maintain your current working directory using absolute paths; avoid cd unless the user explicitly requests it.
-- Optional timeout in seconds (max 600). Default is 120s.
-- When issuing multiple independent commands, make separate parallel tool calls instead of chaining with &&.
-- Use && to chain sequential dependent commands. Use ; only when you don't care if earlier commands fail.
-- DO NOT use newlines to separate commands.
-
-Git Safety Protocol:
-- NEVER run destructive git commands (push --force, reset --hard, checkout ., clean -f, branch -D) unless the user explicitly requests it.
-- NEVER skip hooks (--no-verify) unless the user explicitly requests it.
-- Prefer creating a new commit rather than amending an existing one.
-- Before running destructive operations, consider safer alternatives.
-
-Avoid unnecessary sleep commands. Do not retry failing commands in a sleep loop — diagnose the root cause instead.
-When using find, search from "." or a specific path, not "/" — scanning the full filesystem is too expensive.`
-
-const ReadFileDescription = `Read a file and return its contents with line numbers.
-
-Usage notes:
-- The file_path parameter should be an absolute path when possible.
-- By default reads up to 2000 lines from the beginning of the file.
-- Use offset and limit to read specific parts of large files. Only read what you need.
-- Results are returned with line numbers (1-based) for easy reference.
-- This tool can only read files, not directories. Use Glob to list directory contents.
-- Do NOT re-read a file you just edited to verify — EditFile would have errored if the change failed.`
-
-const EditFileDescription = `Replace an exact string in a file. The old_string must appear exactly once in the file.
-
-Usage notes:
-- You MUST read the file with ReadFile before editing. This tool will fail otherwise.
-- When editing text from ReadFile output, preserve the exact indentation (tabs/spaces) as shown.
-- ALWAYS prefer editing existing files over creating new ones.
-- The edit will FAIL if old_string is not unique in the file. Provide more surrounding context to make it unique.
-- Use the smallest old_string that is clearly unique — 2-4 adjacent lines is usually sufficient.
-- The new_string must be different from old_string.`
-
-const WriteFileDescription = `Write content to a file, creating parent directories if needed. Overwrites existing files.
-
-Usage notes:
-- If modifying an existing file, prefer EditFile over WriteFile — it only sends the diff.
-- Use this tool only to create new files or for complete rewrites.
-- You MUST read existing files with ReadFile before overwriting them.
-- NEVER create documentation files (*.md) or README files unless explicitly requested.`
-
-const GlobDescription = `Find files matching a glob pattern, returning relative paths sorted alphabetically.
-
-Usage notes:
-- Supports patterns like "**/*.py", "src/**/*.ts", "*.go".
-- Search from "." or a specific path, never from "/".
-- Automatically skips .git, node_modules, __pycache__, and similar directories.
-- Use this instead of find or ls commands via Bash.`
-
-const GrepDescription = `Search file contents using a regex pattern, returning file:line:content matches.
-
-Usage notes:
-- Supports full regex syntax (e.g., "log.*Error", "func\s+\w+").
-- Filter files with the include parameter (e.g., "*.py", "*.go").
-- Search from "." or a specific path, never from "/".
-- Use this instead of grep or rg commands via Bash.
-- Automatically skips .git, node_modules, __pycache__, and similar directories.`
+const PowerShellDescription = "Execute command in PowerShell; return stdout and stderr. Recommended on Windows (powershell.exe); uses pwsh elsewhere.\n- timeout is in seconds: default 120, maximum 600. Each call starts a fresh, independent shell in the Agent's working directory; location, variables, and options do not persist.\n- Quote paths with spaces; use Set-Location -LiteralPath \"path\" in the same call. Separate independent commands. For dependencies, check $LASTEXITCODE for native commands and use -ErrorAction Stop for cmdlets; ; does not stop on failure. Do not assume PowerShell 7 syntax.\n- Prefer dedicated file/search tools over Get-Content, Select-String, or Write-Output. Scope recursion to a directory, not a drive root. Diagnose failures rather than retrying in Start-Sleep loops.\nGit: commit or push only when requested. Destructive operations (push --force, reset --hard, checkout ., clean -f, branch -D), amending, or skipping hooks/signing require explicit authorization; never bypass permission/hook denials. Prefer new commits. When committing, include Co-Authored-By: Yukino <usr161043261@outlook.com>."

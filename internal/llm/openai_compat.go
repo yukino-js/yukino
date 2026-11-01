@@ -95,7 +95,8 @@ func (c *openaiCompatClient) Stream(ctx context.Context, conv *conversation.Mana
 	messages := buildChatCompletionMessages(c.systemPrompt, conversation.EnsureToolPairing(conv.GetMessages()))
 
 	var tools []openai.ChatCompletionToolParam
-	for _, s := range toolSchemas {
+	for _, schema := range toolSchemas {
+		s, _ := schema["function"].(map[string]any)
 		name, _ := s["name"].(string)
 		desc, _ := s["description"].(string)
 		params, _ := s["parameters"].(map[string]any)

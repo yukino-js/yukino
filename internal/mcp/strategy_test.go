@@ -55,19 +55,27 @@ func TestDecideMode(t *testing.T) {
 		{"small schemas load eagerly", "https://proxy.example.com", 1000, tools.McpLoadingEager},
 		{"no MCP tools still loads eagerly", "https://proxy.example.com", 0, tools.McpLoadingEager},
 		{"official endpoints use native deferral", "", 500000, tools.McpLoadingNative},
-		{"third-party endpoints dispatch via mcp_call", "https://api.minimaxi.com/anthropic", 500000, tools.McpLoadingDispatch},
+		{"third-party endpoints dispatch via McpCall", "https://api.minimaxi.com/anthropic", 500000, tools.McpLoadingDispatch},
 	}
 	for _, c := range cases {
-		if got := DecideMode(c.baseURL, window, c.chars, DefaultEagerThresholdPercent); got != c.want {
+		if got := DecideMode(c.baseURL, "anthropic", window, c.chars, "auto", DefaultEagerThresholdPercent); got != c.want {
 			t.Errorf("%s: got %s, want %s", c.desc, got, c.want)
 		}
 	}
 }
 
-func TestDecideModeEnvOverride(t *testing.T) {
-	t.Setenv(envLoadingOverride, "dispatch")
-	if got := DecideMode("", 200000, 10, DefaultEagerThresholdPercent); got != tools.McpLoadingDispatch {
-		t.Errorf("the env var should override the decision, got %s", got)
+func TestDecideModeConfigurationAndProtocol(t *testing.T) {
+	for _, protocol := range []string{"openai", "openai-compat"} {
+		for _, loading := range []string{"auto", "native"} {
+			if got := DecideMode("", protocol, 200000, 500000, loading, 10); got != tools.McpLoadingDispatch {
+				t.Fatal(protocol, loading, got)
+			}
+		}
+	}
+	for _, loading := range []string{"eager", "dispatch", "native"} {
+		if got := DecideMode("", "anthropic", 200000, 0, loading, 10); string(got) != loading {
+			t.Fatal(loading, got)
+		}
 	}
 }
 

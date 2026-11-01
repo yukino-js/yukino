@@ -48,6 +48,7 @@ func (m Model) applySandboxMode(mode commands.SandboxMode) (tea.Model, tea.Cmd) 
 		sb := sandbox.New()
 		if bashTool != nil {
 			bashTool.Sandbox = sb
+			bashTool.SandboxRequired = true
 			if m.ag != nil && m.ag.Checker != nil && m.ag.Checker.Sandbox != nil {
 				bashTool.SandboxConfig = sandbox.Config{
 					AllowWrite:     m.ag.Checker.Sandbox.GetAllowedRoots(),
@@ -64,6 +65,7 @@ func (m Model) applySandboxMode(mode commands.SandboxMode) (tea.Model, tea.Cmd) 
 		sb := sandbox.New()
 		if bashTool != nil {
 			bashTool.Sandbox = sb
+			bashTool.SandboxRequired = true
 			if m.ag != nil && m.ag.Checker != nil && m.ag.Checker.Sandbox != nil {
 				bashTool.SandboxConfig = sandbox.Config{
 					AllowWrite:     m.ag.Checker.Sandbox.GetAllowedRoots(),
@@ -79,6 +81,7 @@ func (m Model) applySandboxMode(mode commands.SandboxMode) (tea.Model, tea.Cmd) 
 	case commands.SandboxOff:
 		if bashTool != nil {
 			bashTool.Sandbox = nil
+			bashTool.SandboxRequired = false
 			bashTool.SandboxConfig = sandbox.Config{}
 		}
 		if m.ag != nil && m.ag.Checker != nil {

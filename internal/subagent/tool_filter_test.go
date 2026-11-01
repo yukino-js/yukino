@@ -95,7 +95,7 @@ func TestGlobalDisallowedExpanded(t *testing.T) {
 	)
 	filtered := FilterToolsForAgent(reg, []string{"*"}, nil, false)
 	for _, blocked := range []string{
-		"TaskOutput", "ExitPlanMode", "EnterPlanMode", "Agent", "AskUserQuestion", "TaskStop", "Workflow",
+		"ExitPlanMode", "EnterPlanMode", "Agent", "AskUserQuestion", "Workflow",
 	} {
 		if hasToolNamed(filtered, blocked) {
 			t.Errorf("%s should be in ALL_AGENT_DISALLOWED_TOOLS", blocked)
@@ -108,14 +108,14 @@ func TestGlobalDisallowedExpanded(t *testing.T) {
 
 func TestAsyncWhitelistExpanded(t *testing.T) {
 	reg := makeRegistry(
-		"ReadFile", "WebSearch", "TodoWrite", "Grep", "WebFetch", "Glob",
-		"Bash", "EditFile", "WriteFile", "NotebookEdit", "Skill",
+		"ReadFile", "TaskOutput", "TodoWrite", "Grep", "WebFetch", "Glob",
+		"Bash", "EditFile", "WriteFile", "TaskStop", "PowerShell",
 		"SyntheticOutput", "ToolSearch", "EnterWorktree", "ExitWorktree",
 	)
 	filtered := FilterToolsForAgent(reg, nil, nil, true)
 	for _, name := range []string{
-		"ReadFile", "WebSearch", "TodoWrite", "Grep", "WebFetch", "Glob",
-		"Bash", "EditFile", "WriteFile", "NotebookEdit", "Skill",
+		"ReadFile", "TaskOutput", "TodoWrite", "Grep", "WebFetch", "Glob",
+		"Bash", "EditFile", "WriteFile", "TaskStop", "PowerShell",
 		"SyntheticOutput", "ToolSearch", "EnterWorktree", "ExitWorktree",
 	} {
 		if !hasToolNamed(filtered, name) {
@@ -124,19 +124,27 @@ func TestAsyncWhitelistExpanded(t *testing.T) {
 	}
 }
 
-func TestInProcessTeammateExtraTools(t *testing.T) {
-	reg := makeRegistry("ReadFile", "TaskCreate", "TaskList", "SendMessage", "Agent")
-	asTeammate := FilterToolsForAgentEx(reg, nil, nil, true, false, true)
-	for _, name := range []string{"TaskCreate", "TaskList", "SendMessage"} {
-		if !hasToolNamed(asTeammate, name) {
-			t.Errorf("%s should be allowed for in-process teammates", name)
+func TestTeammateClonesStripLeaderAuthority(t *testing.T) {
+	registry := makeRegistry("ReadFile", "TaskStop", "SendMessage", "Agent", "TeamCreate", "TeamDelete", "ComputerUse")
+	teammate := CloneRegistryForTeammate(registry, "")
+	for _, name := range []string{"TaskStop", "SendMessage", "Agent", "TeamCreate", "TeamDelete", "ComputerUse"} {
+		if teammate.Get(name) != nil {
+			t.Fatal("leader tool leaked", name)
 		}
 	}
-	notTeammate := FilterToolsForAgentEx(reg, nil, nil, true, false, false)
-	for _, name := range []string{"TaskCreate", "TaskList", "SendMessage"} {
-		if hasToolNamed(notTeammate, name) {
-			t.Errorf("%s should be blocked for plain async agents (not teammates)", name)
-		}
+	if teammate.Get("ReadFile") == nil {
+		t.Fatal("read tool removed")
+	}
+}
+func TestMCPDefinitionsStillRestrictTools(t *testing.T) {
+	registry := makeRegistry("mcp__one__read", "mcp__two__write", "ReadFile")
+	filtered := FilterToolsForAgent(registry, []string{"*", "ReadFile"}, []string{"mcp__two__write"}, true)
+	if filtered.Get("mcp__one__read") == nil || filtered.Get("mcp__two__write") != nil {
+		t.Fatal("MCP definition restrictions ignored")
+	}
+	filtered = FilterToolsForAgent(registry, []string{"ReadFile"}, nil, true)
+	if filtered.Get("mcp__one__read") != nil {
+		t.Fatal("MCP whitelist ignored")
 	}
 }
 

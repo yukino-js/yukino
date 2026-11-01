@@ -22,6 +22,7 @@ import (
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/session"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/tool_result"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/tools"
+	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/utils"
 )
 
 const (
@@ -40,6 +41,8 @@ type Agent struct {
 	Checker             *permissions.Checker
 	Hooks               *hooks.Engine
 	SessionID           string
+	TaskManager         tools.BackgroundTaskManager
+	DisableBackground   bool
 	NotificationFn      func() []string
 	Instructions        string
 	MemoryContent       string
@@ -50,6 +53,7 @@ type Agent struct {
 	CoordinatorActiveFn func() bool
 	OnLoopComplete      func(conv *conversation.Manager)
 	FileHistory         *file_history.History
+	FileStateCache      *tools.FileStateCache
 	compactTracking     compact.AutoCompactTrackingState
 	RecoveryState       *compact.RecoveryState
 	eventCh             chan AgentEvent
@@ -139,13 +143,14 @@ func (a *Agent) ToolRegistry() *tools.Registry {
 func New(client llm.Client, registry *tools.Registry, protocol string) *Agent {
 	wd, _ := os.Getwd()
 	return &Agent{
-		Client:        client,
-		Registry:      registry,
-		Protocol:      protocol,
-		WorkDir:       wd,
-		MaxIterations: 0,
-		ContextWindow: 200000,
-		RecoveryState: compact.NewRecoveryState(),
+		Client:         client,
+		Registry:       registry,
+		Protocol:       protocol,
+		WorkDir:        wd,
+		MaxIterations:  0,
+		ContextWindow:  200000,
+		RecoveryState:  compact.NewRecoveryState(),
+		FileStateCache: tools.NewFileStateCache(),
 	}
 }
 
@@ -186,7 +191,7 @@ func (a *Agent) Run(ctx context.Context, conv *conversation.Manager) <-chan Agen
 
 			toolSchemas := a.currentToolSchemas()
 
-			if a.Checker != nil && a.Checker.Mode == permissions.ModePlan {
+			if a.Checker != nil && a.Checker.Mode() == permissions.ModePlan {
 				planPath := plan_file.GetOrCreatePlanPath()
 				a.Checker.PlanFilePath = planPath
 				planExists := plan_file.PlanExists()
@@ -224,7 +229,7 @@ func (a *Agent) Run(ctx context.Context, conv *conversation.Manager) <-chan Agen
 				if poolChanged || !conv.HasReminderContaining(deferredReminderMarker) {
 					reminder := deferredReminderMarker + " Their schemas are NOT loaded - use ToolSearch with query \"select:<name>[,<name>...]\" to load tool schemas"
 					if a.Registry.McpLoadingMode == tools.McpLoadingDispatch {
-						reminder += ", then invoke them with the mcp_call tool"
+						reminder += ", then invoke them with the McpCall tool"
 					} else {
 						reminder += " before calling them"
 					}
@@ -462,7 +467,7 @@ func (a *Agent) emitHook(event hooks.EventName, message string, args map[string]
 func filterSchemasByName(schemas []map[string]any, allow func(name string) bool) []map[string]any {
 	out := make([]map[string]any, 0, len(schemas))
 	for _, s := range schemas {
-		name, _ := s["name"].(string)
+		name := tools.SchemaName(s)
 		if allow(name) {
 			out = append(out, s)
 		}
@@ -573,11 +578,17 @@ func (a *Agent) executeSingleTool(ctx context.Context, eventCh chan AgentEvent, 
 				}
 			}
 			if reply.Response == PermAllowAlways {
-				a.Checker.AllowAlways(tc.toolName, tc.arguments, nil)
+				if err := a.Checker.AllowAlways(tc.toolName, tc.arguments, nil); err != nil {
+					return toolExecResult{toolID: tc.toolID, toolName: tc.toolName, output: fmt.Sprintf("Error saving permission rule: %s", err), isError: true, elapsed: time.Since(start)}
+				}
 			}
 		}
 	}
 
+	approvedMode := permissions.PermissionMode("")
+	if a.Checker != nil {
+		approvedMode = a.Checker.Mode()
+	}
 	if a.Hooks != nil {
 		if rejected, msg := a.Hooks.FirePreToolHooks(tc.toolName, tc.arguments, hooks.HookRuntimeOptions{Cwd: a.WorkDir}); rejected {
 			return toolExecResult{
@@ -590,12 +601,23 @@ func (a *Agent) executeSingleTool(ctx context.Context, eventCh chan AgentEvent, 
 		}
 	}
 
+	ctx = tools.WithExecutionContext(ctx, tools.ExecutionContext{IsAgentRuntime: true, FileStateCache: a.FileStateCache, FileHistory: a.FileHistory, WorkDir: a.WorkDir, SessionID: a.SessionID, ToolCallID: tc.toolID, TaskManager: a.TaskManager, DisableBackground: a.DisableBackground, CanReadSearchPath: func(path string) bool { return a.Checker == nil || a.Checker.CanReadSearchPath(path) }, CanTraverseSearchPath: func(path string) bool { return a.Checker == nil || a.Checker.CanTraverseSearchPath(path) }, CheckPermission: func(name string, args map[string]any) *tools.ToolResult {
+		if a.Checker == nil {
+			return nil
+		}
+		decision := a.Checker.Check(tool, args)
+		if decision.Effect == permissions.Deny || decision.Effect == permissions.Ask && a.Checker.Mode() != approvedMode {
+			return &tools.ToolResult{Output: fmt.Sprintf("Permission changed while waiting: %s. Request approval again before retrying.", decision.Reason), IsError: true}
+		}
+		return nil
+	}})
 	result := tool.Execute(ctx, tc.arguments)
 
 	a.RecordRecentTool(tc.toolName)
 
 	if !result.IsError && tc.toolName == "ReadFile" {
 		if p, _ := tc.arguments["file_path"].(string); p != "" {
+			p = utils.ResolveToolPath(a.WorkDir, p)
 			if data, err := os.ReadFile(p); err == nil {
 				a.RecoveryState.RecordFileRead(p, string(data))
 			}

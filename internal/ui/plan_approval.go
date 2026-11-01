@@ -63,7 +63,7 @@ func (m Model) executePlanApproval() (tea.Model, tea.Cmd) {
 	switch m.planApprovalCursor {
 	case 0:
 		if m.ag != nil && m.ag.Checker != nil {
-			m.ag.Checker.Mode = permissions.ModeBypass
+			m.ag.Checker.SetMode(permissions.ModeBypass)
 			m.ag.Checker.PlanFilePath = ""
 		}
 		modeMsg = "Plan approved. Entered YOLO mode (all operations auto-approved)."
@@ -73,7 +73,7 @@ func (m Model) executePlanApproval() (tea.Model, tea.Cmd) {
 			if restoreMode == "" {
 				restoreMode = permissions.ModeDefault
 			}
-			m.ag.Checker.Mode = restoreMode
+			m.ag.Checker.SetMode(restoreMode)
 			m.ag.Checker.PlanFilePath = ""
 		}
 		modeMsg = "Plan approved. Each edit will require your confirmation."
@@ -110,7 +110,7 @@ func (m Model) sendPlanFeedback(feedback string, alsoExit bool) (tea.Model, tea.
 			if restoreMode == "" {
 				restoreMode = permissions.ModeDefault
 			}
-			m.ag.Checker.Mode = restoreMode
+			m.ag.Checker.SetMode(restoreMode)
 			m.ag.Checker.PlanFilePath = ""
 		}
 		plan_file.ResetPlanPath()

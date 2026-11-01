@@ -87,7 +87,7 @@ func RunInProcessTeammate(
 				return err
 			}
 			if approved {
-				member.AgentRef.Checker.Mode = permissions.ModeDefault
+				member.AgentRef.Checker.SetMode(permissions.ModeDefault)
 				nextPrompt = buildPlanApprovedMessage("")
 			} else {
 				nextPrompt = buildPlanRejectedMessage(feedback)
@@ -116,7 +116,7 @@ func RunInProcessTeammate(
 func planModeActive(member *Member) bool {
 	return member.AgentRef != nil &&
 		member.AgentRef.Checker != nil &&
-		member.AgentRef.Checker.Mode == permissions.ModePlan
+		member.AgentRef.Checker.Mode() == permissions.ModePlan
 }
 
 func requestPlanApproval(ctx context.Context, team *Team, member *Member) (bool, string, error) {

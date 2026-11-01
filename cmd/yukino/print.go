@@ -99,6 +99,11 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 	defaultTools.WriteFile.FileHistory = fh
 
 	taskMgr := subagent.NewTaskManager()
+	if err := taskMgr.UseSession(sessionID); err != nil {
+		return err
+	}
+	defer taskMgr.StopAll(context.Background())
+	tools.AttachBackgroundTaskManager(registry, taskMgr)
 	store, err := todo.NewStore(sessionID)
 	if err != nil {
 		return err
@@ -111,14 +116,14 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 	registry.Register(&todo.TaskGetTool{List: todoList})
 	registry.Register(&todo.TaskListTool{List: todoList})
 	registry.Register(&todo.TaskUpdateTool{List: todoList})
-	registry.Register(&tools.ToolSearchTool{Registry: registry, Protocol: p.Protocol})
+	registry.Register(&tools.ToolSearchTool{Registry: registry})
 	registry.Register(&tools.McpCallTool{Registry: registry})
 
 	teamMgr := teams.NewTeamManager(wd)
 	registry.Register(&teams.TeamCreateTool{TeamMgr: teamMgr})
 	registry.Register(&teams.TeamDeleteTool{TeamMgr: teamMgr})
 	registry.Register(&teams.SendMessageTool{TeamMgr: teamMgr, SenderName: "lead"})
-	registry.Register(&teams.TaskStopTool{TeamMgr: teamMgr})
+	registry.Register(&teams.TaskStopTool{TeamMgr: teamMgr, TaskManager: taskMgr})
 	registry.Register(&tools.SyntheticOutputTool{})
 
 	if len(cfg.MCPServers) > 0 {
@@ -139,7 +144,7 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 		for _, e := range mcpMgr.RegisterAllTools(context.Background(), registry) {
 			fmt.Fprintf(os.Stderr, "MCP warning: %s\n", e)
 		}
-		mcp.DecideAndApply(registry, p.BaseURL, config.GetContextWindow(p))
+		mcp.DecideAndApply(registry, p.BaseURL, p.Protocol, config.GetContextWindow(p), cfg.MCPLoading)
 		defer mcpMgr.Shutdown()
 	}
 
@@ -178,7 +183,11 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 	}
 
 	ag.NotificationFn = func() []string {
-		return teams.DrainLeadMailbox(teamMgr)
+		var messages []string
+		for _, task := range taskMgr.DrainNotifications() {
+			messages = append(messages, fmt.Sprintf("<task-notification>\n<task_id>%s</task_id>\n<status>%s</status>\n<result>%s</result>\n</task-notification>", task.ID, task.Status, task.Output))
+		}
+		return append(messages, teams.DrainLeadMailbox(teamMgr)...)
 	}
 	ag.ToolNameFilter = teams.CoordinatorToolFilter(cfg.EnableCoordinatorMode)
 	ag.CoordinatorActiveFn = teams.CoordinatorActiveFn(cfg.EnableCoordinatorMode)

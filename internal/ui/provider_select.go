@@ -61,7 +61,8 @@ func (m *Model) activateInitialProvider(p *config.ProviderConfig) tea.Cmd {
 	ag.Checker.SandboxAutoAllow = m.sandboxCfg.SandboxAutoAllow()
 	if m.sandboxCfg.SandboxEnabled() {
 		sb := sandbox.New()
-		if bashTool, ok := m.registry.Get("Bash").(*tools.BashTool); ok && sb != nil {
+		if bashTool, ok := m.registry.Get("Bash").(*tools.BashTool); ok {
+			bashTool.SandboxRequired = true
 			bashTool.Sandbox = sb
 			bashTool.SandboxConfig = sandbox.Config{
 				AllowWrite:     []string{wd, os.TempDir()},
@@ -266,7 +267,7 @@ func (m Model) switchProvider(provider config.ProviderConfig) (tea.Model, tea.Cm
 			at.Client = client
 		}
 	}
-	mcp.DecideAndApply(m.registry, provider.BaseURL, config.GetContextWindow(&provider))
+	mcp.DecideAndApply(m.registry, provider.BaseURL, provider.Protocol, config.GetContextWindow(&provider), m.MCPLoading)
 	m.chatMessages = append(m.chatMessages, chatMessage{
 		role:    "system",
 		content: fmt.Sprintf("Provider switched to %s · %s.", provider.Name, provider.Model),

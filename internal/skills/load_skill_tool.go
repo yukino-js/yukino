@@ -74,3 +74,11 @@ func (t *LoadSkillTool) Execute(ctx context.Context, args map[string]any) tools.
 		Output: header + skill.PromptBody,
 	}
 }
+
+type delegatedSkillHost struct{}
+
+func (delegatedSkillHost) ActivateSkill(name, body string) {}
+func (delegatedSkillHost) ToolRegistry() *tools.Registry   { return nil }
+func (t *LoadSkillTool) ForDelegatedAgent() tools.Tool {
+	return &LoadSkillTool{Catalog: t.Catalog, Host: delegatedSkillHost{}}
+}

@@ -1,6 +1,7 @@
 package permissions
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -175,12 +176,13 @@ type PathSandbox struct {
 	allowedRoots []string
 }
 
-func NewPathSandbox(projectDir string, includeTemp bool) *PathSandbox {
+func NewPathSandbox(projectDir string, includeTempOption ...bool) *PathSandbox {
 	abs, err := filepath.Abs(projectDir)
 	if err != nil {
 		abs = projectDir
 	}
 	roots := []string{abs}
+	includeTemp := len(includeTempOption) == 0 || includeTempOption[0]
 	if includeTemp {
 		roots = append(roots, os.TempDir())
 	}
@@ -255,33 +257,42 @@ type Rule struct {
 
 // loadRulesFile reads a rules file: a top-level YAML list of
 // `{ rule: "Tool(pattern)", effect: "allow"|"deny"|"ask" }`.
-func loadRulesFile(path string) []Rule {
+func loadRulesFile(path string) ([]Rule, error) {
 	data, err := storage.ReadPrivateFileSync(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			if _, linkErr := os.Lstat(path); os.IsNotExist(linkErr) {
+				return nil, nil
+			}
 		}
-		return nil
+		return nil, err
 	}
-	var entries []struct {
-		Rule   string `yaml:"rule"`
-		Effect string `yaml:"effect"`
-	}
+	var entries []map[string]any
 	if err := yaml.Unmarshal(data, &entries); err != nil {
-		return nil
+		return nil, fmt.Errorf("%s: %w", RulesParseError, err)
 	}
 	var rules []Rule
-	for _, e := range entries {
-		if e.Effect != "allow" && e.Effect != "deny" && e.Effect != "ask" {
+	for _, entry := range entries {
+		if entry == nil {
+			return nil, errors.New(RulesParseError)
+		}
+		ruleValue, hasRule := entry["rule"]
+		effectValue, hasEffect := entry["effect"]
+		rule, ruleOK := ruleValue.(string)
+		effect, effectOK := effectValue.(string)
+		if hasRule && !ruleOK || hasEffect && !effectOK {
+			return nil, errors.New(RulesParseError)
+		}
+		if effect != "allow" && effect != "deny" && effect != "ask" {
 			continue
 		}
-		m := RuleRE.FindStringSubmatch(strings.TrimSpace(e.Rule))
+		m := RuleRE.FindStringSubmatch(strings.TrimSpace(rule))
 		if m == nil {
 			continue
 		}
-		rules = append(rules, Rule{Tool: m[1], Pattern: m[2], Effect: RuleEffect(e.Effect)})
+		rules = append(rules, Rule{m[1], m[2], RuleEffect(effect)})
 	}
-	return rules
+	return rules, nil
 }
 
 // EvaluateRules adjudicates over the given rule set with priority
@@ -345,46 +356,65 @@ func (e *RuleEngine) ProjectPath() string { return e.projectPath }
 // rulesFor reads a single rules file; skips re-reading and parsing on cache
 // hit. mtime + size together serve as the change indicator — either alone can
 // miss a rewrite.
-func (e *RuleEngine) rulesFor(path string) []Rule {
+func (e *RuleEngine) rulesFor(path string) ([]Rule, error) {
 	if path == "" {
-		return nil
+		return nil, nil
 	}
 	info, err := os.Stat(path)
 	if err != nil {
 		e.mu.Lock()
 		delete(e.cache, path)
 		e.mu.Unlock()
-		return nil
+		if os.IsNotExist(err) {
+			if _, linkErr := os.Lstat(path); os.IsNotExist(linkErr) {
+				return nil, nil
+			}
+		}
+		return nil, err
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if c, ok := e.cache[path]; ok && c.modTime.Equal(info.ModTime()) && c.size == info.Size() {
-		return c.rules
+		return c.rules, nil
 	}
-	rules := loadRulesFile(path)
+	rules, err := loadRulesFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if e.cache == nil {
+		e.cache = map[string]cachedRules{}
+	}
 	e.cache[path] = cachedRules{modTime: info.ModTime(), size: info.Size(), rules: rules}
-	return rules
+	return rules, nil
 }
 
 // Snapshot returns the merged snapshot of both rules files.
-func (e *RuleEngine) Snapshot() []Rule {
+func (e *RuleEngine) Snapshot() ([]Rule, error) {
 	var all []Rule
-	all = append(all, e.rulesFor(e.userPath)...)
-	all = append(all, e.rulesFor(e.projectPath)...)
-	return all
+	for _, path := range []string{e.userPath, e.projectPath} {
+		rules, err := e.rulesFor(path)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, rules...)
+	}
+	return all, nil
 }
 
 // AppendProjectRule persists a rule to the project-level YAML file in the
 // `Tool(pattern)` format so "allow always" survives a restart.
-func (e *RuleEngine) AppendProjectRule(rule Rule) {
+func (e *RuleEngine) AppendProjectRule(rule Rule) error {
 	if e.projectPath == "" {
-		return
+		return errors.New("Project permission rules path is unavailable")
 	}
 	if err := storage.MkdirPrivateSync(filepath.Dir(e.projectPath)); err != nil {
-		return
+		return err
 	}
-	_ = storage.WithFileSyncLock(e.projectPath, func() error {
-		rules := loadRulesFile(e.projectPath)
+	return storage.WithFileSyncLock(e.projectPath, func() error {
+		rules, err := loadRulesFile(e.projectPath)
+		if err != nil {
+			return err
+		}
 		for _, r := range rules {
 			if r.Tool == rule.Tool && r.Pattern == rule.Pattern && r.Effect == rule.Effect {
 				return nil
@@ -419,9 +449,14 @@ func (e *RuleEngine) AppendProjectRule(rule Rule) {
 
 // Checker decides allow/deny/ask for tool calls under a permission mode.
 type Checker struct {
-	Sandbox    *PathSandbox
-	RuleEngine *RuleEngine
-	Mode       PermissionMode
+	Policy               func(tools.Tool, map[string]any) Decision
+	SearchReadPolicy     func(string) bool
+	SearchTraversePolicy func(string) bool
+	Sandbox              *PathSandbox
+	RuleEngine           *RuleEngine
+	modeState            *permissionModeState
+	planModeState        *planModeState
+	parent               *Checker
 	// Cwd is the working directory used to resolve relative paths in rules
 	// and tool arguments.
 	Cwd string
@@ -448,18 +483,12 @@ func NewChecker(sandbox *PathSandbox, ruleEngine *RuleEngine, mode PermissionMod
 		cwd = sandbox.ProjectDir()
 	}
 	return &Checker{
-		Sandbox:    sandbox,
-		RuleEngine: ruleEngine,
-		Mode:       mode,
-		Cwd:        cwd,
+		Sandbox:       sandbox,
+		RuleEngine:    ruleEngine,
+		modeState:     &permissionModeState{value: mode, events: &modeEvents{listeners: make(map[uint64]func())}},
+		planModeState: &planModeState{},
+		Cwd:           cwd,
 	}
-}
-
-func (c *Checker) effectiveMode() PermissionMode {
-	if c.ReadOnly {
-		return ModePlan
-	}
-	return c.Mode
 }
 
 // Check decides a tool call; path resolution failures deny.
@@ -469,11 +498,14 @@ func (c *Checker) Check(tool tools.Tool, args map[string]any) (decision Decision
 			decision = Decision{Effect: Deny, Reason: fmt.Sprintf("Permission path resolution failed: %v", r)}
 		}
 	}()
+	if c.Policy != nil {
+		return c.Policy(tool, args)
+	}
 	return c.checkAction(tool.Name(), tool.Category(), args)
 }
 
 func (c *Checker) checkAction(toolName string, category tools.ToolCategory, args map[string]any) Decision {
-	mode := c.effectiveMode()
+	mode := c.Mode()
 	content := ExtractContent(toolName, args)
 	coordination := c.Teammate && TeammateCoordinationTools[toolName]
 	filePath, _ := args["file_path"].(string)
@@ -492,7 +524,7 @@ func (c *Checker) checkAction(toolName string, category tools.ToolCategory, args
 		return Decision{Effect: Deny, Reason: "Plan mode forbids mutations"}
 	}
 
-	explicit := c.checkExplicitRules(toolName, args)
+	explicit := c.CheckExplicitRules(toolName, args)
 	var explicitEffect DecisionEffect
 	if explicit != nil {
 		explicitEffect = explicit.Effect
@@ -571,12 +603,17 @@ func (c *Checker) insensitiveMatch(toolName string) bool {
 		(filepath.Separator == '\\' && (FileTools[toolName] || toolName == "Glob"))
 }
 
-// checkExplicitRules evaluates the merged rule snapshot against the call.
-func (c *Checker) checkExplicitRules(toolName string, args map[string]any) *Decision {
+// CheckExplicitRules evaluates the merged rule snapshot against the call.
+func (c *Checker) CheckExplicitRules(toolName string, args map[string]any) (decision *Decision) {
 	defer func() {
-		recover()
+		if err := recover(); err != nil {
+			decision = &Decision{Effect: Deny, Reason: fmt.Sprintf("Permission path resolution failed: %v", err)}
+		}
 	}()
-	snapshot := c.RuleEngine.Snapshot()
+	snapshot, err := c.RuleEngine.Snapshot()
+	if err != nil {
+		return &Decision{Effect: Deny, Reason: fmt.Sprintf("Permission path resolution failed: %s", err)}
+	}
 	var rules []Rule
 	for _, rule := range snapshot {
 		if rule.Tool != toolName && rule.Tool != "*" {
@@ -600,9 +637,15 @@ func (c *Checker) checkExplicitRules(toolName string, args map[string]any) *Deci
 		effects := []*RuleEffect{EvaluateRules(rules, toolName, rawContent, insensitive)}
 		for _, command := range analysis.Commands {
 			effects = append(effects, EvaluateRules(rules, toolName, command.Content, insensitive))
-			parts := strings.Split(command.Words[0], "/")
+			parts := shellPathSepRe.Split(command.Words[0], -1)
 			base := parts[len(parts)-1]
-			effects = append(effects, EvaluateRules(rules, toolName, strings.Join(append([]string{base}, command.Words[1:]...), " "), insensitive))
+			var restrictive []Rule
+			for _, rule := range rules {
+				if rule.Effect != Allow {
+					restrictive = append(restrictive, rule)
+				}
+			}
+			effects = append(effects, EvaluateRules(restrictive, toolName, strings.Join(append([]string{base}, command.Words[1:]...), " "), insensitive))
 		}
 		effect = nil
 		for _, eff := range effects {
@@ -740,16 +783,19 @@ func (c *Checker) RememberPatterns(toolName string, args map[string]any) []strin
 }
 
 // AllowAlways persists allow rules for the call so it is not asked again.
-func (c *Checker) AllowAlways(toolName string, args map[string]any, patterns []string) {
+func (c *Checker) AllowAlways(toolName string, args map[string]any, patterns []string) error {
 	if patterns == nil {
 		patterns = c.RememberPatterns(toolName, args)
 	}
 	for _, pattern := range patterns {
 		match := RuleRE.FindStringSubmatch(pattern)
 		if match != nil && match[1] == toolName {
-			c.RuleEngine.AppendProjectRule(Rule{Tool: match[1], Pattern: match[2], Effect: Allow})
+			if err := c.RuleEngine.AppendProjectRule(Rule{Tool: match[1], Pattern: match[2], Effect: Allow}); err != nil {
+				return err
+			}
 		}
 	}
+	return nil
 }
 
 func minInt(a, b int) int {

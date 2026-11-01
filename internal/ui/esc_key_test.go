@@ -8,7 +8,6 @@ import (
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/agent"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/commands"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/config"
-	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/subagent"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/tools"
 )
 
@@ -134,16 +133,16 @@ func TestEscLeavesResumeList(t *testing.T) {
 	}
 }
 
-func TestEscMovesStreamingAgentToBackground(t *testing.T) {
+func TestEscCancelsForegroundWithoutBackgrounding(t *testing.T) {
 	m := newChatModel(t)
 	ch := make(chan agent.AgentEvent)
 	close(ch)
+	cancelled := false
 	m.streaming = true
 	m.agentCh = ch
-	m.cancelStream = func() {}
-	m.taskMgr = subagent.NewTaskManager()
+	m.cancelStream = func() { cancelled = true }
 	m = pressEsc(t, m)
-	if m.streaming || m.agentCh != nil {
-		t.Error("esc during streaming should hand the agent to the background task manager")
+	if !cancelled || m.streaming || m.agentCh != nil {
+		t.Fatal("escape did not cancel foreground")
 	}
 }

@@ -254,10 +254,12 @@ func (t *AgentTool) Execute(ctx context.Context, args map[string]any) tools.Tool
 }
 
 func (t *AgentTool) runSync(ctx context.Context, spec SubAgentSpec, description, prompt, modelOverride, isolation string) tools.ToolResult {
-	subRegistry := FilterToolsForAgent(t.Registry, spec.Tools, spec.DisallowedTools, false)
+	subRegistry := FilterToolsForAgent(t.Registry, spec.Tools, spec.DisallowedTools, false, spec.PermissionMode)
 	client := t.selectClient(spec.Model, modelOverride)
 
 	subAgent := agent.New(client, subRegistry, t.Protocol)
+	childTasks := configureBackgroundRuntime(subAgent)
+	defer childTasks.StopAll(context.Background())
 	subAgent.Checker = deriveSubAgentChecker(t.ParentChecker, spec.PermissionMode)
 	if spec.MaxTurns > 0 {
 		subAgent.MaxIterations = spec.MaxTurns
@@ -384,6 +386,7 @@ func (t *AgentTool) runFork(ctx context.Context, description, prompt, modelOverr
 	subRegistry := cloneRegistryForFork(t.Registry)
 
 	subAgent := agent.New(client, subRegistry, t.Protocol)
+	childTasks := configureBackgroundRuntime(subAgent)
 	subAgent.Checker = t.ParentChecker
 	subAgent.MaxIterations = 200
 
@@ -391,26 +394,26 @@ func (t *AgentTool) runFork(ctx context.Context, description, prompt, modelOverr
 	if agentName != "" {
 		taskName = agentName
 	}
-	taskID := t.TaskMgr.CreateTask(taskName + ": " + truncate(prompt, 50))
 	forkCtx, cancel := context.WithCancel(ctx)
-	t.TaskMgr.SetRunning(taskID, cancel)
-
-	go func() {
-		var output string
-		ch := subAgent.Run(forkCtx, forkedConv)
-		for ev := range ch {
+	taskID, err := t.TaskMgr.Create(taskName+": "+truncate(prompt, 50), func(id string) (string, error) {
+		defer childTasks.StopAll(context.Background())
+		var output strings.Builder
+		for ev := range subAgent.Run(forkCtx, forkedConv) {
 			switch e := ev.(type) {
 			case agent.StreamText:
-				output += e.Text
+				output.WriteString(e.Text)
 			case agent.PermissionRequestEvent:
 				e.ResponseCh <- agent.PermissionReply{Response: agent.PermDeny}
 			case agent.ErrorEvent:
-				t.TaskMgr.SetFailed(taskID, e.Message)
-				return
+				return "", fmt.Errorf("%s", e.Message)
 			}
 		}
-		t.TaskMgr.SetCompleted(taskID, output)
-	}()
+		return output.String(), forkCtx.Err()
+	}, cancel, tools.TaskOptions{})
+	if err != nil {
+		cancel()
+		return tools.ToolResult{Output: err.Error(), IsError: true}
+	}
 
 	return tools.ToolResult{
 		Output: fmt.Sprintf(
@@ -435,10 +438,7 @@ func deriveSubAgentChecker(parent *permissions.Checker, modeOverride string) *pe
 	if parent == nil {
 		return nil
 	}
-	if modeOverride == "" || permissions.PermissionMode(modeOverride) == parent.Mode {
-		return parent
-	}
-	return permissions.NewChecker(parent.Sandbox, parent.RuleEngine, permissions.PermissionMode(modeOverride))
+	return parent.ForSubagent(parent.Cwd, permissions.PermissionMode(modeOverride))
 }
 
 func cloneRegistryForFork(reg *tools.Registry) *tools.Registry {

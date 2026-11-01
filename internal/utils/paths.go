@@ -54,7 +54,10 @@ func CanonicalPath(path string, links int) (string, error) {
 			if rerr != nil {
 				return "", rerr
 			}
-			return CanonicalPath(filepath.Join(append([]string{filepath.Dir(current), target}, missing...)...), links+1)
+			if !filepath.IsAbs(target) {
+				target = filepath.Join(filepath.Dir(current), target)
+			}
+			return CanonicalPath(filepath.Join(append([]string{target}, missing...)...), links+1)
 		}
 		parent := filepath.Dir(current)
 		if parent == current {

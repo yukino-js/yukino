@@ -14,7 +14,6 @@ import (
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/memory"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/session"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/storage"
-	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/subagent"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/tools"
 )
 
@@ -125,9 +124,9 @@ func (c *Consolidator) run(ctx context.Context, sessionIDs []string, priorMtime 
 	conv := conversation.NewManager()
 	conv.AddUserMessage(prompt)
 
-	subRegistry := subagent.FilterToolsForAgent(c.deps.ToolRegistry, nil, nil, true)
+	subRegistry := memory.NewTaskToolRegistry()
 
-	subChecker := memory.NewSubAgentChecker(c.deps.ProjectRoot, c.deps.UserMemoryDir)
+	subChecker := memory.NewMemoryPermissionChecker(c.deps.ProjectRoot, true)
 
 	subAgent := agent.New(c.deps.Client, subRegistry, c.deps.Protocol)
 	subAgent.MaxIterations = 15

@@ -142,7 +142,7 @@ func TestToolSearchDoesNotMarkMCPToolsDiscovered(t *testing.T) {
 	reg.McpLoadingMode = McpLoadingDispatch
 	reg.Register(&mockDeferredTool{name: "mcp__grafana__query", desc: "Query Prometheus"})
 
-	ts := &ToolSearchTool{Registry: reg, Protocol: "anthropic"}
+	ts := &ToolSearchTool{Registry: reg}
 	res := ts.Execute(context.Background(), map[string]any{"query": "select:mcp__grafana__query"})
 
 	if reg.IsDiscovered("mcp__grafana__query") {
@@ -154,8 +154,8 @@ func TestToolSearchDoesNotMarkMCPToolsDiscovered(t *testing.T) {
 	if !strings.Contains(res.Output, "mcp__grafana__query") {
 		t.Error("the output should contain the tool schema")
 	}
-	if !strings.Contains(res.Output, "mcp_call") {
-		t.Error("the output should point at mcp_call for invocation")
+	if !strings.Contains(res.Output, "McpCall") {
+		t.Error("the output should point at McpCall for invocation")
 	}
 }
 
@@ -164,7 +164,7 @@ func TestToolSearchStillMarksNonMCPDeferredTools(t *testing.T) {
 	reg.McpLoadingMode = McpLoadingDispatch
 	reg.Register(&mockDeferredTool{name: "SomeDeferredTool", desc: "not an MCP tool"})
 
-	ts := &ToolSearchTool{Registry: reg, Protocol: "anthropic"}
+	ts := &ToolSearchTool{Registry: reg}
 	ts.Execute(context.Background(), map[string]any{"query": "select:SomeDeferredTool"})
 
 	if !reg.IsDiscovered("SomeDeferredTool") {
@@ -180,17 +180,17 @@ func TestToolSearchReturnsToolReferenceInNativeMode(t *testing.T) {
 	reg.McpLoadingMode = McpLoadingNative
 	reg.Register(&mockDeferredTool{name: "mcp__grafana__query", desc: "Query Prometheus"})
 
-	ts := &ToolSearchTool{Registry: reg, Protocol: "anthropic"}
+	ts := &ToolSearchTool{Registry: reg}
 	res := ts.Execute(context.Background(), map[string]any{"query": "select:mcp__grafana__query"})
 
-	if len(res.ContentBlocks) != 1 {
-		t.Fatalf("expected 1 content block, got %d", len(res.ContentBlocks))
+	if len(res.ContentBlocks) != 2 || res.ContentBlocks[0]["type"] != "text" {
+		t.Fatalf("expected text plus tool reference, got %v", res.ContentBlocks)
 	}
-	if res.ContentBlocks[0]["type"] != "tool_reference" {
+	if res.ContentBlocks[1]["type"] != "tool_reference" {
 		t.Errorf("block type should be tool_reference, got %v", res.ContentBlocks[0]["type"])
 	}
-	if res.ContentBlocks[0]["tool_name"] != "mcp__grafana__query" {
-		t.Errorf("wrong tool_name: %v", res.ContentBlocks[0]["tool_name"])
+	if res.ContentBlocks[1]["tool_name"] != "mcp__grafana__query" {
+		t.Errorf("wrong tool_name: %v", res.ContentBlocks[1]["tool_name"])
 	}
 	schemas := reg.GetAllSchemas("anthropic")
 	if len(schemas) != 1 || schemas[0]["defer_loading"] != true {
@@ -203,7 +203,7 @@ func TestToolSearchSelect(t *testing.T) {
 	reg.Register(&mockDeferredTool{name: "mcp__grafana__query", desc: "Query Prometheus"})
 	reg.Register(&mockDeferredTool{name: "mcp__grafana__search", desc: "Search dashboards"})
 
-	ts := &ToolSearchTool{Registry: reg, Protocol: "anthropic"}
+	ts := &ToolSearchTool{Registry: reg}
 	result := ts.Execute(context.Background(), map[string]any{
 		"query": "select:mcp__grafana__query",
 	})
@@ -221,7 +221,7 @@ func TestToolSearchKeyword(t *testing.T) {
 	reg.Register(&mockDeferredTool{name: "mcp__grafana__query", desc: "Query Prometheus metrics"})
 	reg.Register(&mockDeferredTool{name: "mcp__github__issues", desc: "List GitHub issues"})
 
-	ts := &ToolSearchTool{Registry: reg, Protocol: "anthropic"}
+	ts := &ToolSearchTool{Registry: reg}
 	result := ts.Execute(context.Background(), map[string]any{
 		"query": "prometheus",
 	})
@@ -238,7 +238,7 @@ func TestToolSearchNoMatch(t *testing.T) {
 	reg := NewRegistry()
 	reg.Register(&mockDeferredTool{name: "mcp__grafana__query", desc: "Query Prometheus"})
 
-	ts := &ToolSearchTool{Registry: reg, Protocol: "anthropic"}
+	ts := &ToolSearchTool{Registry: reg}
 	result := ts.Execute(context.Background(), map[string]any{
 		"query": "nonexistent_xyz",
 	})
@@ -246,8 +246,8 @@ func TestToolSearchNoMatch(t *testing.T) {
 	if result.IsError {
 		t.Errorf("should not be error, got: %s", result.Output)
 	}
-	if !contains(result.Output, "No matching") {
-		t.Errorf("expected 'No matching' message, got: %s", result.Output)
+	if !contains(result.Output, "No deferred tools matched") {
+		t.Errorf("expected no deferred tools message, got: %s", result.Output)
 	}
 }
 

@@ -6,115 +6,67 @@ import (
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/tools"
 )
 
-var AllAgentDisallowedTools = map[string]bool{
-	"TaskOutput":      true,
-	"ExitPlanMode":    true,
-	"EnterPlanMode":   true,
-	"Agent":           true,
-	"AskUserQuestion": true,
-	"TaskStop":        true,
-	"Workflow":        true,
+var SubagentDisallowedTools = map[string]bool{
+	"Workflow": true, "ComputerUse": true, "AskUserQuestion": true, "EnterPlanMode": true, "ExitPlanMode": true, "Goal": true, "Agent": true, "TeamCreate": true, "TeamDelete": true, "SendMessage": true,
 }
-
-var CustomAgentDisallowedTools = map[string]bool{
-	"TaskOutput":      true,
-	"ExitPlanMode":    true,
-	"EnterPlanMode":   true,
-	"Agent":           true,
-	"AskUserQuestion": true,
-	"TaskStop":        true,
-	"Workflow":        true,
-}
-
 var AsyncAgentAllowedTools = map[string]bool{
-	"ReadFile":        true,
-	"WebSearch":       true,
-	"TodoWrite":       true,
-	"Grep":            true,
-	"WebFetch":        true,
-	"Glob":            true,
-	"Bash":            true,
-	"EditFile":        true,
-	"WriteFile":       true,
-	"NotebookEdit":    true,
-	"Skill":           true,
-	"LoadSkill":       true,
-	"SyntheticOutput": true,
-	"ToolSearch":      true,
-	"mcp_call":        true,
-	"EnterWorktree":   true,
-	"ExitWorktree":    true,
+	"TodoWrite": true, "TaskOutput": true, "TaskStop": true, "LSP": true, "ReadFile": true, "WebFetch": true, "Grep": true, "Glob": true, "Bash": true, "PowerShell": true, "EditFile": true, "WriteFile": true, "LoadSkill": true, "SyntheticOutput": true, "ToolSearch": true, "EnterWorktree": true, "ExitWorktree": true, "McpCall": true,
 }
-
-var InProcessTeammateAllowedTools = map[string]bool{
-	"TaskCreate":  true,
-	"TaskGet":     true,
-	"TaskList":    true,
-	"TaskUpdate":  true,
-	"SendMessage": true,
-	"CronCreate":  true,
-	"CronDelete":  true,
-	"CronList":    true,
-}
-
 var TeammateDisallowedTools = []string{"TeamCreate", "TeamDelete"}
 
-func IsMCPTool(name string) bool {
-	return strings.HasPrefix(name, "mcp__")
-}
-
-func FilterToolsForAgent(reg *tools.Registry, allowedTools, disallowedTools []string, isAsync bool) *tools.Registry {
-	return FilterToolsForAgentEx(reg, allowedTools, disallowedTools, isAsync, false, false)
-}
-
-func FilterToolsForAgentEx(reg *tools.Registry, allowedTools, disallowedTools []string, isAsync, isCustom, isInProcessTeammate bool) *tools.Registry {
-	disallowed := make(map[string]bool, len(disallowedTools))
-	for _, name := range disallowedTools {
-		disallowed[name] = true
+func IsMCPTool(name string) bool { return strings.HasPrefix(name, tools.MCPToolPrefix) }
+func registerScopedTool(registry *tools.Registry, tool tools.Tool) {
+	switch t := tool.(type) {
+	case *tools.ToolSearchTool:
+		registry.Register(&tools.ToolSearchTool{Registry: registry})
+	case *tools.McpCallTool:
+		registry.Register(&tools.McpCallTool{Registry: registry})
+	case interface{ ForSubagent() tools.Tool }:
+		registry.Register(t.ForSubagent())
+	case interface{ ForDelegatedAgent() tools.Tool }:
+		registry.Register(t.ForDelegatedAgent())
+	default:
+		registry.RegisterBorrowed(tool)
 	}
-
-	allowed := make(map[string]bool, len(allowedTools))
-	hasWhitelist := len(allowedTools) > 0 && !(len(allowedTools) == 1 && allowedTools[0] == "*")
+}
+func FilterToolsForAgent(registry *tools.Registry, allowedTools, disallowedTools []string, isAsync bool, permissionModes ...string) *tools.Registry {
+	allowed, disallowed := map[string]bool{}, map[string]bool{}
 	for _, name := range allowedTools {
 		allowed[name] = true
 	}
-
+	for _, name := range disallowedTools {
+		disallowed[name] = true
+	}
+	whitelist := len(allowed) > 0 && !allowed["*"]
+	mode := ""
+	if len(permissionModes) > 0 {
+		mode = permissionModes[0]
+	}
 	filtered := tools.NewRegistry()
-	for _, t := range reg.ListTools() {
-		name := t.Name()
-
-		if IsMCPTool(name) {
-			filtered.Register(t)
+	filtered.CopyLoadingStateFrom(registry)
+	for _, tool := range registry.ListTools() {
+		name := tool.Name()
+		planExit := name == "ExitPlanMode" && mode == "plan"
+		if !IsMCPTool(name) && (!planExit && SubagentDisallowedTools[name] || !planExit && isAsync && !AsyncAgentAllowedTools[name]) {
 			continue
 		}
-
-		if AllAgentDisallowedTools[name] {
+		if disallowed[name] || whitelist && !allowed[name] {
 			continue
 		}
-
-		if isCustom && CustomAgentDisallowedTools[name] {
-			continue
-		}
-
-		if isAsync && !AsyncAgentAllowedTools[name] {
-			if isInProcessTeammate {
-				if name == "Agent" || InProcessTeammateAllowedTools[name] {
-					filtered.Register(t)
-					continue
-				}
-			}
-			continue
-		}
-
-		if disallowed[name] {
-			continue
-		}
-
-		if hasWhitelist && !allowed[name] {
-			continue
-		}
-
-		filtered.Register(t)
+		registerScopedTool(filtered, tool)
 	}
 	return filtered
+}
+func CloneRegistryForTeammate(registry *tools.Registry, permissionMode string) *tools.Registry {
+	teammate := tools.NewRegistry()
+	teammate.CopyLoadingStateFrom(registry)
+	for _, tool := range registry.ListTools() {
+		name := tool.Name()
+		planExit := name == "ExitPlanMode" && permissionMode == "plan"
+		if !planExit && SubagentDisallowedTools[name] || name == "TaskStop" {
+			continue
+		}
+		registerScopedTool(teammate, tool)
+	}
+	return teammate
 }

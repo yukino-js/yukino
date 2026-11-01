@@ -3,7 +3,6 @@ package mcp
 import (
 	"encoding/json"
 	"net/url"
-	"os"
 	"strings"
 
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/tools"
@@ -15,8 +14,6 @@ const (
 	CharsPerToken = 2.5
 
 	NativeToolSearchBeta = "advanced-tool-use-2025-11-20"
-
-	envLoadingOverride = "YUKINO_MCP_LOADING"
 )
 
 var officialHosts = map[string]bool{"api.anthropic.com": true}
@@ -36,25 +33,21 @@ func EstimateSchemaTokens(schemaChars int) int {
 	return int(float64(schemaChars) / CharsPerToken)
 }
 
-func DecideMode(baseURL string, contextWindow, mcpSchemaChars, thresholdPercent int) tools.McpLoadingMode {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv(envLoadingOverride))) {
-	case "eager":
-		return tools.McpLoadingEager
-	case "native":
-		return tools.McpLoadingNative
-	case "dispatch":
-		return tools.McpLoadingDispatch
+func DecideMode(baseURL, protocol string, contextWindow, mcpSchemaChars int, loading string, thresholdPercent int) tools.McpLoadingMode {
+	if loading != "" && loading != "auto" {
+		if loading == "native" && protocol != "anthropic" {
+			return tools.McpLoadingDispatch
+		}
+		return tools.McpLoadingMode(loading)
 	}
-
 	if mcpSchemaChars <= 0 {
 		return tools.McpLoadingEager
 	}
-
 	budget := float64(contextWindow) * float64(thresholdPercent) / 100
 	if float64(EstimateSchemaTokens(mcpSchemaChars)) < budget {
 		return tools.McpLoadingEager
 	}
-	if IsOfficialAnthropicEndpoint(baseURL) {
+	if protocol == "anthropic" && IsOfficialAnthropicEndpoint(baseURL) {
 		return tools.McpLoadingNative
 	}
 	return tools.McpLoadingDispatch
@@ -88,8 +81,8 @@ func ApplyMode(registry *tools.Registry, mode tools.McpLoadingMode) {
 	registry.ExposeMcpCall = mode == tools.McpLoadingDispatch
 }
 
-func DecideAndApply(registry *tools.Registry, baseURL string, contextWindow int) tools.McpLoadingMode {
-	mode := DecideMode(baseURL, contextWindow, MeasureSchemaChars(registry), DefaultEagerThresholdPercent)
+func DecideAndApply(registry *tools.Registry, baseURL, protocol string, contextWindow int, loading string) tools.McpLoadingMode {
+	mode := DecideMode(baseURL, protocol, contextWindow, MeasureSchemaChars(registry), loading, DefaultEagerThresholdPercent)
 	ApplyMode(registry, mode)
 	return mode
 }

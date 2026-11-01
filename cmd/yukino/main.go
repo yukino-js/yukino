@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/signal"
 	"runtime/debug"
+	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -11,10 +13,17 @@ import (
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/crash_log"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/hooks"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/remote"
+	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/tools"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/ui"
 )
 
 func main() {
+	defer tools.RunExitCleanups()
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGHUP, syscall.SIGTERM)
+	defer signal.Stop(signals)
+	go func() { <-signals; tools.RunExitCleanups(); os.Exit(1) }()
+
 	recordExit := crash_log.Install()
 	defer recordExit()
 	defer func() {
@@ -31,6 +40,7 @@ func main() {
 	if args, ok := parseTeammateFlags(os.Args[1:]); ok {
 		if err := runTeammate(args); err != nil {
 			fmt.Fprintf(os.Stderr, "teammate: %s\n", err)
+			tools.RunExitCleanups()
 			os.Exit(1)
 		}
 		return
@@ -53,6 +63,7 @@ func main() {
 	cfg, err := config.LoadConfig("", config.LoadOptions{})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+		tools.RunExitCleanups()
 		os.Exit(1)
 	}
 
@@ -69,10 +80,12 @@ func main() {
 		}
 		if userPrompt == "" {
 			fmt.Fprintf(os.Stderr, "Error: -p requires a prompt argument or stdin input\n")
+			tools.RunExitCleanups()
 			os.Exit(1)
 		}
 		if err := runPrint(userPrompt, cfg, validHooks, outputFormat); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+			tools.RunExitCleanups()
 			os.Exit(1)
 		}
 		return
@@ -80,8 +93,10 @@ func main() {
 
 	if remoteAddr != "" {
 		srv := remote.NewServer(cfg.Providers, cfg.MCPServers, validHooks, remoteAddr, cfg.EnableCoordinatorMode, !cfg.ForkEnabled(), cfg.DefaultProvider)
+		srv.MCPLoading = cfg.MCPLoading
 		if err := srv.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "Remote server error: %s\n", err)
+			tools.RunExitCleanups()
 			os.Exit(1)
 		}
 		return
@@ -89,11 +104,17 @@ func main() {
 
 	m := ui.New(cfg.Providers, cfg.MCPServers, validHooks, cfg.Sandbox, cfg.DefaultProvider)
 	m.EnableCoordinatorMode = cfg.EnableCoordinatorMode
+	m.MCPLoading = cfg.MCPLoading
 	m.ForkDisabled = !cfg.ForkEnabled()
 	p := tea.NewProgram(m)
 
-	if _, err := p.Run(); err != nil {
+	finalModel, err := p.Run()
+	if disposable, ok := finalModel.(interface{ Dispose() error }); ok {
+		_ = disposable.Dispose()
+	}
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+		tools.RunExitCleanups()
 		os.Exit(1)
 	}
 }

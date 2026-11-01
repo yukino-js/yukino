@@ -10,7 +10,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -112,11 +111,7 @@ func fileSignature(path string) string {
 	if err != nil {
 		return ""
 	}
-	ino := uint64(0)
-	if st, ok := info.Sys().(*syscall.Stat_t); ok {
-		ino = st.Ino
-	}
-	return fmt.Sprintf("%d:%d:%d", ino, info.Size(), info.ModTime().UnixMilli())
+	return platformFileSignature(path, info)
 }
 
 func validateProject(key string, project ProjectInfo) error {

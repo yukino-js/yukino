@@ -266,7 +266,7 @@ func (m Model) applyModelSelection(modelID string) (tea.Model, tea.Cmd) {
 			at.Client = client
 		}
 	}
-	mcp.DecideAndApply(m.registry, updated.BaseURL, config.GetContextWindow(&updated))
+	mcp.DecideAndApply(m.registry, updated.BaseURL, updated.Protocol, config.GetContextWindow(&updated), m.MCPLoading)
 	m.modelDialog = false
 
 	// A save failure must not undo the runtime switch.

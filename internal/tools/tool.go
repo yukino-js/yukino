@@ -2,13 +2,10 @@ package tools
 
 import (
 	"context"
-	"sort"
-	"strings"
 )
 
 var SkipDirs = map[string]bool{
-	".git": true, ".venv": true, "node_modules": true,
-	"__pycache__": true, ".tox": true, ".mypy_cache": true,
+	".agents": true, ".git": true, ".yukino": true, ".next": true, ".venv": true, ".mypy_cache": true, "__pycache__": true, "dist": true, "node_modules": true,
 }
 
 const MaxOutputChars = 50000
@@ -67,174 +64,6 @@ func IsConcurrencySafe(t Tool, args map[string]any) bool {
 	return t.Category() == CategoryRead
 }
 
-type Registry struct {
-	tools           map[string]Tool
-	discoveredTools map[string]bool
-	McpLoadingMode  McpLoadingMode
-
-	ExposeToolSearch bool
-	ExposeMcpCall    bool
-}
-
-func NewRegistry() *Registry {
-	return &Registry{
-		tools:           make(map[string]Tool),
-		discoveredTools: make(map[string]bool),
-		McpLoadingMode:  McpLoadingEager,
-	}
-}
-
-func (r *Registry) MarkDiscovered(name string) {
-	r.discoveredTools[name] = true
-}
-
-func (r *Registry) IsDiscovered(name string) bool {
-	return r.discoveredTools[name]
-}
-
-func (r *Registry) Register(t Tool) {
-	r.tools[t.Name()] = t
-}
-
-func (r *Registry) Get(name string) Tool {
-	return r.tools[name]
-}
-
-func (r *Registry) ListTools() []Tool {
-	result := make([]Tool, 0, len(r.tools))
-	for _, t := range r.tools {
-		result = append(result, t)
-	}
-	return result
-}
-
-func isDeferred(t Tool) bool {
-	if dt, ok := t.(DeferrableTool); ok {
-		return dt.ShouldDefer()
-	}
-	return false
-}
-
-func isOpenAIProtocol(protocol string) bool {
-	return protocol == "openai" || protocol == "openai-compat"
-}
-
-func (r *Registry) GetAllSchemas(protocol string) []map[string]any {
-	native := r.McpLoadingMode == McpLoadingNative && !isOpenAIProtocol(protocol)
-	names := make([]string, 0, len(r.tools))
-	for name := range r.tools {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	schemas := make([]map[string]any, 0, len(r.tools))
-	for _, name := range names {
-		t := r.tools[name]
-		if name == ToolSearchToolName && !r.ExposeToolSearch {
-			continue
-		} else if name == McpCallToolName && !r.ExposeMcpCall {
-			continue
-		}
-		deferred := isDeferred(t) && !r.discoveredTools[name]
-		if deferred && !native {
-			continue
-		}
-		base := t.Schema()
-		if isOpenAIProtocol(protocol) {
-			schemas = append(schemas, map[string]any{
-				"type":        "function",
-				"name":        base["name"],
-				"description": base["description"],
-				"parameters":  base["input_schema"],
-			})
-		} else {
-			if deferred {
-				withFlag := make(map[string]any, len(base)+1)
-				for k, v := range base {
-					withFlag[k] = v
-				}
-				withFlag["defer_loading"] = true
-				base = withFlag
-			}
-			schemas = append(schemas, base)
-		}
-	}
-	return schemas
-}
-
-func (r *Registry) GetDeferredToolNames() []string {
-	var names []string
-	for _, t := range r.tools {
-		if isDeferred(t) && !r.discoveredTools[t.Name()] {
-			names = append(names, t.Name())
-		}
-	}
-	sort.Strings(names)
-	return names
-}
-
-func (r *Registry) GetDeferredTools() []Tool {
-	var result []Tool
-	for _, t := range r.tools {
-		if isDeferred(t) {
-			result = append(result, t)
-		}
-	}
-	return result
-}
-
-func (r *Registry) SearchDeferred(query string, maxResults int, protocol string) []map[string]any {
-	query = strings.ToLower(query)
-	var matches []map[string]any
-	for _, t := range r.tools {
-		if !isDeferred(t) {
-			continue
-		}
-		name := strings.ToLower(t.Name())
-		desc := strings.ToLower(t.Description())
-		if strings.Contains(name, query) || strings.Contains(desc, query) {
-			base := t.Schema()
-			if isOpenAIProtocol(protocol) {
-				matches = append(matches, map[string]any{
-					"type":        "function",
-					"name":        base["name"],
-					"description": base["description"],
-					"parameters":  base["input_schema"],
-				})
-			} else {
-				matches = append(matches, base)
-			}
-			if len(matches) >= maxResults {
-				break
-			}
-		}
-	}
-	return matches
-}
-
-func (r *Registry) FindDeferredByNames(names []string, protocol string) []map[string]any {
-	nameSet := make(map[string]bool)
-	for _, n := range names {
-		nameSet[strings.ToLower(n)] = true
-	}
-	var matches []map[string]any
-	for _, t := range r.tools {
-		if nameSet[strings.ToLower(t.Name())] {
-			base := t.Schema()
-			if isOpenAIProtocol(protocol) {
-				matches = append(matches, map[string]any{
-					"type":        "function",
-					"name":        base["name"],
-					"description": base["description"],
-					"parameters":  base["input_schema"],
-				})
-			} else {
-				matches = append(matches, base)
-			}
-		}
-	}
-	return matches
-}
-
 type DefaultTools struct {
 	Registry  *Registry
 	WriteFile *WriteFileTool
@@ -255,6 +84,8 @@ func CreateDefaultToolsWithWorkDir(workDir string) DefaultTools {
 	reg.Register(wf)
 	reg.Register(ef)
 	reg.Register(&BashTool{WorkDir: workDir})
+	reg.Register(&PowerShellTool{})
+	reg.Register(&TaskOutputTool{})
 	reg.Register(&GlobTool{})
 	reg.Register(&GrepTool{})
 	return DefaultTools{Registry: reg, WriteFile: wf, EditFile: ef}

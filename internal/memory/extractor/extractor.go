@@ -12,7 +12,6 @@ import (
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/conversation"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/llm"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/memory"
-	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/subagent"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/tools"
 )
 
@@ -131,9 +130,9 @@ func (e *Extractor) runExtraction(ctx context.Context, isTrailingRun bool) error
 
 	forkedConv := buildExtractorConversation(e.deps.Conversation, extractionPrompt)
 
-	subRegistry := subagent.FilterToolsForAgent(e.deps.ToolRegistry, nil, nil, true)
+	subRegistry := memory.NewTaskToolRegistry()
 
-	subChecker := memory.NewSubAgentChecker(e.deps.ProjectRoot, e.deps.UserMemoryDir)
+	subChecker := memory.NewMemoryPermissionChecker(e.deps.ProjectRoot, false)
 
 	subAgent := agent.New(e.deps.Client, subRegistry, e.deps.Protocol)
 	subAgent.MaxIterations = 5

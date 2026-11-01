@@ -36,7 +36,7 @@ func (m *Model) drainTaskNotifications() []string {
 	if m.taskMgr != nil {
 		for _, n := range m.taskMgr.DrainNotifications() {
 			msg := fmt.Sprintf("<task-notification>\n<task_id>%s</task_id>\n<status>%s</status>\n<summary>Agent \"%s\" %s</summary>\n<result>%s</result>\n</task-notification>",
-				n.TaskID, n.Status, n.Name, n.Status, n.Output)
+				n.ID, n.Status, n.Name, n.Status, n.Output)
 			messages = append(messages, msg)
 		}
 	}
@@ -69,7 +69,16 @@ func newAgentHookRunner(client llm.Client) func(prompt string, ctx hooks.HookCon
 }
 
 func (m *Model) registerAgentTools(client llm.Client, providerCfg *config.ProviderConfig, protocol, wd string) {
+	if m.taskMgr != nil {
+		_ = m.taskMgr.StopAll(context.Background())
+	}
 	m.taskMgr = subagent.NewTaskManager()
+	if err := m.taskMgr.UseSession(m.sessionID); err != nil {
+		panic(err)
+	}
+	tools.AttachBackgroundTaskManager(m.registry, m.taskMgr)
+	manager := m.taskMgr
+	m.registry.AddCleanup(func() error { return manager.StopAll(context.Background()) })
 
 	store, err := todo.NewStore(m.sessionID)
 	if err != nil {
@@ -106,7 +115,7 @@ func (m *Model) registerAgentTools(client llm.Client, providerCfg *config.Provid
 
 	m.registry.Register(&tools.ExitPlanModeTool{
 		IsPlanMode: func() bool {
-			return m.ag != nil && m.ag.Checker != nil && m.ag.Checker.Mode == permissions.ModePlan
+			return m.ag != nil && m.ag.Checker != nil && m.ag.Checker.Mode() == permissions.ModePlan
 		},
 		PlanExists: func() bool {
 			return plan_file.PlanExists()
@@ -116,12 +125,12 @@ func (m *Model) registerAgentTools(client llm.Client, providerCfg *config.Provid
 	m.registry.Register(&todo.TaskGetTool{List: m.todoList})
 	m.registry.Register(&todo.TaskListTool{List: m.todoList})
 	m.registry.Register(&todo.TaskUpdateTool{List: m.todoList})
-	m.registry.Register(&tools.ToolSearchTool{Registry: m.registry, Protocol: protocol})
+	m.registry.Register(&tools.ToolSearchTool{Registry: m.registry})
 	m.registry.Register(&tools.McpCallTool{Registry: m.registry})
 	m.registry.Register(&teams.TeamCreateTool{TeamMgr: teamMgr})
 	m.registry.Register(&teams.TeamDeleteTool{TeamMgr: teamMgr})
 	m.registry.Register(&teams.SendMessageTool{TeamMgr: teamMgr, SenderName: "lead"})
-	m.registry.Register(&teams.TaskStopTool{TeamMgr: teamMgr})
+	m.registry.Register(&teams.TaskStopTool{TeamMgr: teamMgr, TaskManager: m.taskMgr})
 	m.registry.Register(&tools.SyntheticOutputTool{})
 	m.registry.Register(&subagent.AgentTool{
 		Client:        client,

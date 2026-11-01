@@ -3,6 +3,7 @@ package permissions
 import (
 	"regexp"
 	"strings"
+	"unicode"
 )
 
 type ShellCommand struct {
@@ -50,7 +51,7 @@ func AnalyzeShell(command string, powershell bool) ShellAnalysis {
 			executable := strings.ToLower(parts[len(parts)-1])
 			if words[0] == "" ||
 				ComplexCommands[strings.TrimSuffix(executable, ".exe")] ||
-				shellWordFlagRe.MatchString(words[0]) ||
+				shellWordFlagRe.MatchString(words[0]) || strings.ContainsFunc(words[0], shellWhitespace) ||
 				shellVarAssignRe.MatchString(words[0]) {
 				complete = false
 			}
@@ -131,7 +132,7 @@ func AnalyzeShell(command string, powershell bool) ShellAnalysis {
 			if (c == '&' || c == '|') && hasNext && next == c {
 				i++
 			}
-		} else if c == ' ' || c == '\t' || c == '\v' || c == '\f' {
+		} else if shellWhitespace(c) {
 			endWord()
 		} else {
 			if strings.ContainsRune("$`(){}\x00<>", c) {
@@ -146,4 +147,8 @@ func AnalyzeShell(command string, powershell bool) ShellAnalysis {
 	}
 	endCommand()
 	return ShellAnalysis{Commands: commands, Complete: complete && len(commands) > 0}
+}
+
+func shellWhitespace(r rune) bool {
+	return r == '\uFEFF' || unicode.IsSpace(r) && r != '\u0085'
 }

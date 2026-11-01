@@ -1,10 +1,11 @@
 package tools
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/utils"
 )
 
 type FileStateCache struct {
@@ -32,16 +33,16 @@ func (c *FileStateCache) Check(filePath string) (bool, string) {
 	c.mu.Unlock()
 
 	if !exists {
-		return false, fmt.Sprintf("Error: file has not been read yet. Read it first before editing.")
+		return false, FileNotReadError
 	}
 
 	info, err := os.Stat(abs)
 	if err != nil {
-		return true, ""
+		return false, FileDeletedError
 	}
 	currentMtime := info.ModTime().UnixMilli()
-	if currentMtime > cachedMtime {
-		return false, fmt.Sprintf("Error: file has been modified since last read. Read it again before editing.")
+	if currentMtime != cachedMtime {
+		return false, FileModifiedError
 	}
 
 	return true, ""
@@ -51,6 +52,7 @@ func (c *FileStateCache) Update(filePath string) {
 	abs := normalizePath(filePath)
 	info, err := os.Stat(abs)
 	if err != nil {
+		c.Delete(abs)
 		return
 	}
 	c.mu.Lock()
@@ -59,9 +61,31 @@ func (c *FileStateCache) Update(filePath string) {
 }
 
 func normalizePath(p string) string {
+	if canonical, err := utils.CanonicalPath(p, 0); err == nil {
+		return canonical
+	}
 	abs, err := filepath.Abs(p)
 	if err != nil {
 		return p
 	}
 	return abs
+}
+
+func (c *FileStateCache) Has(path string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	_, ok := c.entries[normalizePath(path)]
+	return ok
+}
+
+func (c *FileStateCache) Delete(path string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.entries, normalizePath(path))
+}
+
+func (c *FileStateCache) Clear() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	clear(c.entries)
 }

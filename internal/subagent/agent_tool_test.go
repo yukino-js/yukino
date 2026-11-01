@@ -39,18 +39,18 @@ func TestDeriveSubAgentCheckerOverrideMode(t *testing.T) {
 	eng := &permissions.RuleEngine{}
 	parent := permissions.NewChecker(sb, eng, permissions.ModeDefault)
 
-	if derived := deriveSubAgentChecker(parent, ""); derived != parent {
-		t.Error("empty override should return parent unchanged")
+	if derived := deriveSubAgentChecker(parent, ""); derived == parent || !derived.IsSubagent() {
+		t.Error("delegation must create a child checker")
 	}
 	derived := deriveSubAgentChecker(parent, "plan")
 	if derived == parent {
 		t.Fatal("plan override should produce a new checker instance")
 	}
-	if derived.Mode != permissions.ModePlan {
-		t.Errorf("derived.Mode = %q, want plan", derived.Mode)
+	if derived.Mode() != permissions.ModePlan {
+		t.Errorf("derived.Mode() = %q, want plan", derived.Mode())
 	}
-	if derived.Sandbox != sb || derived.RuleEngine != eng {
-		t.Error("derived checker should share parent's Sandbox + RuleEngine")
+	if derived.Sandbox == sb || derived.RuleEngine != eng {
+		t.Error("child needs its own sandbox and the shared rule engine")
 	}
 	if deriveSubAgentChecker(nil, "plan") != nil {
 		t.Error("nil parent should propagate nil")

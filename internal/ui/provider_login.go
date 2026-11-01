@@ -380,7 +380,7 @@ func (m Model) submitLogin() (tea.Model, tea.Cmd) {
 		m.ag.ContextWindow = config.GetContextWindow(selected)
 		m.ag.MaxOutputTokens = config.GetMaxOutputTokens(selected)
 	}
-	mcp.DecideAndApply(m.registry, selected.BaseURL, config.GetContextWindow(selected))
+	mcp.DecideAndApply(m.registry, selected.BaseURL, selected.Protocol, config.GetContextWindow(selected), m.MCPLoading)
 	verb := "Saved to"
 	if result.Replaced {
 		verb = "Updated"

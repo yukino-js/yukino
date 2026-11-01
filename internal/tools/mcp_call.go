@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"regexp"
 	"sort"
 	"strconv"
@@ -19,13 +20,16 @@ const MCPToolPrefix = "mcp__"
 
 const MCPNameSep = "__"
 
-const McpCallToolName = "mcp_call"
+const McpCallToolName = "McpCall"
 
 func coerceScalar(value any, want string) any {
 	switch want {
 	case "string":
 		switch v := value.(type) {
 		case float64:
+			if math.IsInf(v, 0) || math.IsNaN(v) {
+				return value
+			}
 			if v == float64(int64(v)) {
 				return strconv.FormatInt(int64(v), 10)
 			}
@@ -53,7 +57,7 @@ func coerceScalar(value any, want string) any {
 			if !numShape.MatchString(text) {
 				return value
 			}
-			if f, err := strconv.ParseFloat(text, 64); err == nil {
+			if f, err := strconv.ParseFloat(text, 64); err == nil && !math.IsInf(f, 0) && !math.IsNaN(f) {
 				return f
 			}
 		}
@@ -130,11 +134,7 @@ func CoerceBySchema(value any, schema any) any {
 
 func McpCallPermissionContent(server, tool string) string {
 	if strings.HasPrefix(tool, MCPToolPrefix) {
-		rest := strings.TrimPrefix(tool, MCPToolPrefix)
-		if idx := strings.Index(rest, MCPNameSep); idx >= 0 {
-			return sanitizeSegment(rest[:idx]) + MCPNameSep +
-				sanitizeSegment(rest[idx+len(MCPNameSep):])
-		}
+		return strings.TrimPrefix(tool, MCPToolPrefix)
 	}
 	return sanitizeSegment(server) + MCPNameSep + sanitizeSegment(tool)
 }
@@ -183,25 +183,21 @@ func (t *McpCallTool) Schema() map[string]any {
 	}
 }
 
-func (t *McpCallTool) resolve(server, tool string) Tool {
-	if found := t.Registry.Get(tool); found != nil {
-		return found
+func (t *McpCallTool) ResolveTarget(args map[string]any) MCPTool {
+	server, _ := args["server"].(string)
+	name, _ := args["tool"].(string)
+	if server == "" || name == "" {
+		return nil
 	}
-	if found := t.Registry.Get(MCPToolPrefix + sanitizeSegment(server) + MCPNameSep + sanitizeSegment(tool)); found != nil {
-		return found
+	full := name
+	if !strings.HasPrefix(name, MCPToolPrefix) {
+		full = MCPToolPrefix + sanitizeSegment(server) + MCPNameSep + sanitizeSegment(name)
 	}
-	suffix := MCPNameSep + sanitizeSegment(tool)
-	var matches []Tool
-	for _, candidate := range t.Registry.ListTools() {
-		name := candidate.Name()
-		if strings.HasPrefix(name, MCPToolPrefix) && strings.HasSuffix(name, suffix) {
-			matches = append(matches, candidate)
-		}
+	target, ok := t.Registry.Get(full).(MCPTool)
+	if !ok || target.MCPServerName() != server {
+		return nil
 	}
-	if len(matches) == 1 {
-		return matches[0]
-	}
-	return nil
+	return target
 }
 
 func sanitizeSegment(s string) string {
@@ -232,10 +228,10 @@ func (t *McpCallTool) Execute(ctx context.Context, args map[string]any) ToolResu
 	server, _ := args["server"].(string)
 	tool, _ := args["tool"].(string)
 	if tool == "" {
-		return ToolResult{Output: "mcp_call requires a 'tool' name", IsError: true}
+		return ToolResult{Output: "McpCall requires a 'tool' name", IsError: true}
 	}
 
-	target := t.resolve(server, tool)
+	target := t.ResolveTarget(args)
 	if target == nil {
 		names := t.availableNames()
 		hint := "(none connected)"
@@ -250,16 +246,33 @@ func (t *McpCallTool) Execute(ctx context.Context, args map[string]any) ToolResu
 		}
 	}
 
-	inner, _ := args["arguments"].(map[string]any)
-	if inner == nil {
-		inner = map[string]any{}
+	inner, ok := args["arguments"].(map[string]any)
+	if !ok || inner == nil {
+		return ToolResult{Output: "McpCall requires an 'arguments' object matching the target schema", IsError: true}
 	}
-	if mt, ok := target.(MCPTool); ok {
-		if schema := mt.MCPInputSchema(); len(schema) > 0 {
+	{
+		if schema := target.MCPInputSchema(); len(schema) > 0 {
 			if fixed, ok := CoerceBySchema(inner, schema).(map[string]any); ok {
 				inner = fixed
 			}
 		}
 	}
+	if ctx.Err() != nil {
+		return ToolResult{Output: OperationInterruptedError, IsError: true}
+	}
 	return target.Execute(ctx, inner)
+}
+
+func (t *McpCallTool) PrepareArguments(args map[string]any) map[string]any {
+	target := t.ResolveTarget(args)
+	inner, ok := args["arguments"].(map[string]any)
+	if target == nil || !ok || inner == nil {
+		return args
+	}
+	out := make(map[string]any, len(args))
+	for key, value := range args {
+		out[key] = value
+	}
+	out["arguments"] = CoerceBySchema(inner, target.MCPInputSchema())
+	return out
 }

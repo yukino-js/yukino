@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -217,6 +218,16 @@ func (m Model) doResumeSession(wd, targetID string, saved []session.Message) (te
 		return m, nil
 	}
 
+	if m.taskMgr != nil {
+		if err := m.taskMgr.StopAll(context.Background()); err != nil {
+			return m, nil
+		}
+		if err := m.taskMgr.UseSession(targetID); err != nil {
+			m.chatMessages = append(m.chatMessages, chatMessage{role: "error", content: err.Error()})
+			m.updateViewport()
+			return m, nil
+		}
+	}
 	m.chatMessages = nil
 	m.committedUpTo = 0
 	m.conversation = conversation.NewManager()

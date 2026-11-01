@@ -155,7 +155,7 @@ func TestDeferredBenchmarkFullSession(t *testing.T) {
 	for _, tool := range CreateDefaultTools().Registry.ListTools() {
 		regDeferred.Register(tool)
 	}
-	toolSearch := &ToolSearchTool{Registry: regDeferred, Protocol: "anthropic"}
+	toolSearch := &ToolSearchTool{Registry: regDeferred}
 	regDeferred.Register(toolSearch)
 	for _, mt := range mcpTools {
 		regDeferred.Register(mt)

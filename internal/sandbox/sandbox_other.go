@@ -2,6 +2,4 @@
 
 package sandbox
 
-func newPlatformSandbox() Sandbox {
-	return nil
-}
+func newPlatformSandbox() Sandbox { return nil }

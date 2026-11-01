@@ -44,7 +44,7 @@ func (m Model) buildCommandContext(args string) *commands.Context {
 		},
 		PermissionMode: func() string {
 			if m.ag != nil && m.ag.Checker != nil {
-				return string(m.ag.Checker.Mode)
+				return string(m.ag.Checker.Mode())
 			}
 			return "default"
 		},
@@ -159,6 +159,11 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 	case commands.TypeLocalUI:
 		switch name {
 		case "clear":
+			if m.taskMgr != nil {
+				if err := m.taskMgr.StopAll(context.Background()); err != nil {
+					return m, nil
+				}
+			}
 			m.chatMessages = nil
 			m.committedUpTo = 0
 			m.conversation = conversation.NewManager()
@@ -167,6 +172,13 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 				m.ag.SetToolFilter(teams.CoordinatorToolFilter(m.EnableCoordinatorMode))
 			}
 			m.sessionID = session.NewID()
+			if m.taskMgr != nil {
+				if err := m.taskMgr.UseSession(m.sessionID); err != nil {
+					m.chatMessages = append(m.chatMessages, chatMessage{role: "error", content: err.Error()})
+					m.updateViewport()
+					return m, nil
+				}
+			}
 			m.fileHistory = file_history.New(m.sessionID)
 			m.defaultTools.EditFile.FileHistory = m.fileHistory
 			m.defaultTools.WriteFile.FileHistory = m.fileHistory
@@ -188,8 +200,8 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 			)
 		case "plan":
 			if m.ag != nil && m.ag.Checker != nil {
-				m.prePlanMode = m.ag.Checker.Mode
-				m.ag.Checker.Mode = permissions.ModePlan
+				m.prePlanMode = m.ag.Checker.Mode()
+				m.ag.Checker.SetMode(permissions.ModePlan)
 				planPath := plan_file.GetOrCreatePlanPath()
 				m.ag.Checker.PlanFilePath = planPath
 				m.chatMessages = append(m.chatMessages, chatMessage{

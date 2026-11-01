@@ -1,166 +1,112 @@
 package tools
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"os/exec"
-	"path/filepath"
-	"strings"
-	"time"
+	"math"
+	"sync"
 
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/sandbox"
 )
 
-var commandErrorThresholds = map[string]int{
-	"grep": 2,
-	"rg":   2,
-	"diff": 2,
-	"find": 2,
-	"test": 2,
-	"[":    2,
+type shellState struct {
+	mu         sync.Mutex
+	next       uint64
+	foreground map[uint64]chan string
 }
 
-func interpretExitCode(command string, exitCode int) bool {
-	if exitCode == 0 {
-		return false
-	}
-	base := extractLastCommand(command)
-	if threshold, ok := commandErrorThresholds[base]; ok {
-		return exitCode >= threshold
-	}
-	return true
+func (s *shellState) hasForeground() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.foreground) > 0
 }
-
-func extractLastCommand(command string) string {
-	parts := strings.Split(command, "|")
-	last := strings.TrimSpace(parts[len(parts)-1])
-	if last == "" {
-		return ""
+func (s *shellState) backgroundForeground() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	count := 0
+	for _, request := range s.foreground {
+		select {
+		case request <- "user":
+			count++
+		default:
+		}
 	}
-	fields := strings.Fields(last)
-	if len(fields) == 0 {
-		return ""
-	}
-	return filepath.Base(fields[0])
+	return count
 }
-
-func exitCodeHint(command string, exitCode int) string {
-	base := extractLastCommand(command)
-	switch base {
-	case "grep", "rg":
-		if exitCode == 1 {
-			return "no matches found"
-		}
-	case "diff":
-		if exitCode == 1 {
-			return "files differ"
-		}
-	case "find":
-		if exitCode == 1 {
-			return "some directories were inaccessible"
-		}
-	case "test", "[":
-		if exitCode == 1 {
-			return "condition is false"
-		}
-	}
-	return fmt.Sprintf("command failed with exit code %d", exitCode)
-}
-
-const maxTimeout = 600
 
 type BashTool struct {
-	WorkDir       string
-	Sandbox       sandbox.Sandbox
-	SandboxConfig sandbox.Config
+	WorkDir         string
+	Sandbox         sandbox.Sandbox
+	SandboxRequired bool
+	SandboxConfig   sandbox.Config
+	TaskManager     BackgroundTaskManager
+	state           shellState
 }
 
-func (t *BashTool) Name() string { return "Bash" }
-
-func (t *BashTool) Description() string { return BashDescription }
-
+func (t *BashTool) Name() string           { return "Bash" }
+func (t *BashTool) Description() string    { return BashDescription }
 func (t *BashTool) Category() ToolCategory { return CategoryCommand }
-
 func (t *BashTool) IsConcurrencySafe(args map[string]any) bool {
-	cmd, ok := args["command"].(string)
-	return ok && IsSafeCommand(cmd)
+	command, ok := args["command"].(string)
+	return ok && IsSafeCommand(command)
 }
-
+func (t *BashTool) HasForegroundTasks() bool       { return t.state.hasForeground() }
+func (t *BashTool) BackgroundForegroundTasks() int { return t.state.backgroundForeground() }
 func (t *BashTool) Schema() map[string]any {
-	return map[string]any{
-		"name":        t.Name(),
-		"description": t.Description(),
-		"input_schema": map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"command": map[string]any{"type": "string", "description": "Shell command to execute"},
-				"timeout": map[string]any{"type": "integer", "description": "Timeout in seconds (max 600)", "default": 120},
-			},
-			"required": []string{"command"},
-		},
+	return shellSchema(t.Name(), t.Description(), t.TaskManager != nil)
+}
+func shellSchema(name, description string, background bool) map[string]any {
+	properties := map[string]any{"command": map[string]any{"type": "string", "description": "Shell command to execute"}, "timeout": map[string]any{"type": "integer", "description": "Timeout in seconds (max 600)", "default": 120}}
+	if background {
+		properties["run_in_background"] = map[string]any{"type": "boolean", "default": false, "description": "Run the command in the background. Returns a task ID immediately; the result arrives later as a task notification."}
+		description += "\n" + BashBackgroundDescription
 	}
+	return map[string]any{"name": name, "description": description, "input_schema": map[string]any{"type": "object", "properties": properties, "required": []string{"command"}}}
+}
+func (t *BashTool) Execute(ctx context.Context, args map[string]any) ToolResult {
+	return executeShell(ctx, t.Name(), "$ ", args, t.TaskManager, &t.state, t.WorkDir, func(command, cwd, outputDirectory string) (sandbox.PreparedCommand, error) {
+		prepared := sandbox.PreparedCommand{Executable: "bash", Args: []string{"-c", command}}
+		if !t.SandboxRequired && t.Sandbox == nil {
+			return prepared, nil
+		}
+		if t.Sandbox == nil {
+			return prepared, fmt.Errorf("sandbox is enabled but unavailable; command was not executed")
+		}
+		if !t.Sandbox.Available() {
+			return prepared, fmt.Errorf("%s sandbox is unavailable; command was not executed", t.Sandbox.Implementation())
+		}
+		cfg := t.SandboxConfig
+		cfg.AllowWrite = append(append([]string(nil), cfg.AllowWrite...), outputDirectory)
+		return t.Sandbox.Prepare(ctx, command, cfg, cwd)
+	})
+}
+func shellTimeout(args map[string]any) (int, bool) {
+	value, ok := args["timeout"]
+	if !ok {
+		return 120, true
+	}
+	var number float64
+	switch n := value.(type) {
+	case float64:
+		number = n
+	case int:
+		number = float64(n)
+	case int64:
+		number = float64(n)
+	default:
+		return 120, true
+	}
+	if math.IsNaN(number) || math.IsInf(number, 0) || number <= 0 {
+		return 0, false
+	}
+	return min(600, max(1, int(number))), true
 }
 
-func (t *BashTool) Execute(ctx context.Context, args map[string]any) ToolResult {
-	command, _ := args["command"].(string)
-	if command == "" {
-		return ToolResult{Output: "Error: command is required", IsError: true}
+func (t *BashTool) Dispose() error {
+	var err error
+	if disposable, ok := t.Sandbox.(interface{ Dispose() error }); ok {
+		err = disposable.Dispose()
 	}
-
-	timeout := intArg(args, "timeout", 120)
-	if timeout > maxTimeout {
-		timeout = maxTimeout
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
-	defer cancel()
-
-	actualCommand := command
-	if t.Sandbox != nil && t.Sandbox.Available() {
-		wrapped, err := t.Sandbox.Wrap(command, t.SandboxConfig)
-		if err == nil {
-			actualCommand = wrapped
-		}
-	}
-
-	cmd := exec.CommandContext(ctx, "bash", "-c", actualCommand)
-	var combined bytes.Buffer
-	cmd.Stdout = &combined
-	cmd.Stderr = &combined
-	if t.WorkDir != "" {
-		cmd.Dir = t.WorkDir
-	}
-
-	err := cmd.Run()
-
-	if ctx.Err() == context.DeadlineExceeded {
-		return ToolResult{Output: fmt.Sprintf("Error: command timed out after %ds", timeout), IsError: true}
-	}
-
-	exitCode := 0
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			exitCode = exitErr.ExitCode()
-		} else if ctx.Err() == nil {
-			return ToolResult{Output: fmt.Sprintf("Error executing command: %s", err), IsError: true}
-		}
-	}
-
-	var sb bytes.Buffer
-	fmt.Fprintf(&sb, "$ %s\n", command)
-	if combined.Len() > 0 {
-		sb.Write(combined.Bytes())
-		if combined.Bytes()[combined.Len()-1] != '\n' {
-			sb.WriteByte('\n')
-		}
-	}
-	if exitCode != 0 {
-		fmt.Fprintf(&sb, "Exit code %d", exitCode)
-		if !interpretExitCode(command, exitCode) {
-			fmt.Fprintf(&sb, " (%s)", exitCodeHint(command, exitCode))
-		}
-	}
-
-	return ToolResult{Output: sb.String(), IsError: false}
+	t.Sandbox = nil
+	return err
 }

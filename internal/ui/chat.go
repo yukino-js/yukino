@@ -233,10 +233,10 @@ func (m Model) renderSeparator() string {
 
 func (m Model) renderStatusBar() string {
 	left := "  default"
-	if m.ag != nil && m.ag.Checker != nil && m.ag.Checker.Mode != permissions.ModeDefault {
-		name, _ := permissionModeInfo(m.ag.Checker.Mode)
+	if m.ag != nil && m.ag.Checker != nil && m.ag.Checker.Mode() != permissions.ModeDefault {
+		name, _ := permissionModeInfo(m.ag.Checker.Mode())
 		var modeColor lipgloss.Color
-		switch m.ag.Checker.Mode {
+		switch m.ag.Checker.Mode() {
 		case permissions.ModeAcceptEdits:
 			modeColor = greenText
 		case permissions.ModePlan:

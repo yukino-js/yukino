@@ -325,3 +325,33 @@ func TestRecordInputRejectsInvalidEntries(t *testing.T) {
 		t.Fatal("invalid session id must be rejected")
 	}
 }
+
+func TestActivityCacheNoticesSameSizeRewriteWithRestoredMtime(t *testing.T) {
+	setupHome(t)
+	wd := canonicalCwd(t)
+	if _, err := RecordInput(InputOptions{Text: "first", Cwd: wd, Source: "cli"}); err != nil {
+		t.Fatal(err)
+	}
+	if texts := LoadInputTexts(); len(texts) != 1 || texts[0] != "first" {
+		t.Fatal(texts)
+	}
+	path := storage.YukinoPath(ActivityFileName)
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = []byte(strings.Replace(string(data), `"text":"first"`, `"text":"other"`, 1))
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	if texts := LoadInputTexts(); len(texts) != 1 || texts[0] != "other" {
+		t.Fatal("history cache hid external rewrite", texts)
+	}
+}

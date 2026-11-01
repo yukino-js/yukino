@@ -337,7 +337,7 @@ func (m Model) handleAgentEvent(ev agent.AgentEvent) (tea.Model, tea.Cmd) {
 		m.committedUpTo = len(m.chatMessages)
 		m.thinkingDone = 0
 		m.finishStreaming()
-		if m.ag != nil && m.ag.Checker != nil && m.ag.Checker.Mode == permissions.ModePlan {
+		if m.ag != nil && m.ag.Checker != nil && m.ag.Checker.Mode() == permissions.ModePlan {
 			m.planApprovalDialog = true
 			m.planApprovalCursor = 0
 			m.planApprovalInput = ""

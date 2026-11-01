@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/storage"
 )
 
 type ReadFileTool struct {
@@ -23,62 +25,93 @@ func (t *ReadFileTool) Schema() map[string]any {
 		"input_schema": map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"file_path": map[string]any{"type": "string", "description": "Absolute or relative path to the file to read"},
-				"offset":    map[string]any{"type": "integer", "description": "Line offset to start reading from (0-based)", "default": 0},
-				"limit":     map[string]any{"type": "integer", "description": "Maximum number of lines to read", "default": 2000},
+				"file_path": map[string]any{"type": "string", "description": ReadFileFilePathDescription},
+				"offset":    map[string]any{"type": "integer", "description": ReadFileOffsetDescription, "minimum": 0, "default": 0},
+				"limit":     map[string]any{"type": "integer", "description": ReadFileLimitDescription, "minimum": 1, "default": DefaultReadLimit},
 			},
 			"required": []string{"file_path"},
 		},
 	}
 }
 
-func (t *ReadFileTool) Execute(_ context.Context, args map[string]any) ToolResult {
-	filePath, _ := args["file_path"].(string)
-	if filePath == "" {
+func (t *ReadFileTool) Execute(ctx context.Context, args map[string]any) ToolResult {
+	cache := fileCacheForContext(ctx, t.FileStateCache)
+	requestedPath, _ := args["file_path"].(string)
+	if requestedPath == "" {
 		return ToolResult{Output: "Error: file_path is required", IsError: true}
 	}
-
-	offset := intArg(args, "offset", 0)
-	limit := intArg(args, "limit", 2000)
-
-	info, err := os.Stat(filePath)
+	path := toolPath(ctx, requestedPath)
+	if ctx.Err() != nil {
+		return ToolResult{Output: OperationInterruptedError, IsError: true}
+	}
+	info, err := os.Stat(path)
 	if os.IsNotExist(err) {
-		return ToolResult{Output: fmt.Sprintf("Error: file not found: %s", filePath), IsError: true}
+		return ToolResult{Output: fmt.Sprintf("Error: file not found: %s", path), IsError: true}
 	}
-	if err != nil {
-		return ToolResult{Output: fmt.Sprintf("Error: %s", err), IsError: true}
-	}
-	if info.IsDir() {
-		return ToolResult{Output: fmt.Sprintf("Error: not a file: %s", filePath), IsError: true}
-	}
-
-	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return ToolResult{Output: fmt.Sprintf("Error reading file: %s", err), IsError: true}
 	}
-
-	lines := strings.Split(string(data), "\n")
-	if offset >= len(lines) {
-		return ToolResult{Output: ""}
+	if info.IsDir() {
+		return ToolResult{Output: fmt.Sprintf("Error: %s is a directory, not a file. Use Glob to list directory contents.", path), IsError: true}
 	}
-	end := offset + limit
-	if end > len(lines) {
-		end = len(lines)
+	if !info.Mode().IsRegular() {
+		return ToolResult{Output: fmt.Sprintf("Error: %s is not a regular file", path), IsError: true}
 	}
-	selected := lines[offset:end]
-
-	if t.FileStateCache != nil {
-		t.FileStateCache.Record(filePath, info.ModTime().UnixMilli())
+	if info.Size() > MaxReadFileBytes {
+		return ToolResult{Output: fmt.Sprintf("Error: %s is %d bytes, over the %d-byte read limit. Use Grep with a pattern, or Bash with head/tail/sed, to inspect parts of it.", path, info.Size(), MaxReadFileBytes), IsError: true}
 	}
-
-	var sb strings.Builder
-	for i, line := range selected {
-		if i > 0 {
-			sb.WriteByte('\n')
+	offset, limit := intArg(args, "offset", 0), intArg(args, "limit", DefaultReadLimit)
+	if offset < 0 || limit < 1 {
+		return ToolResult{Output: "Error: offset must be >= 0 and limit must be >= 1", IsError: true}
+	}
+	if storage.IsPrivateStatePath(path) {
+		if err := storage.ProtectPrivateFileSync(path); err != nil {
+			return ToolResult{Output: fmt.Sprintf("Error reading file: %s", err), IsError: true}
 		}
-		fmt.Fprintf(&sb, "%d\t%s", i+offset+1, line)
 	}
-	return ToolResult{Output: sb.String()}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ToolResult{Output: fmt.Sprintf("Error reading file: %s", err), IsError: true}
+	}
+	lines := strings.Split(strings.ToValidUTF8(string(data), "�"), "\n")
+	if offset >= len(lines) {
+		return ToolResult{Output: fmt.Sprintf("Error: offset %d is beyond end of file (%d lines total)", offset, len(lines)), IsError: true}
+	}
+	numbered := make([]string, 0, min(limit, len(lines)-offset))
+	outputBytes := 0
+	for i := offset; i < len(lines) && i-offset < limit; i++ {
+		line := fmt.Sprintf("%d\t%s", i+1, lines[i])
+		n := len(line)
+		if len(numbered) > 0 {
+			n++
+		}
+		if n+outputBytes > MaxReadBytes {
+			if len(numbered) == 0 {
+				return ToolResult{Output: fmt.Sprintf("Error: line %d exceeds the 50KB read limit; use Bash to inspect it in smaller chunks.", i+1), IsError: true}
+			}
+			break
+		}
+		numbered = append(numbered, line)
+		outputBytes += n
+	}
+	after, err := os.Stat(path)
+	if err != nil {
+		return ToolResult{Output: fmt.Sprintf("Error reading file: %s", err), IsError: true}
+	}
+	if !after.ModTime().Equal(info.ModTime()) || after.Size() != info.Size() {
+		return ToolResult{Output: fmt.Sprintf("Error: %s changed while it was being read; read it again before editing.", path), IsError: true}
+	}
+	if ctx.Err() != nil {
+		return ToolResult{Output: OperationInterruptedError, IsError: true}
+	}
+	if cache != nil {
+		cache.Record(path, info.ModTime().UnixMilli())
+	}
+	next := offset + len(numbered)
+	if remaining := len(lines) - next; remaining > 0 {
+		numbered = append(numbered, fmt.Sprintf("[%d more lines in file. Use offset=%d to continue.]", remaining, next))
+	}
+	return ToolResult{Output: strings.Join(numbered, "\n")}
 }
 
 func intArg(args map[string]any, key string, def int) int {

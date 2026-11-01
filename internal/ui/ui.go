@@ -149,6 +149,7 @@ type Model struct {
 	sandboxCursor         int
 	sandboxCfg            *config.SandboxYamlConfig
 	EnableCoordinatorMode bool
+	MCPLoading            string
 	ForkDisabled          bool
 
 	modelDialog bool
@@ -344,14 +345,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
 			if m.streaming && m.cancelStream != nil {
-				m.cancelStream()
-				if m.permDialog {
-					m.closePermDialog()
-				}
-				m.savePartialResponse()
-				m.finishStreaming()
+				m.interruptForeground()
 				return m, nil
 			}
+
 			if m.cancelStream != nil {
 				m.cancelStream()
 			}
@@ -445,7 +442,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			mcpPrintLines = append(mcpPrintLines, errorStyle.Render("✖ "+errMsg))
 		}
 		if p := m.selectedProvider; p != nil {
-			mcp.DecideAndApply(m.registry, p.BaseURL, config.GetContextWindow(p))
+			mcp.DecideAndApply(m.registry, p.BaseURL, p.Protocol, config.GetContextWindow(p), m.MCPLoading)
 		}
 		registered := len(msg.result.Tools)
 		if registered > 0 {
@@ -585,6 +582,11 @@ func (m Model) handleChat(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleSandboxDialog(msg)
 	}
 
+	if msg.String() == "ctrl+b" && tools.HasAnyForegroundTasks(m.registry) {
+		tools.BackgroundAllForegroundTasks(m.registry)
+		return m, nil
+	}
+
 	if msg.String() == "ctrl+o" {
 		toggled := false
 		for i := range m.chatMessages {
@@ -600,22 +602,8 @@ func (m Model) handleChat(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if msg.String() == "esc" && m.streaming && m.agentCh != nil && m.cancelStream != nil {
-		if m.taskMgr != nil {
-			taskID := m.taskMgr.AdoptRunning("manual-background", m.agentCh, m.cancelStream)
-			m.chatMessages = append(m.chatMessages, chatMessage{
-				role:    "system",
-				content: fmt.Sprintf("Agent moved to background (task %s). You will be notified when it completes.", taskID),
-			})
-			m.agentCh = nil
-			m.cancelStream = nil
-			m.finishStreaming()
-			commitText := m.renderMessagesRange(m.committedUpTo, len(m.chatMessages))
-			m.committedUpTo = len(m.chatMessages)
-			if commitText != "" {
-				return m, tea.Println(commitText)
-			}
-		}
+	if msg.String() == "esc" && m.streaming && m.cancelStream != nil {
+		m.interruptForeground()
 		return m, nil
 	}
 
@@ -698,7 +686,7 @@ func (m Model) handleChat(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	if msg.String() == "shift+tab" {
 		if m.ag != nil && m.ag.Checker != nil && !m.streaming {
-			m.ag.Checker.Mode = nextPermissionMode(m.ag.Checker.Mode)
+			m.ag.Checker.SetMode(nextPermissionMode(m.ag.Checker.Mode()))
 			m.updateViewport()
 		}
 		return m, nil

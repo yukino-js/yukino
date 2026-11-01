@@ -67,6 +67,7 @@ var upgrader = websocket.Upgrader{
 }
 
 type Server struct {
+	MCPLoading string
 	providers  []config.ProviderConfig
 	mcpConfigs []config.MCPServerConfig
 	hookCfgs   []config.HookConfig
@@ -133,6 +134,11 @@ func (s *Server) activeProvider() *config.ProviderConfig {
 }
 
 func (s *Server) Run() error {
+	defer func() {
+		if s.registry != nil {
+			_ = s.registry.Dispose()
+		}
+	}()
 	if err := s.initAgent(); err != nil {
 		return fmt.Errorf("failed to initialize agent: %w", err)
 	}
@@ -145,11 +151,6 @@ func (s *Server) Run() error {
 
 	fmt.Printf("\n  🌐 Remote UI: http://localhost%s\n\n", s.addr)
 	return http.ListenAndServe(s.addr, mux)
-}
-
-func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write([]byte(indexHTML))
 }
 
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
@@ -280,7 +281,7 @@ func (s *Server) initAgent() error {
 			for _, n := range s.taskMgr.DrainNotifications() {
 				messages = append(messages, fmt.Sprintf(
 					"<task-notification>\n<task_id>%s</task_id>\n<status>%s</status>\n<summary>Agent \"%s\" %s</summary>\n<result>%s</result>\n</task-notification>",
-					n.TaskID, n.Status, n.Name, n.Status, n.Output))
+					n.ID, n.Status, n.Name, n.Status, n.Output))
 			}
 		}
 		return append(messages, teams.DrainLeadMailbox(s.teamMgr)...)
@@ -307,6 +308,12 @@ func (s *Server) initAgent() error {
 
 func (s *Server) registerTools(client llm.Client, p *config.ProviderConfig, wd string) {
 	s.taskMgr = subagent.NewTaskManager()
+	if err := s.taskMgr.UseSession(s.sessionID); err != nil {
+		panic(err)
+	}
+	tools.AttachBackgroundTaskManager(s.registry, s.taskMgr)
+	manager := s.taskMgr
+	s.registry.AddCleanup(func() error { return manager.StopAll(context.Background()) })
 	store, err := todo.NewStore(s.sessionID)
 	if err != nil {
 		panic(err)
@@ -319,7 +326,7 @@ func (s *Server) registerTools(client llm.Client, p *config.ProviderConfig, wd s
 
 	s.registry.Register(&tools.ExitPlanModeTool{
 		IsPlanMode: func() bool {
-			return s.ag != nil && s.ag.Checker != nil && s.ag.Checker.Mode == permissions.ModePlan
+			return s.ag != nil && s.ag.Checker != nil && s.ag.Checker.Mode() == permissions.ModePlan
 		},
 		PlanExists: func() bool { return false },
 	})
@@ -327,12 +334,12 @@ func (s *Server) registerTools(client llm.Client, p *config.ProviderConfig, wd s
 	s.registry.Register(&todo.TaskGetTool{List: s.todoList})
 	s.registry.Register(&todo.TaskListTool{List: s.todoList})
 	s.registry.Register(&todo.TaskUpdateTool{List: s.todoList})
-	s.registry.Register(&tools.ToolSearchTool{Registry: s.registry, Protocol: p.Protocol})
+	s.registry.Register(&tools.ToolSearchTool{Registry: s.registry})
 	s.registry.Register(&tools.McpCallTool{Registry: s.registry})
 	s.registry.Register(&teams.TeamCreateTool{TeamMgr: s.teamMgr})
 	s.registry.Register(&teams.TeamDeleteTool{TeamMgr: s.teamMgr})
 	s.registry.Register(&teams.SendMessageTool{TeamMgr: s.teamMgr, SenderName: "lead"})
-	s.registry.Register(&teams.TaskStopTool{TeamMgr: s.teamMgr})
+	s.registry.Register(&teams.TaskStopTool{TeamMgr: s.teamMgr, TaskManager: s.taskMgr})
 	s.registry.Register(&tools.SyntheticOutputTool{})
 	subProgressCh := make(chan subagent.SubAgentProgress, 32)
 	s.registry.Register(&subagent.AgentTool{
@@ -377,7 +384,7 @@ func (s *Server) initMCPServers() {
 	}
 	if len(s.providers) > 0 {
 		p := s.activeProvider()
-		mcp.DecideAndApply(s.registry, p.BaseURL, config.GetContextWindow(p))
+		mcp.DecideAndApply(s.registry, p.BaseURL, p.Protocol, config.GetContextWindow(p), s.MCPLoading)
 	}
 	if len(result.Servers) > 0 {
 		toolsByServer := make(map[string][]string)
@@ -598,7 +605,7 @@ func (s *Server) buildCommandContext(args string) *commands.Context {
 		TokenCount: func() (int, int) { return 0, 0 },
 		PermissionMode: func() string {
 			if s.ag != nil && s.ag.Checker != nil {
-				return string(s.ag.Checker.Mode)
+				return string(s.ag.Checker.Mode())
 			}
 			return "default"
 		},
@@ -642,7 +649,7 @@ func (s *Server) handlePlan(args string) {
 		s.send(wsMessage{Type: "error", Data: map[string]string{"message": "Agent not initialized."}})
 		return
 	}
-	s.ag.Checker.Mode = permissions.ModePlan
+	s.ag.Checker.SetMode(permissions.ModePlan)
 	planPath := plan_file.GetOrCreatePlanPath()
 	s.ag.Checker.PlanFilePath = planPath
 	s.send(wsMessage{Type: "system", Data: map[string]string{
@@ -710,6 +717,15 @@ func (s *Server) handleResume(args string) {
 		return
 	}
 
+	if s.taskMgr != nil {
+		if err := s.taskMgr.StopAll(context.Background()); err != nil {
+			return
+		}
+		if err := s.taskMgr.UseSession(targetID); err != nil {
+			s.send(wsMessage{Type: "error", Data: map[string]string{"message": err.Error()}})
+			return
+		}
+	}
 	s.conv = conversation.NewManager()
 	s.sessionID = targetID
 	if s.ag != nil {

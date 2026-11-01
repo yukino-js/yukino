@@ -201,7 +201,7 @@ func TestSymlinkTargetsAreChecked(t *testing.T) {
 	if got := checker.checkAction("ReadFile", tools.CategoryRead, map[string]any{"file_path": target}); got.Effect != Allow {
 		t.Fatalf("read: %+v, want allow", got)
 	}
-	checker.Mode = ModeBypass
+	checker.SetMode(ModeBypass)
 	if got := checker.checkAction("WriteFile", tools.CategoryWrite, map[string]any{"file_path": target}); got.Effect != Allow {
 		t.Fatalf("bypass write: %+v, want allow", got)
 	}
@@ -397,7 +397,7 @@ func TestRememberPatternsAndAllowAlways(t *testing.T) {
 		t.Fatalf("McpCall without tool must not produce patterns: %v", patterns)
 	}
 	patterns = checker.RememberPatterns(tools.McpCallToolName, map[string]any{"server": "linear", "tool": "create_issue"})
-	if len(patterns) != 1 || !strings.HasPrefix(patterns[0], "mcp_call(") {
+	if len(patterns) != 1 || !strings.HasPrefix(patterns[0], "McpCall(") {
 		t.Fatalf("McpCall patterns = %v", patterns)
 	}
 

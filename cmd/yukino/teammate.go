@@ -103,6 +103,7 @@ func runTeammate(args teammateArgs) error {
 		TeamName:   args.teamName,
 		MemberName: args.memberName,
 		MCPServers: cfg.MCPServers,
+		MCPLoading: cfg.MCPLoading,
 
 		BaseURL:       provider.BaseURL,
 		ContextWindow: config.GetContextWindow(&provider),
@@ -130,12 +131,13 @@ type teammateToolOptions struct {
 	MCPServers    []config.MCPServerConfig
 	BaseURL       string
 	ContextWindow int
+	MCPLoading    string
 }
 
 func buildTeammateRegistry(ctx context.Context, opts teammateToolOptions) *tools.Registry {
 	registry := tools.CreateDefaultToolsWithWorkDir(opts.WorkDir).Registry
 
-	registry.Register(&tools.ToolSearchTool{Registry: registry, Protocol: opts.Protocol})
+	registry.Register(&tools.ToolSearchTool{Registry: registry})
 	registry.Register(&tools.McpCallTool{Registry: registry})
 	registry.Register(&tools.SyntheticOutputTool{})
 
@@ -165,7 +167,7 @@ func buildTeammateRegistry(ctx context.Context, opts teammateToolOptions) *tools
 		}
 		mgr.LoadConfigs(serverConfigs)
 		mgr.RegisterAllTools(ctx, registry)
-		mcp.DecideAndApply(registry, opts.BaseURL, opts.ContextWindow)
+		mcp.DecideAndApply(registry, opts.BaseURL, opts.Protocol, opts.ContextWindow, opts.MCPLoading)
 	}
 
 	return registry

@@ -195,14 +195,14 @@ func TestMcpCallResolvesShortName(t *testing.T) {
 	}
 }
 
-func TestMcpCallResolvesBySuffixWhenServerWrong(t *testing.T) {
+func TestMcpCallRejectsWrongServer(t *testing.T) {
 	_, d, tool := newDispatchRegistry()
 	res := d.Execute(context.Background(), map[string]any{
 		"server": "typo", "tool": "create_issue",
 		"arguments": map[string]any{"issueId": "A"},
 	})
-	if res.IsError || tool.received == nil {
-		t.Errorf("a wrong server name should fall back to a unique suffix match: %s", res.Output)
+	if !res.IsError || tool.received != nil {
+		t.Errorf("a wrong server must never route to another server: %s", res.Output)
 	}
 }
 
@@ -280,7 +280,7 @@ func TestToolExposureByMode(t *testing.T) {
 	}{
 		{McpLoadingEager, []string{"mcp__linear__create_issue"}},
 		{McpLoadingNative, []string{"ToolSearch", "mcp__linear__create_issue"}},
-		{McpLoadingDispatch, []string{"ToolSearch", "mcp_call"}},
+		{McpLoadingDispatch, []string{"McpCall", "ToolSearch"}},
 	}
 	for _, c := range cases {
 		got := build(c.mode)
