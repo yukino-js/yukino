@@ -1,0 +1,514 @@
+package subagent
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
+	"os"
+	"regexp"
+	"strings"
+	"time"
+
+	"github.com/yukino-js/yukino/yukino/internal/agent"
+	"github.com/yukino-js/yukino/yukino/internal/config"
+	"github.com/yukino-js/yukino/yukino/internal/conversation"
+	"github.com/yukino-js/yukino/yukino/internal/llm"
+	"github.com/yukino-js/yukino/yukino/internal/memory"
+	"github.com/yukino-js/yukino/yukino/internal/permissions"
+	"github.com/yukino-js/yukino/yukino/internal/prompt"
+	"github.com/yukino-js/yukino/yukino/internal/session"
+	"github.com/yukino-js/yukino/yukino/internal/storage"
+	"github.com/yukino-js/yukino/yukino/internal/teams"
+	"github.com/yukino-js/yukino/yukino/internal/tools"
+	"github.com/yukino-js/yukino/yukino/internal/worktree"
+)
+
+var unsafeSlugChars = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
+
+func sanitizeSlugSegment(s string) string {
+	clean := strings.Trim(unsafeSlugChars.ReplaceAllString(s, "-"), "-_.")
+	if clean == "" {
+		clean = "agent"
+	}
+	return clean
+}
+
+type SubAgentProgress struct {
+	AgentDesc string
+	AgentType string
+	ToolName  string
+	ToolArgs  map[string]any
+	Elapsed   float64
+	IsError   bool
+	Done      bool
+	ToolCount int
+	TotalTime float64
+}
+
+const GeneralPurposeAgentType = "general-purpose"
+
+type AgentTool struct {
+	Client        llm.Client
+	Provider      *config.ProviderConfig
+	MemoryContent string
+	Registry      *tools.Registry
+	Protocol      string
+	TaskMgr       *TaskManager
+	ProgressCh    chan<- SubAgentProgress
+	Loader        *AgentLoader
+	Conversation  *conversation.Manager
+	TeamMgr       *teams.TeamManager
+	ParentChecker *permissions.Checker
+	ForkDisabled  bool
+}
+
+func (t *AgentTool) Name() string                          { return "Agent" }
+func (t *AgentTool) Category() tools.ToolCategory          { return tools.CategoryCommand }
+func (t *AgentTool) IsConcurrencySafe(map[string]any) bool { return true }
+func (t *AgentTool) Description() string                   { return AgentToolDescription }
+func (t *AgentTool) definitions() []SubAgentSpec {
+	var result []SubAgentSpec
+	if t.Loader != nil {
+		for _, name := range t.Loader.ListNames() {
+			result = append(result, t.Loader.Get(name).ToSpec())
+		}
+		return result
+	}
+	for _, name := range []string{"general-purpose", "plan", "explore", "review"} {
+		result = append(result, BuiltinSpecs[name])
+	}
+	return result
+}
+func (t *AgentTool) Schema() map[string]any {
+	var names []string
+	definitions := t.definitions()
+	for _, def := range definitions {
+		names = append(names, def.Name)
+	}
+	return map[string]any{"name": t.Name(), "description": buildAgentToolDescription(definitions, !t.ForkDisabled), "input_schema": map[string]any{
+		"type": "object", "properties": map[string]any{
+			"description":       map[string]any{"type": "string", "description": DescriptionParameterDescription},
+			"prompt":            map[string]any{"type": "string", "description": PromptParameterDescription},
+			"kind":              map[string]any{"type": "string", "enum": []string{"subagent", "teammate"}, "default": "teammate", "description": AgentKindDescription},
+			"team_name":         map[string]any{"type": "string", "description": "Target team name returned by TeamCreate or TeamList. Required when multiple teams match; omitted when only one team matches. Teammates are restricted to their own team."},
+			"subagent_type":     map[string]any{"type": "string", "enum": names, "default": GeneralPurposeAgentType, "description": SubagentTypeDescription},
+			"fork":              map[string]any{"type": "boolean", "default": !t.ForkDisabled, "description": ForkParameterDescription},
+			"model":             map[string]any{"type": "string", "description": AgentModelDescription},
+			"run_in_background": map[string]any{"type": "boolean", "default": false, "description": AgentBackgroundDescription},
+			"worktree":          map[string]any{"type": "boolean", "description": AgentWorktreeDescription},
+		}, "required": []string{"description", "prompt"},
+	}}
+}
+func (t *AgentTool) selectClient(spec SubAgentSpec, overrideModel, cwd string) (llm.Client, error) {
+	model := overrideModel
+	if model == "" {
+		model = spec.Model
+	}
+	if model == "" && spec.SystemPromptOverride == "" {
+		return t.Client, nil
+	}
+	if t.Provider == nil {
+		return nil, fmt.Errorf("Agent provider configuration is unavailable.")
+	}
+	provider := *t.Provider
+	if model != "" {
+		provider.Model = model
+	}
+	if control, ok := t.Client.(llm.ThinkingLevelControl); ok {
+		provider.Thinking = control.GetThinkingLevel()
+	}
+	system := spec.SystemPromptOverride
+	if system == "" {
+		env := prompt.DetectEnvironment(cwd)
+		env.Model = provider.Model
+		system = prompt.BuildSystemPrompt(env)
+	}
+	return llm.NewClient(&provider, system)
+}
+func (t *AgentTool) Execute(ctx context.Context, args map[string]any) tools.ToolResult {
+	fail := func(s string) tools.ToolResult { return tools.ToolResult{Output: s, IsError: true} }
+	if ctx.Err() != nil {
+		return fail(tools.OperationInterruptedError)
+	}
+	description, _ := args["description"].(string)
+	prompt, _ := args["prompt"].(string)
+	if description == "" || prompt == "" {
+		return fail("Error: description and prompt are required")
+	}
+	kind := "teammate"
+	if value, exists := args["kind"]; exists {
+		k, ok := value.(string)
+		if !ok || (k != "teammate" && k != "subagent") {
+			return fail("Error: kind must be subagent or teammate")
+		}
+		kind = k
+	}
+	for _, key := range []string{"worktree", "fork", "run_in_background"} {
+		if value, exists := args[key]; exists {
+			if _, ok := value.(bool); !ok {
+				return fail("Error: " + key + " must be a boolean")
+			}
+		}
+	}
+	role, _ := args["subagent_type"].(string)
+	if role == "" {
+		role = GeneralPurposeAgentType
+	}
+	var spec *SubAgentSpec
+	for _, def := range t.definitions() {
+		if def.Name == role {
+			copy := def
+			spec = &copy
+			break
+		}
+	}
+	if spec == nil {
+		var names []string
+		for _, def := range t.definitions() {
+			names = append(names, def.Name)
+		}
+		return fail(fmt.Sprintf("Error: unknown agent type '%s'. Available: %s", role, strings.Join(names, ", ")))
+	}
+	fork := !t.ForkDisabled
+	if value, exists := args["fork"]; exists {
+		fork = value.(bool)
+	}
+	worktreeIsolation := spec.Worktree
+	if value, exists := args["worktree"]; exists {
+		worktreeIsolation = value.(bool)
+	}
+	background := spec.Background
+	if value, exists := args["run_in_background"]; exists {
+		background = value.(bool)
+	}
+	model, _ := args["model"].(string)
+	if kind == "teammate" {
+		name, _ := args["team_name"].(string)
+		return t.runAsTeammate(ctx, name, description, prompt, model, *spec, fork, worktreeIsolation)
+	}
+	return t.runDefinition(ctx, *spec, description, prompt, model, fork, background, worktreeIsolation)
+}
+func forkConversation(parent *conversation.Manager) (*conversation.Manager, error) {
+	if parent == nil {
+		return nil, fmt.Errorf("%s", ForkContextRequiredError)
+	}
+	forked := parent.Fork()
+	messages := forked.GetMessages()
+	pending := map[string]bool{}
+	var order []string
+	for _, message := range messages {
+		for _, tool := range message.ToolUses {
+			if !pending[tool.ToolUseID] {
+				order = append(order, tool.ToolUseID)
+			}
+			pending[tool.ToolUseID] = true
+		}
+		for _, result := range message.ToolResults {
+			delete(pending, result.ToolUseID)
+		}
+	}
+	var results []conversation.ToolResultBlock
+	for _, id := range order {
+		if pending[id] {
+			results = append(results, conversation.ToolResultBlock{ToolUseID: id, Content: InheritedToolResult})
+		}
+	}
+	if len(results) > 0 {
+		forked.AddToolResultsMessage(results)
+	}
+	return forked, nil
+}
+func (t *AgentTool) RunBuiltin(ctx context.Context, name, prompt string) tools.ToolResult {
+	spec, ok := BuiltinSpecs[name]
+	if !ok {
+		return tools.ToolResult{Output: "Unknown built-in agent: " + name, IsError: true}
+	}
+	return t.runDefinition(ctx, spec, name, prompt, "", true, false, false)
+}
+func (t *AgentTool) runDefinition(ctx context.Context, spec SubAgentSpec, description, prompt, model string, fork, background, isolate bool) tools.ToolResult {
+	var snapshot *conversation.Manager
+	var err error
+	if fork {
+		snapshot, err = forkConversation(t.Conversation)
+		if err != nil {
+			return tools.ToolResult{Output: err.Error(), IsError: true}
+		}
+	}
+	cwd := ""
+	if t.ParentChecker != nil {
+		cwd = t.ParentChecker.Cwd
+	}
+	if cwd == "" {
+		cwd, _ = os.Getwd()
+	}
+	if isolate {
+		wt, err := worktree.CreateAgentWorktreeAt(ctx, generateAgentSlug(description), cwd)
+		if err != nil {
+			return tools.ToolResult{Output: "Error creating agent worktree: " + err.Error(), IsError: true}
+		}
+		prompt = worktree.BuildWorktreeNotice(cwd, wt.WorktreePath) + "\n\n" + prompt
+		cwd = wt.WorktreePath
+	}
+	sessionID := session.NewID()
+	transcriptPath, _ := storage.SessionPath(sessionID, "transcript.jsonl")
+	run := func(runCtx context.Context) tools.ToolResult {
+		result := t.runChild(runCtx, spec, description, prompt, model, cwd, snapshot, background, sessionID, transcriptPath)
+		if isolate {
+			result.Output += "\n\nWorktree retained at: " + cwd
+		}
+		return result
+	}
+	if !background {
+		return run(ctx)
+	}
+	manager := t.TaskMgr
+	if runtime, ok := tools.RuntimeContext(ctx); ok && runtime.TaskManager != nil {
+		if scoped, ok := runtime.TaskManager.(*TaskManager); ok {
+			manager = scoped
+		}
+	}
+	if manager == nil {
+		return tools.ToolResult{Output: "Background task manager is unavailable.", IsError: true}
+	}
+	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	id, err := manager.Create(description, func(string) (string, error) {
+		result := run(runCtx)
+		if result.IsError {
+			return "", &tools.TaskFailure{Output: result.Output}
+		}
+		return result.Output, nil
+	}, cancel, tools.TaskOptions{OriginToolCallID: originToolCallID(ctx), TranscriptPath: transcriptPath})
+	if err != nil {
+		cancel()
+		return tools.ToolResult{Output: err.Error(), IsError: true}
+	}
+	return tools.ToolResult{Output: fmt.Sprintf("Background agent '%s' started (task_id: %s). Its result will arrive as a task notification.", description, id)}
+}
+func (t *AgentTool) runChild(ctx context.Context, spec SubAgentSpec, description, prompt, model, cwd string, snapshot *conversation.Manager, background bool, sessionID, transcriptPath string) tools.ToolResult {
+	registry := FilterToolsForAgent(t.Registry, spec.Tools, spec.DisallowedTools, background, spec.PermissionMode)
+	defer registry.Dispose()
+	client, err := t.selectClient(spec, model, cwd)
+	if err != nil {
+		return tools.ToolResult{Output: "Agent error: " + err.Error(), IsError: true}
+	}
+	child := agent.New(client, registry, t.Protocol)
+	child.SessionID = sessionID
+	child.TranscriptPath = transcriptPath
+	child.MemoryContent = t.MemoryContent
+	if t.Provider != nil {
+		provider := *t.Provider
+		if model != "" {
+			provider.Model = model
+		} else if spec.Model != "" {
+			provider.Model = spec.Model
+		}
+		child.ContextWindow = config.GetContextWindow(&provider)
+		child.MaxOutputTokens = config.GetMaxOutputTokens(&provider)
+	}
+	child.WorkDir = cwd
+	child.MaxIterations = spec.MaxTurns
+	checker := t.ParentChecker
+	if checker == nil {
+		checker = permissions.NewChecker(permissions.NewPathSandbox(cwd, true), permissions.NewRuleEngine(cwd), permissions.ModeDefault)
+	}
+	child.Checker = checker.ForSubagent(cwd, permissions.PermissionMode(spec.PermissionMode))
+	child.Checker.ReadOnly = spec.ReadOnly || checker.ReadOnly
+	child.Instructions = memory.LoadInstructions(cwd)
+	tasks := configureBackgroundRuntime(child)
+	defer tasks.StopAll(context.Background())
+	if err := tasks.UseSession(sessionID); err != nil {
+		return tools.ToolResult{Output: err.Error(), IsError: true}
+	}
+	conv := snapshot
+	if conv == nil {
+		conv = conversation.NewManager()
+	}
+	conv.AddSystemReminder(buildSubagentInstructions(spec))
+	conv.AddUserMessage(prompt)
+	for _, message := range conv.GetMessages() {
+		session.SaveTranscriptMessage(transcriptPath, session.FromConversation(message))
+	}
+	start := time.Now()
+	var output strings.Builder
+	submitted := ""
+	count := 0
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var runError string
+	for event := range child.Run(runCtx, conv) {
+		switch e := event.(type) {
+		case agent.StreamText:
+			output.WriteString(e.Text)
+		case agent.PermissionRequestEvent:
+			reply := agent.PermissionReply{Response: agent.PermDeny}
+			if runtime, ok := tools.RuntimeContext(ctx); ok && runtime.RequestPermission != nil {
+				response, feedback := runtime.RequestPermission(ctx, e.ToolName, e.Desc)
+				reply = agent.PermissionReply{Response: agent.PermissionResponse(response), Feedback: feedback}
+			}
+			e.ResponseCh <- reply
+		case agent.ToolResultEvent:
+			count++
+			if e.ToolName == "ExitPlanMode" && !e.IsError {
+				submitted = e.Output
+			}
+			emitProgress(t.ProgressCh, ctx, SubAgentProgress{AgentDesc: description, AgentType: spec.Name, ToolName: e.ToolName, Elapsed: e.Elapsed.Seconds(), IsError: e.IsError})
+		case agent.ErrorEvent:
+			runError = e.Message
+			cancel()
+		}
+	}
+	emitProgress(t.ProgressCh, ctx, SubAgentProgress{AgentDesc: description, AgentType: spec.Name, Done: true, ToolCount: count, TotalTime: time.Since(start).Seconds()})
+	result := output.String()
+	if runError != "" {
+		session.SaveTranscriptMessage(transcriptPath, session.Message{Role: "system", Type: "subagent_error", Content: runError, Timestamp: time.Now().Unix()})
+		if result != "" {
+			runError += "\n\nPartial output:\n" + result
+		}
+		return tools.ToolResult{Output: "Agent error: " + runError + "\n\nTranscript: " + transcriptPath, IsError: true}
+	}
+	if submitted != "" {
+		if result != "" {
+			result += "\n\n"
+		}
+		result += submitted
+	}
+	if ctx.Err() != nil {
+		if result != "" {
+			result += "\n\n"
+		}
+		return tools.ToolResult{Output: result + "[Interrupted]", IsError: true}
+	}
+	if result == "" {
+		result = "[No output]"
+	}
+	return tools.ToolResult{Output: result}
+}
+func deriveSubAgentChecker(parent *permissions.Checker, mode string) *permissions.Checker {
+	if parent == nil {
+		return nil
+	}
+	return parent.ForSubagent(parent.Cwd, permissions.PermissionMode(mode))
+}
+
+func emitProgress(ch chan<- SubAgentProgress, ctx context.Context, p SubAgentProgress) {
+	if ch == nil {
+		return
+	}
+	select {
+	case ch <- p:
+	case <-ctx.Done():
+	default:
+	}
+}
+
+func (t *AgentTool) runAsTeammate(ctx context.Context, targetTeam, description, prompt, model string, spec SubAgentSpec, fork, isolate bool) tools.ToolResult {
+	if t.TeamMgr == nil {
+		return tools.ToolResult{Output: "Error: teammate execution is unavailable; no team was created.", IsError: true}
+	}
+	var snapshot *conversation.Manager
+	if fork {
+		var err error
+		snapshot, err = forkConversation(t.Conversation)
+		if err != nil {
+			return tools.ToolResult{Output: err.Error(), IsError: true}
+		}
+	}
+	team, err := t.TeamMgr.ResolveTeam(targetTeam)
+	if err != nil {
+		return tools.ToolResult{Output: err.Error(), IsError: true}
+	}
+	if team == nil {
+		team, err = t.TeamMgr.CreateTeam("", teams.LeadName, description)
+		if err != nil {
+			return tools.ToolResult{Output: err.Error(), IsError: true}
+		}
+	}
+	base := sanitizeSlugSegment(strings.ToLower(strings.Join(strings.Fields(description), "-")))
+	if len(base) > 30 {
+		base = base[:30]
+	}
+	memberName := base
+	for suffix := 2; memberName == teams.LeadName || team.HasMember(memberName); suffix++ {
+		memberName = fmt.Sprintf("%s-%d", base, suffix)
+	}
+	if spec.Name == PlanAgentName && (t.Loader == nil || t.Loader.Get(spec.Name).Source == "built-in") {
+		spec = SubAgentSpec{Name: PlanAgentName, Description: PlanTeammateDescription, PermissionMode: "plan"}
+	}
+	disallowed := append(append([]string{}, spec.DisallowedTools...), "TaskStop")
+	registry := FilterToolsForAgent(t.Registry, spec.Tools, disallowed, false, spec.PermissionMode)
+	if registry.Get("ExitPlanMode") != nil {
+		registry.Register(&tools.ExitPlanModeTool{SubmitTeammatePlan: func(plan string) (string, error) { return team.SubmitPlan(memberName, plan) }, RequiresLeaderApproval: team.RequiresLeaderPlanApproval})
+	}
+	registry.Register(&teams.SendMessageTool{TeamMgr: t.TeamMgr, SenderName: memberName, TeamName: team.Name})
+	registry.Register(&teams.TeamTodoWriteTool{TeamMgr: t.TeamMgr, TeamName: team.Name, AgentName: memberName})
+	cwd := team.Cwd
+	if isolate {
+		wt, err := worktree.CreateAgentWorktreeAt(ctx, generateAgentSlug(description), cwd)
+		if err != nil {
+			registry.Dispose()
+			return tools.ToolResult{Output: "Error creating teammate worktree: " + err.Error(), IsError: true}
+		}
+		prompt = worktree.BuildWorktreeNotice(cwd, wt.WorktreePath) + "\n\n" + prompt
+		cwd = wt.WorktreePath
+	}
+	parent := t.ParentChecker
+	if parent == nil {
+		parent = permissions.NewChecker(permissions.NewPathSandbox(cwd, true), permissions.NewRuleEngine(cwd), permissions.ModeDefault)
+	}
+	checker := parent.ForSubagent(cwd, permissions.PermissionMode(spec.PermissionMode))
+	checker.Teammate = true
+	checker.ReadOnly = spec.ReadOnly || parent.ReadOnly
+	t.TeamMgr.SetPermissionChecker(parent)
+	client, err := t.selectClient(spec, model, cwd)
+	if err != nil {
+		registry.Dispose()
+		return tools.ToolResult{Output: "Agent error: " + err.Error(), IsError: true}
+	}
+	result, err := teams.SpawnTeammate(context.WithoutCancel(ctx), teams.TeammateSpawnConfig{Team: team, MemberName: memberName, Task: prompt, Addendum: buildSubagentInstructions(spec), Client: client, Registry: registry, Protocol: t.Protocol, Workdir: cwd, Checker: checker, ContextSnapshot: snapshot, MaxTurns: spec.MaxTurns, PlanApprovalRequired: spec.Name == PlanAgentName})
+	if err != nil {
+		registry.Dispose()
+		return tools.ToolResult{Output: "Error spawning teammate: " + err.Error(), IsError: true}
+	}
+	team.SetMemberMeta(memberName, spec.Name, model, cwd)
+	if result.EventCh != nil {
+		go drainTeammateEvents(memberName, result.EventCh, t.ProgressCh)
+	}
+	return tools.ToolResult{Output: fmt.Sprintf("Teammate '%s' spawned in team '%s' (in-process)", memberName, team.Name)}
+}
+
+func drainTeammateEvents(name string, ch <-chan agent.AgentEvent, progressCh chan<- SubAgentProgress) {
+	for ev := range ch {
+		if progressCh == nil {
+			continue
+		}
+		switch e := ev.(type) {
+		case agent.ToolResultEvent:
+			emitProgress(progressCh, context.Background(), SubAgentProgress{
+				AgentDesc: name,
+				AgentType: "teammate",
+				ToolName:  e.ToolName,
+				Elapsed:   e.Elapsed.Seconds(),
+				IsError:   e.IsError,
+			})
+		case agent.ErrorEvent:
+			emitProgress(progressCh, context.Background(), SubAgentProgress{
+				AgentDesc: name,
+				AgentType: "teammate",
+				ToolName:  "error",
+				IsError:   true,
+			})
+		}
+	}
+}
+
+func generateAgentSlug(description string) string {
+	b := make([]byte, 4)
+	_, _ = rand.Read(b)
+	return "agent-a" + hex.EncodeToString(b)[:7]
+}
+
+func originToolCallID(ctx context.Context) string {
+	runtime, _ := tools.RuntimeContext(ctx)
+	return runtime.ToolCallID
+}
