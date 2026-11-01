@@ -193,22 +193,24 @@ func teamDir(cwd, name string) string {
 	return filepath.Join(TeamsBaseDir(cwd), sanitizeTeamName(name))
 }
 
-func (tm *TeamManager) CreateTeam(name string, mode TeamMode) *Team {
+func (tm *TeamManager) CreateTeam(name string, mode TeamMode) (*Team, error) {
 	return tm.CreateTeamFull(name, mode, "", "")
 }
 
-func (tm *TeamManager) CreateTeamFull(name string, mode TeamMode, leadAgentID, description string) *Team {
+func (tm *TeamManager) CreateTeamFull(name string, mode TeamMode, leadAgentID, description string) (*Team, error) {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
 	team := NewTeam(tm.cwd, name, mode)
 	team.LeadAgentID = leadAgentID
 	team.Description = description
-	tm.teams[name] = team
 	store := NewSharedTaskStore(filepath.Join(teamDir(tm.cwd, name), "tasks.json"))
-	store.InitEmpty()
+	if err := store.InitEmpty(); err != nil {
+		return nil, err
+	}
+	tm.teams[name] = team
 	tm.taskStores[name] = store
 	team.persist()
-	return team
+	return team, nil
 }
 
 func (tm *TeamManager) GetTaskStore(teamName string) *SharedTaskStore {

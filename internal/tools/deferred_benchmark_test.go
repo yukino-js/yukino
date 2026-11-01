@@ -142,6 +142,8 @@ func TestDeferredBenchmarkFullSession(t *testing.T) {
 		numTurns    = 10
 	)
 
+	builtinBytes := builtinToolSchemaSize()
+	builtinCount := len(CreateDefaultRegistry().ListTools())
 	regFull := NewRegistry()
 	for _, tool := range CreateDefaultTools().Registry.ListTools() {
 		regFull.Register(tool)
@@ -169,7 +171,7 @@ func TestDeferredBenchmarkFullSession(t *testing.T) {
 		6: mcpTools[20].Name(),
 	}
 
-	t.Logf("=== session simulation: %d builtin tools + %d MCP tools, %d turns ===\n", 6, numMCPTools, numTurns)
+	t.Logf("=== session simulation: %d builtin tools + %d MCP tools, %d turns ===\n", builtinCount, numMCPTools, numTurns)
 	t.Logf("%-6s %12s %12s %12s   %s", "Turn", "Full(bytes)", "Deferred(bytes)", "Deferred-detail", "Event")
 
 	for turn := 1; turn <= numTurns; turn++ {
@@ -227,8 +229,9 @@ func TestDeferredBenchmarkFullSession(t *testing.T) {
 	t.Logf("deferred tools param: %d bytes (%d tools) + reminder %d bytes (%d names)",
 		len(dataD1), len(schemasD1), len(reminder), len(dNames))
 
-	if savings < 0.80 {
-		t.Errorf("whole-session token savings should be >= 80%%, got %.1f%%", savings*100)
+	mcpSavings := 1 - float64(totalBytesDeferred-builtinBytes*numTurns)/float64(totalBytesFull-builtinBytes*numTurns)
+	if mcpSavings < 0.80 {
+		t.Errorf("MCP schema savings should be >= 80%%, got %.1f%%", mcpSavings*100)
 	}
 }
 

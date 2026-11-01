@@ -469,7 +469,9 @@ func parseLspServerConfig(raw map[string]any) (lsp.ServerConfig, error) {
 		return server, err
 	}
 	server.Command = command
-	if v, ok := raw["args"]; ok && v != nil {
+	if v, ok, err := optionalValue(raw, "args"); err != nil {
+		return server, err
+	} else if ok {
 		if server.Args, err = asStringList(v); err != nil {
 			return server, fmt.Errorf("args: %w", err)
 		}
@@ -481,29 +483,40 @@ func parseLspServerConfig(raw map[string]any) (lsp.ServerConfig, error) {
 	if server.Languages, err = asStringMap(languagesRaw); err != nil {
 		return server, fmt.Errorf("languages: %w", err)
 	}
-	if v, ok := raw["env"]; ok && v != nil {
+	if v, ok, err := optionalValue(raw, "env"); err != nil {
+		return server, err
+	} else if ok {
 		if server.Env, err = asStringMap(v); err != nil {
 			return server, fmt.Errorf("env: %w", err)
 		}
 	}
-	if v, ok := raw["initialization_options"]; ok && v != nil {
+	if v, ok, err := optionalValue(raw, "initialization_options"); err != nil {
+		return server, err
+	} else if ok {
 		rec, ok := v.(map[string]any)
 		if !ok {
 			return server, fmt.Errorf("initialization_options: expected a mapping, got %T", v)
 		}
 		server.InitializationOptions = rec
 	}
-	if v, ok := raw["settings"]; ok && v != nil {
+	if v, ok, err := optionalValue(raw, "settings"); err != nil {
+		return server, err
+	} else if ok {
 		rec, ok := v.(map[string]any)
 		if !ok {
 			return server, fmt.Errorf("settings: expected a mapping, got %T", v)
 		}
 		server.Settings = rec
 	}
-	if v, ok := raw["timeout_ms"]; ok && v != nil {
+	if v, ok, err := optionalValue(raw, "timeout_ms"); err != nil {
+		return server, err
+	} else if ok {
 		n, err := asNumber(v)
 		if err != nil || n != float64(int(n)) {
 			return server, fmt.Errorf("timeout_ms: expected an integer, got %v", v)
+		}
+		if n < lsp.MinTimeoutMs || n > lsp.MaxTimeoutMs {
+			return server, fmt.Errorf("timeout_ms must be between %d and %d", lsp.MinTimeoutMs, lsp.MaxTimeoutMs)
 		}
 		server.TimeoutMs = int(n)
 	}

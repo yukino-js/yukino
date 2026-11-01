@@ -12,7 +12,7 @@ import (
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/plan_file"
 )
 
-const LeadName = "lead"
+const LeadName = "leader"
 
 const ShutdownPrefix = "[shutdown]"
 

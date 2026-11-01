@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/todo"
 )
 
 func newTestTeamManager(t *testing.T) *TeamManager {
@@ -13,83 +15,87 @@ func newTestTeamManager(t *testing.T) *TeamManager {
 	t.Cleanup(func() { GetNameRegistry().Clear() })
 	return NewTeamManager(t.TempDir())
 }
-
-func TestCreateTeamInitializesEmptyStore(t *testing.T) {
+func TestTeamTodoWriteFlowAndAtomicAssignment(t *testing.T) {
 	mgr := newTestTeamManager(t)
-	mgr.CreateTeam("myteam", ModeInProcess)
-	store := mgr.GetTaskStore("myteam")
-	if store == nil || len(store.ListTasks("", "")) != 0 {
-		t.Fatalf("new team should have empty shared store")
-	}
-}
-
-func TestTeamTaskToolsFlow(t *testing.T) {
-	mgr := newTestTeamManager(t)
-	mgr.CreateTeam("myteam", ModeInProcess)
+	team := createTestTeam(t, mgr, "myteam", ModeInProcess)
+	team.AddMember("alice", nil, nil, "")
+	tool := &TeamTodoWriteTool{TeamMgr: mgr, TeamName: "myteam"}
 	ctx := context.Background()
-
-	create := &TaskCreateTool{TeamMgr: mgr, TeamName: "myteam", AgentName: "lead"}
-	list := &TaskListTool{TeamMgr: mgr, TeamName: "myteam"}
-	update := &TaskUpdateTool{TeamMgr: mgr, TeamName: "myteam"}
-	get := &TaskGetTool{TeamMgr: mgr, TeamName: "myteam"}
-
-	created := create.Execute(ctx, map[string]any{"title": "build parser", "assignee": "alice"})
-	if created.IsError || !strings.Contains(created.Output, "ID: 1") {
-		t.Fatalf("create failed: %+v", created)
+	result := tool.Execute(ctx, map[string]any{"todos": []any{map[string]any{"subject": "assigned", "owner": "alice"}, map[string]any{"subject": "invalid", "owner": "ghost"}}})
+	if !result.IsError {
+		t.Fatal(result)
 	}
-
-	listed := list.Execute(ctx, map[string]any{})
-	if !strings.Contains(listed.Output, "[1] build parser") || !strings.Contains(listed.Output, "[alice]") {
-		t.Fatalf("list output unexpected: %s", listed.Output)
+	tasks, err := mgr.GetTaskStore("myteam").ListTasks("", "")
+	if err != nil || len(tasks) != 0 {
+		t.Fatal(tasks, err)
 	}
-
-	updated := update.Execute(ctx, map[string]any{"task_id": "1", "status": "completed"})
-	if updated.IsError || !strings.Contains(updated.Output, "status → completed") {
-		t.Fatalf("update failed: %+v", updated)
+	messages, err := team.MailBox.ReadUnread("alice")
+	if err != nil || len(messages) != 0 {
+		t.Fatal(messages, err)
 	}
-
-	got := get.Execute(ctx, map[string]any{"task_id": "1"})
-	if !strings.Contains(got.Output, "Status:     completed") {
-		t.Fatalf("get output unexpected: %s", got.Output)
+	result = tool.Execute(ctx, map[string]any{"todos": []any{map[string]any{"subject": "assigned", "owner": "alice", "priority": "high"}, map[string]any{"subject": "other"}}})
+	if result.IsError || !strings.Contains(result.Output, `"boardId": "team:myteam"`) || !strings.Contains(result.Output, `"createdBy": "leader"`) || !strings.Contains(result.Output, "DONE 0/2") {
+		t.Fatal(result)
 	}
-
-	if !strings.Contains(list.Execute(ctx, map[string]any{"status": "pending"}).Output, "No tasks found") {
-		t.Fatalf("pending filter should be empty")
+	messages, err = team.MailBox.ReadUnread("alice")
+	if err != nil || len(messages) != 1 || !strings.Contains(messages[0].Text, "TodoWrite") {
+		t.Fatal(messages, err)
+	}
+	result = tool.Execute(ctx, map[string]any{"todos": []any{map[string]any{"id": "1", "status": "completed"}}})
+	if result.IsError || !strings.Contains(result.Output, "DONE 1/2") {
+		t.Fatal(result)
+	}
+	scoped := &TeamTodoWriteTool{TeamMgr: mgr, TeamName: "myteam", AgentName: "alice"}
+	if result := scoped.Execute(ctx, map[string]any{"team_name": "other"}); !result.IsError {
+		t.Fatal(result)
+	}
+	if result := tool.Execute(ctx, map[string]any{"todos": []any{map[string]any{"id": "42", "status": "completed"}}}); !result.IsError {
+		t.Fatal(result)
 	}
 }
-
-func TestTaskUpdateRejectsInvalidStatus(t *testing.T) {
+func TestTeamTodoWriteFallbackAndAmbiguousTeam(t *testing.T) {
 	mgr := newTestTeamManager(t)
-	mgr.CreateTeam("myteam", ModeInProcess)
+	list, _ := todo.NewTaskList(nil)
+	tool := &TeamTodoWriteTool{TeamMgr: mgr, Fallback: list}
 	ctx := context.Background()
-
-	(&TaskCreateTool{TeamMgr: mgr, TeamName: "myteam"}).Execute(ctx, map[string]any{"title": "t"})
-	r := (&TaskUpdateTool{TeamMgr: mgr, TeamName: "myteam"}).Execute(ctx, map[string]any{"task_id": "1", "status": "done"})
-	if !r.IsError || !strings.Contains(r.Output, "Invalid status") {
-		t.Fatalf("expected invalid status error, got %+v", r)
+	result := tool.Execute(ctx, map[string]any{"todos": []any{map[string]any{"subject": "private"}}})
+	if result.IsError || !strings.Contains(result.Output, `"boardId": "private:`) {
+		t.Fatal(result)
+	}
+	createTestTeam(t, mgr, "one", ModeInProcess)
+	createTestTeam(t, mgr, "two", ModeInProcess)
+	if result := tool.Execute(ctx, map[string]any{}); !result.IsError || !strings.Contains(result.Output, "Multiple teams") {
+		t.Fatal(result)
+	}
+	result = tool.Execute(ctx, map[string]any{"team_name": "two", "todos": []any{map[string]any{"subject": "team"}}})
+	if result.IsError || !strings.Contains(result.Output, `"boardId": "team:two"`) {
+		t.Fatal(result)
 	}
 }
-
-func TestTaskGetMissingIsError(t *testing.T) {
-	mgr := newTestTeamManager(t)
-	mgr.CreateTeam("myteam", ModeInProcess)
-	r := (&TaskGetTool{TeamMgr: mgr, TeamName: "myteam"}).Execute(context.Background(), map[string]any{"task_id": "42"})
-	if !r.IsError {
-		t.Fatalf("expected error for missing task")
-	}
-}
-
 func TestDeleteTeamUnregistersMembers(t *testing.T) {
 	mgr := newTestTeamManager(t)
-	team := mgr.CreateTeam("myteam", ModeInProcess)
+	team := createTestTeam(t, mgr, "myteam", ModeInProcess)
 	team.Members["alice"] = &Member{Name: "alice"}
 	GetNameRegistry().Register("alice", "alice")
-
 	mgr.DeleteTeam("myteam")
-	if mgr.GetTeam("myteam") != nil {
-		t.Fatalf("team not deleted")
+	if mgr.GetTeam("myteam") != nil || GetNameRegistry().Resolve("alice") != "" {
+		t.Fatal("team or member registration retained")
 	}
-	if GetNameRegistry().Resolve("alice") != "" {
-		t.Fatalf("member name not unregistered")
+}
+
+func createTestTeam(t *testing.T, manager *TeamManager, name string, mode TeamMode) *Team {
+	t.Helper()
+	team, err := manager.CreateTeam(name, mode)
+	if err != nil {
+		t.Fatal(err)
 	}
+	return team
+}
+func createTestTeamFull(t *testing.T, manager *TeamManager, name string, mode TeamMode, leader, description string) *Team {
+	t.Helper()
+	team, err := manager.CreateTeamFull(name, mode, leader, description)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return team
 }

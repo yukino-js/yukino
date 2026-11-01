@@ -519,7 +519,11 @@ func (t *AgentTool) runAsTeammate(
 ) tools.ToolResult {
 	team := t.TeamMgr.GetTeam(teamName)
 	if team == nil {
-		team = t.TeamMgr.CreateTeamFull(teamName, teams.DetectBackend(), teams.LeadName, description)
+		var err error
+		team, err = t.TeamMgr.CreateTeamFull(teamName, teams.DetectBackend(), teams.LeadName, description)
+		if err != nil {
+			return tools.ToolResult{Output: "Error: " + err.Error(), IsError: true}
+		}
 	}
 
 	if memberName == "" {
@@ -546,10 +550,7 @@ func (t *AgentTool) runAsTeammate(
 	teammateDisallowed := append(append([]string{}, spec.DisallowedTools...), TeammateDisallowedTools...)
 	subRegistry := FilterToolsForAgent(t.Registry, spec.Tools, teammateDisallowed, false)
 	subRegistry.Register(&teams.SendMessageTool{TeamMgr: t.TeamMgr, SenderName: memberName})
-	subRegistry.Register(&teams.TaskCreateTool{TeamMgr: t.TeamMgr, TeamName: teamName, AgentName: memberName})
-	subRegistry.Register(&teams.TaskGetTool{TeamMgr: t.TeamMgr, TeamName: teamName})
-	subRegistry.Register(&teams.TaskListTool{TeamMgr: t.TeamMgr, TeamName: teamName})
-	subRegistry.Register(&teams.TaskUpdateTool{TeamMgr: t.TeamMgr, TeamName: teamName})
+	subRegistry.Register(&teams.TeamTodoWriteTool{TeamMgr: t.TeamMgr, TeamName: teamName, AgentName: memberName})
 	client := t.selectClient(spec.Model, modelOverride)
 
 	var otherMembers []string

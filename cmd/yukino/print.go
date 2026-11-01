@@ -77,6 +77,10 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 
 	defaultTools := tools.CreateDefaultTools()
 	registry := defaultTools.Registry
+	defer registry.Dispose()
+	if server, ok := registry.Get("LSP").(*tools.LSPTool); ok {
+		server.Configs = cfg.LspServers
+	}
 
 	skillCatalog := skills.LoadCatalog(wd)
 	instructionsContent := loadPrintInstructions(wd)
@@ -108,21 +112,21 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 	if err != nil {
 		return err
 	}
-	todoList := todo.NewTaskList(store)
+	todoList, err := todo.NewTaskList(store)
+	if err != nil {
+		return err
+	}
 	loader := subagent.NewAgentLoader(wd)
 	loader.LoadAll()
 
-	registry.Register(&todo.TaskCreateTool{List: todoList})
-	registry.Register(&todo.TaskGetTool{List: todoList})
-	registry.Register(&todo.TaskListTool{List: todoList})
-	registry.Register(&todo.TaskUpdateTool{List: todoList})
 	registry.Register(&tools.ToolSearchTool{Registry: registry})
 	registry.Register(&tools.McpCallTool{Registry: registry})
 
 	teamMgr := teams.NewTeamManager(wd)
+	registry.Register(&teams.TeamTodoWriteTool{TeamMgr: teamMgr, Fallback: todoList})
 	registry.Register(&teams.TeamCreateTool{TeamMgr: teamMgr})
 	registry.Register(&teams.TeamDeleteTool{TeamMgr: teamMgr})
-	registry.Register(&teams.SendMessageTool{TeamMgr: teamMgr, SenderName: "lead"})
+	registry.Register(&teams.SendMessageTool{TeamMgr: teamMgr, SenderName: "leader"})
 	registry.Register(&teams.TaskStopTool{TeamMgr: teamMgr, TaskManager: taskMgr})
 	registry.Register(&tools.SyntheticOutputTool{})
 

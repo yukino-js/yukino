@@ -94,6 +94,7 @@ func main() {
 	if remoteAddr != "" {
 		srv := remote.NewServer(cfg.Providers, cfg.MCPServers, validHooks, remoteAddr, cfg.EnableCoordinatorMode, !cfg.ForkEnabled(), cfg.DefaultProvider)
 		srv.MCPLoading = cfg.MCPLoading
+		srv.LSPServers = cfg.LspServers
 		if err := srv.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "Remote server error: %s\n", err)
 			tools.RunExitCleanups()
@@ -105,6 +106,7 @@ func main() {
 	m := ui.New(cfg.Providers, cfg.MCPServers, validHooks, cfg.Sandbox, cfg.DefaultProvider)
 	m.EnableCoordinatorMode = cfg.EnableCoordinatorMode
 	m.MCPLoading = cfg.MCPLoading
+	m.LSPServers = cfg.LspServers
 	m.ForkDisabled = !cfg.ForkEnabled()
 	p := tea.NewProgram(m)
 

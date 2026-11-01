@@ -1,104 +1,151 @@
 package teams
 
 import (
+	"fmt"
+	"os"
+	"os/exec"
 	"path/filepath"
+	"sync"
 	"testing"
+
+	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/todo"
 )
 
 func newTestStore(t *testing.T) *SharedTaskStore {
 	t.Helper()
 	return NewSharedTaskStore(filepath.Join(t.TempDir(), "tasks.json"))
 }
-
-func strptr(s string) *string { return &s }
-
-func TestSharedTaskCreateAssignsStringIDsAndPending(t *testing.T) {
+func sharedWrite(t *testing.T, store *SharedTaskStore, input map[string]any, options todo.WriteOptions) []*todo.Task {
+	t.Helper()
+	tasks, err := store.Write(input, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tasks
+}
+func TestSharedTaskTransactionsReloadAndOwnership(t *testing.T) {
 	store := newTestStore(t)
-	t1 := store.Create("first", "", "", nil, nil, "lead")
-	t2 := store.Create("second", "desc", "alice", nil, nil, "lead")
-
-	if t1.ID != "1" || t2.ID != "2" {
-		t.Fatalf("ids = %q,%q, want 1,2", t1.ID, t2.ID)
+	second := NewSharedTaskStore(store.path)
+	tasks := sharedWrite(t, store, map[string]any{"todos": []any{map[string]any{"subject": "first", "owner": "alice"}, map[string]any{"subject": "second"}}}, todo.WriteOptions{})
+	if tasks[0].ID != "1" || tasks[1].ID != "2" || tasks[0].CreatedBy == nil {
+		t.Fatal(tasks)
 	}
-	if t1.Status != "pending" {
-		t.Fatalf("status = %q, want pending", t1.Status)
+	sharedWrite(t, store, map[string]any{"todos": []any{map[string]any{"id": "1", "status": "completed"}}}, todo.WriteOptions{})
+	tasks = sharedWrite(t, second, map[string]any{"todos": []any{map[string]any{"id": "2", "status": "in_progress", "blockedBy": []string{"1"}}}}, todo.WriteOptions{Actor: "bob"})
+	if tasks[0].Status != todo.StatusCompleted || tasks[1].Owner != "bob" || len(tasks[0].Blocks) != 1 {
+		t.Fatal(tasks)
 	}
-	if t2.Assignee != "alice" || t2.Description != "desc" || t2.CreatedBy != "lead" {
-		t.Fatalf("unexpected task2 fields: %+v", t2)
+	for _, input := range []map[string]any{{"deleteIds": []string{"2"}}, {"todos": []any{map[string]any{"id": "2", "priority": "high"}}}, {"todos": []any{map[string]any{"subject": "new", "owner": "alice"}}}} {
+		if _, err := store.Write(input, todo.WriteOptions{Actor: "mallory"}); err == nil {
+			t.Fatal("ownership bypassed", input)
+		}
+	}
+	released, err := store.ReleaseOwner("bob")
+	if err != nil || len(released) != 1 || released[0].Status != todo.StatusPending || released[0].Owner != "" {
+		t.Fatal(released, err)
+	}
+	if _, err := store.Get("999"); err != nil {
+		t.Fatal(err)
+	}
+	for _, filter := range []struct {
+		status, owner string
+		count         int
+	}{{"", "", 2}, {"completed", "", 1}, {"", "alice", 1}, {"completed", "bob", 0}} {
+		tasks, err := store.ListTasks(filter.status, filter.owner)
+		if err != nil || len(tasks) != filter.count {
+			t.Fatal(tasks, err)
+		}
+	}
+	if err := store.InitEmpty(); err != nil {
+		t.Fatal(err)
+	}
+	tasks = sharedWrite(t, store, map[string]any{"todos": []any{map[string]any{"subject": "reset"}}}, todo.WriteOptions{})
+	if tasks[0].ID != "1" {
+		t.Fatal(tasks)
 	}
 }
-
-func TestSharedTaskGetAndList(t *testing.T) {
-	store := newTestStore(t)
-	store.Create("a", "", "alice", nil, nil, "")
-	b := store.Create("b", "", "bob", nil, nil, "")
-	store.Update(b.ID, TaskUpdate{Status: strptr("completed")})
-
-	if store.Get("999") != nil {
-		t.Fatalf("get missing should be nil")
-	}
-	if len(store.ListTasks("", "")) != 2 {
-		t.Fatalf("list all should be 2")
-	}
-	if len(store.ListTasks("completed", "")) != 1 {
-		t.Fatalf("filter by status failed")
-	}
-	if len(store.ListTasks("", "alice")) != 1 {
-		t.Fatalf("filter by assignee failed")
-	}
-	if len(store.ListTasks("completed", "alice")) != 0 {
-		t.Fatalf("combined filter failed")
-	}
-}
-
-func TestSharedTaskUpdateAndDeps(t *testing.T) {
-	store := newTestStore(t)
-	task := store.Create("task", "", "", nil, nil, "")
-	updated := store.Update(task.ID, TaskUpdate{
-		Status:       strptr("in_progress"),
-		Assignee:     strptr("carol"),
-		Description:  strptr("new desc"),
-		AddBlocks:    []string{"2"},
-		AddBlockedBy: []string{"3"},
-	})
-	if updated == nil || updated.Status != "in_progress" || updated.Assignee != "carol" {
-		t.Fatalf("update result unexpected: %+v", updated)
-	}
-	if len(updated.Blocks) != 1 || updated.Blocks[0] != "2" {
-		t.Fatalf("blocks not appended: %+v", updated.Blocks)
-	}
-	again := store.Update(task.ID, TaskUpdate{AddBlocks: []string{"2"}})
-	if len(again.Blocks) != 1 {
-		t.Fatalf("dedup failed: %+v", again.Blocks)
-	}
-	if store.Update("nope", TaskUpdate{Status: strptr("completed")}) != nil {
-		t.Fatalf("update missing should be nil")
-	}
-}
-
-func TestSharedTaskPersistenceAndReload(t *testing.T) {
+func TestSharedTaskConcurrentWritersAndUnreadableState(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "tasks.json")
-	store1 := NewSharedTaskStore(path)
-	store1.Create("persisted", "", "", nil, nil, "lead")
-
-	store2 := NewSharedTaskStore(path)
-	if len(store2.ListTasks("", "")) != 1 {
-		t.Fatalf("store2 should see 1 task")
+	failures := make(chan error, 20)
+	var wg sync.WaitGroup
+	for range 20 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := NewSharedTaskStore(path).Write(map[string]any{"todos": []any{map[string]any{"subject": "parallel"}}}, todo.WriteOptions{})
+			if err != nil {
+				failures <- err
+			}
+		}()
 	}
-	store2.Create("from-teammate", "", "", nil, nil, "bob")
-	if got := store1.Get("2"); got == nil || got.Title != "from-teammate" {
-		t.Fatalf("store1 did not reload teammate task: %+v", got)
+	wg.Wait()
+	close(failures)
+	for err := range failures {
+		t.Fatal(err)
+	}
+	store := NewSharedTaskStore(path)
+	tasks, err := store.ListTasks("", "")
+	if err != nil || len(tasks) != 20 {
+		t.Fatal(len(tasks), err)
+	}
+	corrupt := []byte(`{"nextId":2,"tasks":[{"id":"1","subject":"bad","description":"","status":"pending","owner":"","metadata":{},"blocks":["2"],"blockedBy":[],"createdBy":""}]}`)
+	if err := os.WriteFile(path, corrupt, 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, operation := range []func() error{func() error { _, err := store.ListTasks("", ""); return err }, func() error { _, err := store.Get("1"); return err }, func() error {
+		_, err := store.Write(map[string]any{"todos": []any{map[string]any{"subject": "new"}}}, todo.WriteOptions{})
+		return err
+	}, store.InitEmpty} {
+		if err := operation(); err == nil {
+			t.Fatal("corrupt board accepted")
+		}
+		data, err := os.ReadFile(path)
+		if err != nil || string(data) != string(corrupt) {
+			t.Fatal("corrupt board was overwritten", err)
+		}
 	}
 }
 
-func TestSharedTaskInitEmpty(t *testing.T) {
-	store := newTestStore(t)
-	store.Create("x", "", "", nil, nil, "")
-	store.InitEmpty()
-	if len(store.ListTasks("", "")) != 0 {
-		t.Fatalf("initEmpty did not clear")
+func TestSharedTaskProcessWriter(t *testing.T) {
+	path := os.Getenv("YUKINO_SHARED_TASK_TEST_PATH")
+	if path == "" {
+		return
 	}
-	if store.Create("y", "", "", nil, nil, "").ID != "1" {
-		t.Fatalf("nextID not reset")
+	for range 5 {
+		if _, err := NewSharedTaskStore(path).Write(map[string]any{"todos": []any{map[string]any{"subject": "process"}}}, todo.WriteOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+func TestSharedTaskCrossProcessWriters(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tasks.json")
+	failures := make(chan error, 4)
+	var writers sync.WaitGroup
+	for range 4 {
+		writers.Add(1)
+		go func() {
+			defer writers.Done()
+			command := exec.Command(os.Args[0], "-test.run=^TestSharedTaskProcessWriter$")
+			command.Env = append(os.Environ(), "YUKINO_SHARED_TASK_TEST_PATH="+path)
+			if output, err := command.CombinedOutput(); err != nil {
+				failures <- fmt.Errorf("%w: %s", err, output)
+			}
+		}()
+	}
+	writers.Wait()
+	close(failures)
+	for err := range failures {
+		t.Fatal(err)
+	}
+	tasks, err := NewSharedTaskStore(path).ListTasks("", "")
+	if err != nil || len(tasks) != 20 {
+		t.Fatal(len(tasks), err)
+	}
+	seen := map[string]bool{}
+	for _, task := range tasks {
+		if seen[task.ID] {
+			t.Fatal("duplicate ID", task.ID)
+		}
+		seen[task.ID] = true
 	}
 }

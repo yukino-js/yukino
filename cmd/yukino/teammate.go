@@ -12,6 +12,7 @@ import (
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/config"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/conversation"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/llm"
+	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/lsp"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/mcp"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/prompt"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/session"
@@ -103,11 +104,14 @@ func runTeammate(args teammateArgs) error {
 		TeamName:   args.teamName,
 		MemberName: args.memberName,
 		MCPServers: cfg.MCPServers,
+		LSPServers: cfg.LspServers,
 		MCPLoading: cfg.MCPLoading,
 
 		BaseURL:       provider.BaseURL,
 		ContextWindow: config.GetContextWindow(&provider),
 	})
+
+	defer registry.Dispose()
 
 	member := team.AddMember(args.memberName, client, registry, provider.Protocol)
 	member.AgentRef.SkillSection = buildPrintSkillSection(skillCatalog)
@@ -129,6 +133,7 @@ type teammateToolOptions struct {
 	TeamName      string
 	MemberName    string
 	MCPServers    []config.MCPServerConfig
+	LSPServers    []lsp.ServerConfig
 	BaseURL       string
 	ContextWindow int
 	MCPLoading    string
@@ -136,6 +141,9 @@ type teammateToolOptions struct {
 
 func buildTeammateRegistry(ctx context.Context, opts teammateToolOptions) *tools.Registry {
 	registry := tools.CreateDefaultToolsWithWorkDir(opts.WorkDir).Registry
+	if server, ok := registry.Get("LSP").(*tools.LSPTool); ok {
+		server.Configs = opts.LSPServers
+	}
 
 	registry.Register(&tools.ToolSearchTool{Registry: registry})
 	registry.Register(&tools.McpCallTool{Registry: registry})
@@ -146,10 +154,7 @@ func buildTeammateRegistry(ctx context.Context, opts teammateToolOptions) *tools
 	registry.Register(&tools.ExitWorktreeTool{RepoRoot: gitRoot})
 
 	registry.Register(&teams.SendMessageTool{TeamMgr: opts.TeamMgr, SenderName: opts.MemberName})
-	registry.Register(&teams.TaskCreateTool{TeamMgr: opts.TeamMgr, TeamName: opts.TeamName, AgentName: opts.MemberName})
-	registry.Register(&teams.TaskGetTool{TeamMgr: opts.TeamMgr, TeamName: opts.TeamName})
-	registry.Register(&teams.TaskListTool{TeamMgr: opts.TeamMgr, TeamName: opts.TeamName})
-	registry.Register(&teams.TaskUpdateTool{TeamMgr: opts.TeamMgr, TeamName: opts.TeamName})
+	registry.Register(&teams.TeamTodoWriteTool{TeamMgr: opts.TeamMgr, TeamName: opts.TeamName, AgentName: opts.MemberName})
 
 	if len(opts.MCPServers) > 0 {
 		mgr := mcp.NewManager()

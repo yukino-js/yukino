@@ -22,6 +22,7 @@ import (
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/file_history"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/hooks"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/llm"
+	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/lsp"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/mcp"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/memory"
 	extractor "github.com/hangtiancheng/yukino.go/apps/yukino/internal/memory/extractor"
@@ -68,6 +69,7 @@ var upgrader = websocket.Upgrader{
 
 type Server struct {
 	MCPLoading string
+	LSPServers []lsp.ServerConfig
 	providers  []config.ProviderConfig
 	mcpConfigs []config.MCPServerConfig
 	hookCfgs   []config.HookConfig
@@ -228,6 +230,9 @@ func (s *Server) initAgent() error {
 	s.askUserCh = make(chan tools.AskUserRequest, 1)
 	s.defaultTools = tools.CreateDefaultToolsWithWorkDir(wd)
 	s.registry = s.defaultTools.Registry
+	if server, ok := s.registry.Get("LSP").(*tools.LSPTool); ok {
+		server.Configs = s.LSPServers
+	}
 	s.registry.Register(&tools.AskUserQuestionTool{RequestCh: s.askUserCh})
 
 	s.cmdRegistry = commands.CreateDefaultRegistry()
@@ -318,11 +323,15 @@ func (s *Server) registerTools(client llm.Client, p *config.ProviderConfig, wd s
 	if err != nil {
 		panic(err)
 	}
-	s.todoList = todo.NewTaskList(store)
+	s.todoList, err = todo.NewTaskList(store)
+	if err != nil {
+		panic(err)
+	}
 	s.memoryMgr = memory.NewManager(wd)
 	loader := subagent.NewAgentLoader(wd)
 	loader.LoadAll()
 	s.teamMgr = teams.NewTeamManager(wd)
+	s.registry.Register(&teams.TeamTodoWriteTool{TeamMgr: s.teamMgr, Fallback: s.todoList})
 
 	s.registry.Register(&tools.ExitPlanModeTool{
 		IsPlanMode: func() bool {
@@ -330,15 +339,12 @@ func (s *Server) registerTools(client llm.Client, p *config.ProviderConfig, wd s
 		},
 		PlanExists: func() bool { return false },
 	})
-	s.registry.Register(&todo.TaskCreateTool{List: s.todoList})
-	s.registry.Register(&todo.TaskGetTool{List: s.todoList})
-	s.registry.Register(&todo.TaskListTool{List: s.todoList})
-	s.registry.Register(&todo.TaskUpdateTool{List: s.todoList})
+
 	s.registry.Register(&tools.ToolSearchTool{Registry: s.registry})
 	s.registry.Register(&tools.McpCallTool{Registry: s.registry})
 	s.registry.Register(&teams.TeamCreateTool{TeamMgr: s.teamMgr})
 	s.registry.Register(&teams.TeamDeleteTool{TeamMgr: s.teamMgr})
-	s.registry.Register(&teams.SendMessageTool{TeamMgr: s.teamMgr, SenderName: "lead"})
+	s.registry.Register(&teams.SendMessageTool{TeamMgr: s.teamMgr, SenderName: "leader"})
 	s.registry.Register(&teams.TaskStopTool{TeamMgr: s.teamMgr, TaskManager: s.taskMgr})
 	s.registry.Register(&tools.SyntheticOutputTool{})
 	subProgressCh := make(chan subagent.SubAgentProgress, 32)

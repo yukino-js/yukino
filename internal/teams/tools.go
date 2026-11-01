@@ -166,7 +166,7 @@ When in doubt about whether a task warrants a team, prefer spawning a team.
 1. **Create a team** with TeamCreate
 2. **Spawn teammates** using the Agent tool with team_name and name parameters — this is REQUIRED to create long-running team members
 3. Teammates work independently and communicate via **SendMessage**
-4. When a teammate finishes, it sends its result to "lead" via SendMessage, then goes idle
+4. When a teammate finishes, it sends its result to "leader" via SendMessage, then goes idle
 5. The lead collects and synthesizes all teammate results
 
 ## CRITICAL: Spawning Teammates
@@ -227,7 +227,10 @@ func (t *TeamCreateTool) Execute(ctx context.Context, args map[string]any) tools
 
 	mode := detectBackend()
 	desc, _ := args["description"].(string)
-	team := t.TeamMgr.CreateTeamFull(name, mode, LeadName, desc)
+	team, err := t.TeamMgr.CreateTeamFull(name, mode, LeadName, desc)
+	if err != nil {
+		return tools.ToolResult{Output: "Error: " + err.Error(), IsError: true}
+	}
 	return tools.ToolResult{
 		Output: fmt.Sprintf("Team \"%s\" created (mode: %s). Use Agent tool with team_name=\"%s\" to add teammates.\nDescription: %s",
 			team.Name, team.Mode, team.Name, desc),

@@ -1,9 +1,11 @@
 package todo
 
 import (
-	"crypto/rand"
-	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	"sync"
+
+	"github.com/google/uuid"
 )
 
 type TaskStatus string
@@ -12,232 +14,146 @@ const (
 	StatusPending    TaskStatus = "pending"
 	StatusInProgress TaskStatus = "in_progress"
 	StatusCompleted  TaskStatus = "completed"
+	StatusBlocked    TaskStatus = "blocked"
+	StatusCancelled  TaskStatus = "cancelled"
 )
 
 type Task struct {
 	ID          string         `json:"id"`
 	Subject     string         `json:"subject"`
 	Description string         `json:"description"`
-	ActiveForm  string         `json:"activeForm,omitempty"`
 	Status      TaskStatus     `json:"status"`
-	Owner       string         `json:"owner,omitempty"`
+	Owner       string         `json:"owner"`
 	Blocks      []string       `json:"blocks"`
 	BlockedBy   []string       `json:"blockedBy"`
-	Metadata    map[string]any `json:"metadata,omitempty"`
+	Metadata    map[string]any `json:"metadata"`
+	Priority    string         `json:"priority,omitempty"`
+	CreatedBy   *string        `json:"createdBy,omitempty"`
 }
-
+type Board interface {
+	BoardID() string
+	Write(map[string]any) ([]*Task, error)
+}
 type TaskList struct {
-	mu    sync.Mutex
-	store *Store
+	mu           sync.Mutex
+	store        *Store
+	tasks        []*Task
+	nextID       int
+	memoryID     string
+	listeners    map[int]func([]*Task)
+	nextListener int
 }
 
-func NewTaskList(store *Store) *TaskList {
-	return &TaskList{store: store}
+func NewTaskList(store *Store) (*TaskList, error) {
+	list := &TaskList{tasks: []*Task{}, nextID: 1, memoryID: "private:" + uuid.NewString(), listeners: map[int]func([]*Task){}}
+	if store != nil {
+		if err := list.UseStore(store); err != nil {
+			return nil, err
+		}
+	}
+	return list, nil
 }
-
-func (tl *TaskList) Create(subject, description, activeForm string, metadata map[string]any) (*Task, error) {
-	tl.mu.Lock()
-	defer tl.mu.Unlock()
-
-	tasks, err := tl.store.Load()
+func CloneTasks(tasks []*Task) []*Task {
+	encoded, err := json.Marshal(tasks)
 	if err != nil {
-		tasks = nil
+		panic(err)
 	}
-
-	task := &Task{
-		ID:          generateID(),
-		Subject:     subject,
-		Description: description,
-		ActiveForm:  activeForm,
-		Status:      StatusPending,
-		Blocks:      []string{},
-		BlockedBy:   []string{},
-		Metadata:    metadata,
+	var result []*Task
+	if err := json.Unmarshal(encoded, &result); err != nil {
+		panic(err)
 	}
-
-	tasks = append(tasks, task)
-	if err := tl.store.Save(tasks); err != nil {
+	if result == nil {
+		result = []*Task{}
+	}
+	return result
+}
+func (l *TaskList) BoardID() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.store != nil {
+		return l.store.BoardID()
+	}
+	return l.memoryID
+}
+func (l *TaskList) UseStore(store *Store) error {
+	snapshot, err := store.Load()
+	if err != nil {
+		return err
+	}
+	if err := ValidateDependencies(snapshot.Tasks); err != nil {
+		return err
+	}
+	l.mu.Lock()
+	l.store = store
+	l.tasks = snapshot.Tasks
+	l.nextID = snapshot.NextID
+	l.mu.Unlock()
+	l.emitChange()
+	return nil
+}
+func (l *TaskList) Subscribe(listener func([]*Task)) func() {
+	l.mu.Lock()
+	id := l.nextListener
+	l.nextListener++
+	l.listeners[id] = listener
+	tasks := CloneTasks(l.tasks)
+	l.mu.Unlock()
+	listener(tasks)
+	return func() { l.mu.Lock(); delete(l.listeners, id); l.mu.Unlock() }
+}
+func (l *TaskList) emitChange() {
+	l.mu.Lock()
+	listeners := make([]func([]*Task), 0, len(l.listeners))
+	for _, listener := range l.listeners {
+		listeners = append(listeners, listener)
+	}
+	tasks := CloneTasks(l.tasks)
+	l.mu.Unlock()
+	for _, listener := range listeners {
+		func() { defer func() { recover() }(); listener(CloneTasks(tasks)) }()
+	}
+}
+func (l *TaskList) Get(id string) *Task {
+	for _, task := range l.List() {
+		if task.ID == id {
+			return task
+		}
+	}
+	return nil
+}
+func (l *TaskList) List() []*Task { l.mu.Lock(); defer l.mu.Unlock(); return CloneTasks(l.tasks) }
+func (l *TaskList) Write(input map[string]any) ([]*Task, error) {
+	parsed, err := ParseWrite(input)
+	if err != nil {
 		return nil, err
 	}
-	return task, nil
-}
-
-func (tl *TaskList) Get(id string) (*Task, error) {
-	tl.mu.Lock()
-	defer tl.mu.Unlock()
-
-	tasks, err := tl.store.Load()
+	l.mu.Lock()
+	if len(parsed.Todos) == 0 && len(parsed.DeleteIDs) == 0 {
+		result := CloneTasks(l.tasks)
+		l.mu.Unlock()
+		return result, nil
+	}
+	result, nextID, err := ApplyWrite(l.tasks, l.nextID, parsed, WriteOptions{})
+	if err == nil && l.store != nil {
+		err = l.store.Save(result, nextID)
+	}
 	if err != nil {
+		l.mu.Unlock()
 		return nil, err
 	}
-	for _, t := range tasks {
-		if t.ID == id {
-			return t, nil
-		}
-	}
-	return nil, nil
+	l.tasks = result
+	l.nextID = nextID
+	result = CloneTasks(result)
+	l.mu.Unlock()
+	l.emitChange()
+	return result, nil
 }
-
-func (tl *TaskList) List() ([]*Task, error) {
-	tl.mu.Lock()
-	defer tl.mu.Unlock()
-
-	tasks, err := tl.store.Load()
-	if err != nil {
-		return nil, err
-	}
-
-	var visible []*Task
-	for _, t := range tasks {
-		if t.Metadata != nil {
-			if _, internal := t.Metadata["_internal"]; internal {
-				continue
-			}
-		}
-		visible = append(visible, t)
-	}
-	return visible, nil
-}
-
-func (tl *TaskList) Update(id string, updates map[string]any) (*Task, []string, error) {
-	tl.mu.Lock()
-	defer tl.mu.Unlock()
-
-	tasks, err := tl.store.Load()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	var target *Task
-	for _, t := range tasks {
-		if t.ID == id {
-			target = t
-			break
+func Progress(tasks []*Task) string {
+	completed := 0
+	for _, task := range tasks {
+		if task.Status == StatusCompleted {
+			completed++
 		}
 	}
-	if target == nil {
-		return nil, nil, nil
-	}
-
-	if status, ok := updates["status"]; ok {
-		if s, ok := status.(string); ok && s == "deleted" {
-			var remaining []*Task
-			for _, t := range tasks {
-				if t.ID != id {
-					remaining = append(remaining, t)
-				}
-			}
-			if err := tl.store.Save(remaining); err != nil {
-				return nil, nil, err
-			}
-			return target, []string{"deleted"}, nil
-		}
-	}
-
-	var changed []string
-
-	if v, ok := updates["subject"]; ok {
-		if s, ok := v.(string); ok && s != target.Subject {
-			target.Subject = s
-			changed = append(changed, "subject")
-		}
-	}
-	if v, ok := updates["description"]; ok {
-		if s, ok := v.(string); ok && s != target.Description {
-			target.Description = s
-			changed = append(changed, "description")
-		}
-	}
-	if v, ok := updates["activeForm"]; ok {
-		if s, ok := v.(string); ok && s != target.ActiveForm {
-			target.ActiveForm = s
-			changed = append(changed, "activeForm")
-		}
-	}
-	if v, ok := updates["status"]; ok {
-		if s, ok := v.(string); ok {
-			newStatus := TaskStatus(s)
-			if newStatus != target.Status {
-				target.Status = newStatus
-				changed = append(changed, "status")
-			}
-		}
-	}
-	if v, ok := updates["owner"]; ok {
-		if s, ok := v.(string); ok && s != target.Owner {
-			target.Owner = s
-			changed = append(changed, "owner")
-		}
-	}
-	if v, ok := updates["addBlocks"]; ok {
-		if ids, ok := toStringSlice(v); ok && len(ids) > 0 {
-			existing := make(map[string]bool)
-			for _, b := range target.Blocks {
-				existing[b] = true
-			}
-			for _, b := range ids {
-				if !existing[b] {
-					target.Blocks = append(target.Blocks, b)
-				}
-			}
-			changed = append(changed, "blocks")
-		}
-	}
-	if v, ok := updates["addBlockedBy"]; ok {
-		if ids, ok := toStringSlice(v); ok && len(ids) > 0 {
-			existing := make(map[string]bool)
-			for _, b := range target.BlockedBy {
-				existing[b] = true
-			}
-			for _, b := range ids {
-				if !existing[b] {
-					target.BlockedBy = append(target.BlockedBy, b)
-				}
-			}
-			changed = append(changed, "blockedBy")
-		}
-	}
-	if v, ok := updates["metadata"]; ok {
-		if m, ok := v.(map[string]any); ok {
-			if target.Metadata == nil {
-				target.Metadata = make(map[string]any)
-			}
-			for k, val := range m {
-				if val == nil {
-					delete(target.Metadata, k)
-				} else {
-					target.Metadata[k] = val
-				}
-			}
-			changed = append(changed, "metadata")
-		}
-	}
-
-	if len(changed) > 0 {
-		if err := tl.store.Save(tasks); err != nil {
-			return nil, nil, err
-		}
-	}
-
-	return target, changed, nil
-}
-
-func generateID() string {
-	b := make([]byte, 4)
-	rand.Read(b)
-	return "t" + hex.EncodeToString(b)
-}
-
-func toStringSlice(v any) ([]string, bool) {
-	arr, ok := v.([]any)
-	if !ok {
-		return nil, false
-	}
-	result := make([]string, 0, len(arr))
-	for _, item := range arr {
-		if s, ok := item.(string); ok {
-			result = append(result, s)
-		}
-	}
-	return result, true
+	return fmt.Sprintf("DONE %d/%d", completed, len(tasks))
 }

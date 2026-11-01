@@ -20,7 +20,7 @@ func TestCoordinatorBlocksCodeTools(t *testing.T) {
 }
 
 func TestCoordinatorBlocksTaskBoardTools(t *testing.T) {
-	for _, name := range []string{"TaskCreate", "TaskGet", "TaskList", "TaskUpdate"} {
+	for _, name := range []string{"TodoWrite"} {
 		if IsCoordinatorTool(name) {
 			t.Errorf("%s is a worker coordination tool and must not be given to the Lead", name)
 		}
@@ -81,7 +81,7 @@ func TestCoordinatorDisabledReturnsNil(t *testing.T) {
 func TestTaskStopStopsTeammate(t *testing.T) {
 	useTempHome(t)
 	mgr := NewTeamManager(t.TempDir())
-	team := mgr.CreateTeam("squad", ModeInProcess)
+	team := createTestTeam(t, mgr, "squad", ModeInProcess)
 	member := team.AddMember("scout", nil, nil, "anthropic")
 	member.Active = true
 	stopped := false
@@ -103,7 +103,7 @@ func TestTaskStopStopsTeammate(t *testing.T) {
 func TestTaskStopOnUnknownTeammate(t *testing.T) {
 	useTempHome(t)
 	mgr := NewTeamManager(t.TempDir())
-	mgr.CreateTeam("squad", ModeInProcess)
+	createTestTeam(t, mgr, "squad", ModeInProcess)
 
 	tool := &TaskStopTool{TeamMgr: mgr}
 	res := tool.Execute(context.Background(), map[string]any{"teammate": "ghost"})
@@ -115,7 +115,7 @@ func TestTaskStopOnUnknownTeammate(t *testing.T) {
 func TestTaskStopOnIdleTeammate(t *testing.T) {
 	useTempHome(t)
 	mgr := NewTeamManager(t.TempDir())
-	team := mgr.CreateTeam("squad", ModeInProcess)
+	team := createTestTeam(t, mgr, "squad", ModeInProcess)
 	team.AddMember("scout", nil, nil, "anthropic")
 
 	tool := &TaskStopTool{TeamMgr: mgr}
@@ -140,7 +140,7 @@ func TestCoordinatorPromptListsOnlyAllowedTools(t *testing.T) {
 			t.Errorf("whitelisted %s is missing from the prompt tool list", name)
 		}
 	}
-	for _, name := range []string{"ReadFile", "Bash", "Grep", "TaskCreate", "TeamCreate"} {
+	for _, name := range []string{"ReadFile", "Bash", "Grep", "TodoWrite", "TeamCreate"} {
 		if strings.Contains(toolsSection, "**"+name+"**") {
 			t.Errorf("the prompt tool list contains filtered-out %s", name)
 		}

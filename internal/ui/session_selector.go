@@ -238,7 +238,9 @@ func (m Model) doResumeSession(wd, targetID string, saved []session.Message) (te
 	m.defaultTools.EditFile.FileHistory = m.fileHistory
 	m.defaultTools.WriteFile.FileHistory = m.fileHistory
 	if store, err := todo.NewStore(m.sessionID); err == nil {
-		m.todoList = todo.NewTaskList(store)
+		if err := m.todoList.UseStore(store); err != nil {
+			panic(err)
+		}
 	}
 	if m.ag != nil {
 		m.ag.SetSessionID(m.sessionID)

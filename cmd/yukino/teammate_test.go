@@ -66,7 +66,7 @@ func TestBuildTeammateRegistryToolSet(t *testing.T) {
 	mustHave := []string{
 		"ReadFile", "WriteFile", "EditFile", "Bash", "Glob", "Grep",
 		"ToolSearch", "SyntheticOutput", "EnterWorktree", "ExitWorktree",
-		"SendMessage", "TaskCreate", "TaskGet", "TaskList", "TaskUpdate",
+		"SendMessage", "TodoWrite", "LSP", "WebFetch",
 	}
 	for _, name := range mustHave {
 		if reg.Get(name) == nil {
@@ -74,7 +74,7 @@ func TestBuildTeammateRegistryToolSet(t *testing.T) {
 		}
 	}
 
-	mustNotHave := []string{"Agent", "TeamCreate", "TeamDelete"}
+	mustNotHave := []string{"Agent", "TeamCreate", "TeamDelete", "TaskCreate", "TaskGet", "TaskList", "TaskUpdate"}
 	for _, name := range mustNotHave {
 		if reg.Get(name) != nil {
 			t.Errorf("teammate tool set must not contain %s", name)

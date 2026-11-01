@@ -69,6 +69,9 @@ func newAgentHookRunner(client llm.Client) func(prompt string, ctx hooks.HookCon
 }
 
 func (m *Model) registerAgentTools(client llm.Client, providerCfg *config.ProviderConfig, protocol, wd string) {
+	if server, ok := m.registry.Get("LSP").(*tools.LSPTool); ok {
+		server.Configs = m.LSPServers
+	}
 	if m.taskMgr != nil {
 		_ = m.taskMgr.StopAll(context.Background())
 	}
@@ -84,7 +87,10 @@ func (m *Model) registerAgentTools(client llm.Client, providerCfg *config.Provid
 	if err != nil {
 		panic(err)
 	}
-	m.todoList = todo.NewTaskList(store)
+	err = m.todoList.UseStore(store)
+	if err != nil {
+		panic(err)
+	}
 
 	m.memoryMgr = memory.NewManager(wd)
 
@@ -93,6 +99,7 @@ func (m *Model) registerAgentTools(client llm.Client, providerCfg *config.Provid
 
 	teamMgr := teams.NewTeamManager(wd)
 	m.teamMgr = teamMgr
+	m.registry.Register(&teams.TeamTodoWriteTool{TeamMgr: m.teamMgr, Fallback: m.todoList})
 
 	gitRoot := worktree.FindCanonicalGitRoot(wd)
 	m.registry.Register(&tools.EnterWorktreeTool{
@@ -121,15 +128,12 @@ func (m *Model) registerAgentTools(client llm.Client, providerCfg *config.Provid
 			return plan_file.PlanExists()
 		},
 	})
-	m.registry.Register(&todo.TaskCreateTool{List: m.todoList})
-	m.registry.Register(&todo.TaskGetTool{List: m.todoList})
-	m.registry.Register(&todo.TaskListTool{List: m.todoList})
-	m.registry.Register(&todo.TaskUpdateTool{List: m.todoList})
+
 	m.registry.Register(&tools.ToolSearchTool{Registry: m.registry})
 	m.registry.Register(&tools.McpCallTool{Registry: m.registry})
 	m.registry.Register(&teams.TeamCreateTool{TeamMgr: teamMgr})
 	m.registry.Register(&teams.TeamDeleteTool{TeamMgr: teamMgr})
-	m.registry.Register(&teams.SendMessageTool{TeamMgr: teamMgr, SenderName: "lead"})
+	m.registry.Register(&teams.SendMessageTool{TeamMgr: teamMgr, SenderName: "leader"})
 	m.registry.Register(&teams.TaskStopTool{TeamMgr: teamMgr, TaskManager: m.taskMgr})
 	m.registry.Register(&tools.SyntheticOutputTool{})
 	m.registry.Register(&subagent.AgentTool{

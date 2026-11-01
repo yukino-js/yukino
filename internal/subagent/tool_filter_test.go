@@ -56,17 +56,17 @@ func TestFilterRemovesAskUserQuestion(t *testing.T) {
 }
 
 func TestAsyncFilterWhitelist(t *testing.T) {
-	reg := makeRegistry("ReadFile", "WriteFile", "EditFile", "Glob", "Grep", "Bash", "ToolSearch", "Agent", "AskUserQuestion", "TaskCreate", "TaskList")
+	reg := makeRegistry("ReadFile", "WriteFile", "EditFile", "Glob", "Grep", "Bash", "ToolSearch", "Agent", "AskUserQuestion", "TodoWrite")
 	filtered := FilterToolsForAgent(reg, nil, nil, true)
 
-	allowed := []string{"ReadFile", "WriteFile", "EditFile", "Glob", "Grep", "Bash", "ToolSearch"}
+	allowed := []string{"ReadFile", "WriteFile", "EditFile", "Glob", "Grep", "Bash", "ToolSearch", "TodoWrite"}
 	for _, name := range allowed {
 		if !hasToolNamed(filtered, name) {
 			t.Errorf("%s should be allowed for async agents", name)
 		}
 	}
 
-	blocked := []string{"Agent", "AskUserQuestion", "TaskCreate", "TaskList"}
+	blocked := []string{"Agent", "AskUserQuestion"}
 	for _, name := range blocked {
 		if hasToolNamed(filtered, name) {
 			t.Errorf("%s should be blocked for async agents", name)

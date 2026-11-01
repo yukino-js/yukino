@@ -88,6 +88,8 @@ func CreateDefaultToolsWithWorkDir(workDir string) DefaultTools {
 	reg.Register(&TaskOutputTool{})
 	reg.Register(&GlobTool{})
 	reg.Register(&GrepTool{})
+	reg.Register(&LSPTool{})
+	reg.Register(&WebFetchTool{})
 	return DefaultTools{Registry: reg, WriteFile: wf, EditFile: ef}
 }
 

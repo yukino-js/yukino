@@ -190,7 +190,9 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 			if err != nil {
 				panic(err)
 			}
-			m.todoList = todo.NewTaskList(store)
+			if err := m.todoList.UseStore(store); err != nil {
+				panic(err)
+			}
 			m.totalInput = 0
 			m.totalOutput = 0
 			m.updateViewport()

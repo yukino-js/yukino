@@ -12,6 +12,7 @@ import (
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/conversation"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/file_history"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/llm"
+	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/lsp"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/mcp"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/memory"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/memory/consolidation"
@@ -149,6 +150,7 @@ type Model struct {
 	sandboxCursor         int
 	sandboxCfg            *config.SandboxYamlConfig
 	EnableCoordinatorMode bool
+	LSPServers            []lsp.ServerConfig
 	MCPLoading            string
 	ForkDisabled          bool
 
@@ -231,9 +233,11 @@ func New(providers []config.ProviderConfig, mcpConfigs []config.MCPServerConfig,
 	reg.Register(&tools.AskUserQuestionTool{RequestCh: askCh})
 
 	sCfg := sandboxCfg
+	initialTodos, _ := todo.NewTaskList(nil)
 
 	m := Model{
 		providers:          providers,
+		todoList:           initialTodos,
 		mcpConfigs:         mcpConfigs,
 		hookConfigs:        hookConfigs,
 		sandboxCfg:         sCfg,

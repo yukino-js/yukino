@@ -1,185 +1,143 @@
 package teams
 
 import (
-	"encoding/json"
-	"os"
-	"path/filepath"
-	"strconv"
+	"fmt"
+	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/storage"
+	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/todo"
 	"sync"
 )
 
-type SharedTask struct {
-	ID          string   `json:"id"`
-	Title       string   `json:"title"`
-	Description string   `json:"description"`
-	Status      string   `json:"status"`
-	Assignee    string   `json:"assignee"`
-	Blocks      []string `json:"blocks"`
-	BlockedBy   []string `json:"blocked_by"`
-	CreatedBy   string   `json:"created_by"`
-}
-
-type storeData struct {
-	NextID int          `json:"next_id"`
-	Tasks  []SharedTask `json:"tasks"`
-}
-
 type SharedTaskStore struct {
-	mu     sync.Mutex
-	path   string
-	nextID int
-	tasks  []SharedTask
+	mu           sync.Mutex
+	path         string
+	listeners    map[int]func([]*todo.Task)
+	nextListener int
 }
 
 func NewSharedTaskStore(path string) *SharedTaskStore {
-	s := &SharedTaskStore{path: path, nextID: 1}
-	s.load()
-	return s
+	return &SharedTaskStore{path: path, listeners: map[int]func([]*todo.Task){}}
 }
-
-func (s *SharedTaskStore) load() {
-	data, err := os.ReadFile(s.path)
+func (s *SharedTaskStore) load() (todo.Snapshot, error) {
+	snapshot, err := todo.LoadSnapshot(s.path, true)
+	if err == nil {
+		err = todo.ValidateDependencies(snapshot.Tasks)
+	}
 	if err != nil {
-		return
+		return todo.Snapshot{}, fmt.Errorf("Cannot load an unreadable shared task board: %w", err)
 	}
-	var sd storeData
-	if err := json.Unmarshal(data, &sd); err != nil {
-		return
-	}
-	s.tasks = sd.Tasks
-	if sd.NextID > 0 {
-		s.nextID = sd.NextID
-	}
+	return snapshot, nil
 }
-
-func (s *SharedTaskStore) save() {
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
-		return
-	}
-	sd := storeData{NextID: s.nextID, Tasks: s.tasks}
-	if s.tasks == nil {
-		sd.Tasks = []SharedTask{}
-	}
-	out, err := json.MarshalIndent(sd, "", "  ")
-	if err != nil {
-		return
-	}
-	_ = os.WriteFile(s.path, out, 0o644)
-}
-
-func (s *SharedTaskStore) Create(title, description, assignee string, blocks, blockedBy []string, createdBy string) SharedTask {
+func (s *SharedTaskStore) Subscribe(listener func([]*todo.Task)) func() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if blocks == nil {
-		blocks = []string{}
-	}
-	if blockedBy == nil {
-		blockedBy = []string{}
-	}
-	task := SharedTask{
-		ID:          strconv.Itoa(s.nextID),
-		Title:       title,
-		Description: description,
-		Status:      "pending",
-		Assignee:    assignee,
-		Blocks:      blocks,
-		BlockedBy:   blockedBy,
-		CreatedBy:   createdBy,
-	}
-	s.nextID++
-	s.tasks = append(s.tasks, task)
-	s.save()
-	return task
+	id := s.nextListener
+	s.nextListener++
+	s.listeners[id] = listener
+	s.mu.Unlock()
+	return func() { s.mu.Lock(); delete(s.listeners, id); s.mu.Unlock() }
 }
-
-func (s *SharedTaskStore) Get(id string) *SharedTask {
+func (s *SharedTaskStore) mutate(operation func(todo.Snapshot) (todo.Snapshot, []*todo.Task, bool, error)) ([]*todo.Task, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.load()
-	for i := range s.tasks {
-		if s.tasks[i].ID == id {
-			t := s.tasks[i]
-			return &t
+	var result, latest []*todo.Task
+	changed := false
+	err := storage.WithFileSyncLock(s.path, func() error {
+		snapshot, err := s.load()
+		if err != nil {
+			return err
 		}
-	}
-	return nil
-}
-
-func (s *SharedTaskStore) ListTasks(status, assignee string) []SharedTask {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.load()
-	var result []SharedTask
-	for _, t := range s.tasks {
-		if status != "" && t.Status != status {
-			continue
+		next, tasks, save, err := operation(snapshot)
+		if err != nil {
+			return err
 		}
-		if assignee != "" && t.Assignee != assignee {
-			continue
-		}
-		result = append(result, t)
-	}
-	return result
-}
-
-type TaskUpdate struct {
-	Status       *string
-	Assignee     *string
-	Description  *string
-	AddBlocks    []string
-	AddBlockedBy []string
-}
-
-func (s *SharedTaskStore) Update(id string, upd TaskUpdate) *SharedTask {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.load()
-	for i := range s.tasks {
-		if s.tasks[i].ID != id {
-			continue
-		}
-		t := &s.tasks[i]
-		if upd.Status != nil {
-			t.Status = *upd.Status
-		}
-		if upd.Assignee != nil {
-			t.Assignee = *upd.Assignee
-		}
-		if upd.Description != nil {
-			t.Description = *upd.Description
-		}
-		t.Blocks = appendUnique(t.Blocks, upd.AddBlocks)
-		t.BlockedBy = appendUnique(t.BlockedBy, upd.AddBlockedBy)
-		s.save()
-		updated := *t
-		return &updated
-	}
-	return nil
-}
-
-func (s *SharedTaskStore) InitEmpty() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.tasks = []SharedTask{}
-	s.nextID = 1
-	s.save()
-}
-
-func appendUnique(base, add []string) []string {
-	for _, v := range add {
-		found := false
-		for _, e := range base {
-			if e == v {
-				found = true
-				break
+		if save {
+			if err := todo.ValidateDependencies(next.Tasks); err != nil {
+				return err
+			}
+			if err := todo.SaveSnapshot(s.path, next.Tasks, next.NextID); err != nil {
+				return err
 			}
 		}
-		if !found {
-			base = append(base, v)
+		result = todo.CloneTasks(tasks)
+		latest = todo.CloneTasks(next.Tasks)
+		changed = save
+		return nil
+	})
+	listeners := make([]func([]*todo.Task), 0, len(s.listeners))
+	for _, listener := range s.listeners {
+		listeners = append(listeners, listener)
+	}
+	s.mu.Unlock()
+	if err == nil && changed {
+		for _, listener := range listeners {
+			func() { defer func() { recover() }(); listener(todo.CloneTasks(latest)) }()
 		}
 	}
-	if base == nil {
-		base = []string{}
+	return result, err
+}
+func (s *SharedTaskStore) Write(input map[string]any, options todo.WriteOptions) ([]*todo.Task, error) {
+	create := options.CreateTask
+	options.CreateTask = func(task *todo.Task) {
+		name := ""
+		task.CreatedBy = &name
+		if create != nil {
+			create(task)
+		}
 	}
-	return base
+	parsed, err := todo.ParseWrite(input)
+	if err != nil {
+		return nil, err
+	}
+	if len(parsed.Todos) == 0 && len(parsed.DeleteIDs) == 0 {
+		return s.ListTasks("", "")
+	}
+	return s.mutate(func(snapshot todo.Snapshot) (todo.Snapshot, []*todo.Task, bool, error) {
+		tasks, nextID, err := todo.ApplyWrite(snapshot.Tasks, snapshot.NextID, parsed, options)
+		return todo.Snapshot{Tasks: tasks, NextID: nextID}, tasks, true, err
+	})
+}
+func (s *SharedTaskStore) Get(id string) (*todo.Task, error) {
+	tasks, err := s.ListTasks("", "")
+	if err != nil {
+		return nil, err
+	}
+	for _, task := range tasks {
+		if task.ID == id {
+			return task, nil
+		}
+	}
+	return nil, nil
+}
+func (s *SharedTaskStore) ListTasks(status, owner string) ([]*todo.Task, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	snapshot, err := s.load()
+	if err != nil {
+		return nil, err
+	}
+	tasks := []*todo.Task{}
+	for _, task := range snapshot.Tasks {
+		if status != "" && string(task.Status) != status || owner != "" && task.Owner != owner {
+			continue
+		}
+		tasks = append(tasks, task)
+	}
+	return tasks, nil
+}
+func (s *SharedTaskStore) ReleaseOwner(owner string) ([]*todo.Task, error) {
+	return s.mutate(func(snapshot todo.Snapshot) (todo.Snapshot, []*todo.Task, bool, error) {
+		released := []*todo.Task{}
+		for _, task := range snapshot.Tasks {
+			if task.Owner == owner && task.Status != todo.StatusCompleted && task.Status != todo.StatusCancelled {
+				task.Owner = ""
+				task.Status = todo.StatusPending
+				released = append(released, task)
+			}
+		}
+		return snapshot, released, len(released) > 0, nil
+	})
+}
+func (s *SharedTaskStore) InitEmpty() error {
+	_, err := s.mutate(func(todo.Snapshot) (todo.Snapshot, []*todo.Task, bool, error) {
+		return todo.Snapshot{NextID: 1, Tasks: []*todo.Task{}}, []*todo.Task{}, true, nil
+	})
+	return err
 }

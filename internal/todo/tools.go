@@ -2,238 +2,57 @@ package todo
 
 import (
 	"context"
-	"fmt"
-	"strings"
-
+	"encoding/json"
 	"github.com/hangtiancheng/yukino.go/apps/yukino/internal/tools"
 )
 
-type TaskCreateTool struct {
-	List *TaskList
-}
+type TodoWriteTool struct{ Board Board }
 
-func (t *TaskCreateTool) Name() string { return "TaskCreate" }
-
-func (t *TaskCreateTool) Category() tools.ToolCategory { return tools.CategoryWrite }
-
-func (t *TaskCreateTool) Description() string {
-	return "Create a new task to track work. Use this to break complex work into smaller, trackable steps before starting implementation."
-}
-
-func (t *TaskCreateTool) Schema() map[string]any {
-	return map[string]any{
-		"name":        t.Name(),
-		"description": t.Description(),
-		"input_schema": map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"subject":     map[string]any{"type": "string", "description": "A brief title for the task"},
-				"description": map[string]any{"type": "string", "description": "What needs to be done"},
-				"activeForm": map[string]any{
-					"type":        "string",
-					"description": "Present continuous form shown in spinner when in_progress (e.g., \"Running tests\")",
-				},
-				"metadata": map[string]any{
-					"type":        "object",
-					"description": "Arbitrary metadata to attach to the task",
-				},
-			},
-			"required": []string{"subject", "description"},
-		},
+func (t *TodoWriteTool) Name() string                          { return "TodoWrite" }
+func (t *TodoWriteTool) Description() string                   { return WriteDescription }
+func (t *TodoWriteTool) Category() tools.ToolCategory          { return tools.CategoryRead }
+func (t *TodoWriteTool) IsConcurrencySafe(map[string]any) bool { return true }
+func (t *TodoWriteTool) ForList(list *TaskList) *TodoWriteTool { return &TodoWriteTool{Board: list} }
+func (t *TodoWriteTool) Schema() map[string]any {
+	id := func() map[string]any { return map[string]any{"type": "string", "pattern": `^[1-9]\d*$`} }
+	ids := func() map[string]any { return map[string]any{"type": "array", "items": id()} }
+	fields := map[string]any{
+		"id": id(), "subject": map[string]any{"type": "string", "minLength": 1}, "description": map[string]any{"type": "string"}, "status": map[string]any{"type": "string", "enum": []string{"pending", "in_progress", "completed", "blocked", "cancelled"}}, "owner": map[string]any{"type": "string"}, "priority": map[string]any{"type": "string", "enum": []string{"high", "medium", "low"}}, "metadata": map[string]any{"type": "object", "additionalProperties": map[string]any{}}, "blocks": ids(), "blockedBy": ids(),
 	}
-}
-
-func (t *TaskCreateTool) Execute(_ context.Context, args map[string]any) tools.ToolResult {
-	subject, _ := args["subject"].(string)
-	description, _ := args["description"].(string)
-	if subject == "" || description == "" {
-		return tools.ToolResult{Output: "Error: subject and description are required", IsError: true}
+	descriptions := map[string]string{
+		"id":          "Existing task ID: a positive decimal integer string. Omit to create a task.",
+		"subject":     "Brief task title; required when creating a task.",
+		"description": "What needs to be done; defaults to an empty string for new tasks.",
+		"status":      "Task status; defaults to pending for new tasks. Use deleteIds to remove tasks.",
+		"owner":       "Task owner. Only the leader may assign other teammates; an empty string unassigns.",
+		"priority":    "Task priority, available during both creation and updates.",
+		"metadata":    "Merge top-level context keys; null removes a key. Omitted keys are retained; nested values are replaced.",
+		"blocks":      "Replace the list of existing task IDs this task blocks; [] removes these links.",
+		"blockedBy":   "Replace the list of existing task IDs blocking this task; [] removes these links.",
 	}
-
-	activeForm, _ := args["activeForm"].(string)
-	metadata, _ := args["metadata"].(map[string]any)
-
-	task, err := t.List.Create(subject, description, activeForm, metadata)
+	for key, description := range descriptions {
+		fields[key].(map[string]any)["description"] = description
+	}
+	deleteIDs := ids()
+	deleteIDs["maxItems"] = MaxWriteItems
+	deleteIDs["description"] = "Existing task IDs to delete atomically, removing their dependency links."
+	return map[string]any{"name": t.Name(), "description": t.Description(), "input_schema": map[string]any{"type": "object", "properties": map[string]any{"todos": map[string]any{"type": "array", "maxItems": MaxWriteItems, "items": map[string]any{"type": "object", "properties": fields, "additionalProperties": false}}, "deleteIds": deleteIDs}, "additionalProperties": false}}
+}
+func (t *TodoWriteTool) Execute(ctx context.Context, args map[string]any) tools.ToolResult {
+	if _, err := ParseWrite(args); err != nil {
+		return tools.ToolResult{Output: err.Error(), IsError: true}
+	}
+	if ctx.Err() != nil {
+		return tools.ToolResult{Output: "Error: " + ctx.Err().Error(), IsError: true}
+	}
+	todos, err := t.Board.Write(args)
 	if err != nil {
-		return tools.ToolResult{Output: fmt.Sprintf("Error creating task: %s", err), IsError: true}
+		return tools.ToolResult{Output: "Error: " + err.Error(), IsError: true}
 	}
-
-	return tools.ToolResult{Output: fmt.Sprintf("Task #%s created successfully: %s", task.ID, task.Subject)}
-}
-
-type TaskGetTool struct {
-	List *TaskList
-}
-
-func (t *TaskGetTool) Name() string                 { return "TaskGet" }
-func (t *TaskGetTool) Category() tools.ToolCategory { return tools.CategoryRead }
-
-func (t *TaskGetTool) Description() string {
-	return "Get the details of a specific task by its ID."
-}
-
-func (t *TaskGetTool) Schema() map[string]any {
-	return map[string]any{
-		"name":        t.Name(),
-		"description": t.Description(),
-		"input_schema": map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"taskId": map[string]any{"type": "string", "description": "The ID of the task to retrieve"},
-			},
-			"required": []string{"taskId"},
-		},
-	}
-}
-
-func (t *TaskGetTool) Execute(_ context.Context, args map[string]any) tools.ToolResult {
-	taskID, _ := args["taskId"].(string)
-	if taskID == "" {
-		return tools.ToolResult{Output: "Error: taskId is required", IsError: true}
-	}
-
-	task, err := t.List.Get(taskID)
+	output, err := json.MarshalIndent(map[string]any{"boardId": t.Board.BoardID(), "todos": todos, "progress": Progress(todos)}, "", "  ")
 	if err != nil {
-		return tools.ToolResult{Output: fmt.Sprintf("Error: %s", err), IsError: true}
+		return tools.ToolResult{Output: "Error: " + err.Error(), IsError: true}
 	}
-	if task == nil {
-		return tools.ToolResult{Output: fmt.Sprintf("Task #%s not found", taskID)}
-	}
-
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "Task #%s\n", task.ID)
-	fmt.Fprintf(&sb, "Subject: %s\n", task.Subject)
-	fmt.Fprintf(&sb, "Status: %s\n", task.Status)
-	fmt.Fprintf(&sb, "Description: %s\n", task.Description)
-	if len(task.Blocks) > 0 {
-		fmt.Fprintf(&sb, "Blocks: %s\n", strings.Join(task.Blocks, ", "))
-	}
-	if len(task.BlockedBy) > 0 {
-		fmt.Fprintf(&sb, "Blocked by: %s\n", strings.Join(task.BlockedBy, ", "))
-	}
-	if task.Owner != "" {
-		fmt.Fprintf(&sb, "Owner: %s\n", task.Owner)
-	}
-	return tools.ToolResult{Output: sb.String()}
+	return tools.ToolResult{Output: string(output)}
 }
-
-type TaskListTool struct {
-	List *TaskList
-}
-
-func (t *TaskListTool) Name() string                 { return "TaskList" }
-func (t *TaskListTool) Category() tools.ToolCategory { return tools.CategoryRead }
-
-func (t *TaskListTool) Description() string {
-	return "List all tasks in the current task list. Shows ID, status, subject, and blocking info."
-}
-
-func (t *TaskListTool) Schema() map[string]any {
-	return map[string]any{
-		"name":        t.Name(),
-		"description": t.Description(),
-		"input_schema": map[string]any{
-			"type":       "object",
-			"properties": map[string]any{},
-		},
-	}
-}
-
-func (t *TaskListTool) Execute(_ context.Context, _ map[string]any) tools.ToolResult {
-	tasks, err := t.List.List()
-	if err != nil {
-		return tools.ToolResult{Output: fmt.Sprintf("Error: %s", err), IsError: true}
-	}
-	if len(tasks) == 0 {
-		return tools.ToolResult{Output: "No tasks found."}
-	}
-
-	completedIDs := make(map[string]bool)
-	for _, task := range tasks {
-		if task.Status == StatusCompleted {
-			completedIDs[task.ID] = true
-		}
-	}
-
-	var sb strings.Builder
-	for _, task := range tasks {
-		fmt.Fprintf(&sb, "#%s [%s] %s", task.ID, task.Status, task.Subject)
-		if task.Owner != "" {
-			fmt.Fprintf(&sb, " (owner: %s)", task.Owner)
-		}
-		var activeBlockers []string
-		for _, b := range task.BlockedBy {
-			if !completedIDs[b] {
-				activeBlockers = append(activeBlockers, b)
-			}
-		}
-		if len(activeBlockers) > 0 {
-			fmt.Fprintf(&sb, " [blocked by: %s]", strings.Join(activeBlockers, ", "))
-		}
-		sb.WriteByte('\n')
-	}
-	return tools.ToolResult{Output: sb.String()}
-}
-
-type TaskUpdateTool struct {
-	List *TaskList
-}
-
-func (t *TaskUpdateTool) Name() string { return "TaskUpdate" }
-
-func (t *TaskUpdateTool) Category() tools.ToolCategory { return tools.CategoryWrite }
-
-func (t *TaskUpdateTool) Description() string {
-	return "Update a task's status, subject, description, or dependencies. Set status to \"in_progress\" when starting work, \"completed\" when done. Set status to \"deleted\" to remove a task."
-}
-
-func (t *TaskUpdateTool) Schema() map[string]any {
-	return map[string]any{
-		"name":        t.Name(),
-		"description": t.Description(),
-		"input_schema": map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"taskId":      map[string]any{"type": "string", "description": "The ID of the task to update"},
-				"subject":     map[string]any{"type": "string", "description": "New subject for the task"},
-				"description": map[string]any{"type": "string", "description": "New description for the task"},
-				"activeForm":  map[string]any{"type": "string", "description": "Present continuous form shown in spinner when in_progress"},
-				"status": map[string]any{
-					"type":        "string",
-					"enum":        []string{"pending", "in_progress", "completed", "deleted"},
-					"description": "New status for the task",
-				},
-				"addBlocks":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Task IDs that this task blocks"},
-				"addBlockedBy": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Task IDs that block this task"},
-				"owner":        map[string]any{"type": "string", "description": "New owner for the task"},
-				"metadata": map[string]any{
-					"type":        "object",
-					"description": "Metadata keys to merge. Set a key to null to delete it.",
-				},
-			},
-			"required": []string{"taskId"},
-		},
-	}
-}
-
-func (t *TaskUpdateTool) Execute(_ context.Context, args map[string]any) tools.ToolResult {
-	taskID, _ := args["taskId"].(string)
-	if taskID == "" {
-		return tools.ToolResult{Output: "Error: taskId is required", IsError: true}
-	}
-
-	task, changed, err := t.List.Update(taskID, args)
-	if err != nil {
-		return tools.ToolResult{Output: fmt.Sprintf("Error: %s", err), IsError: true}
-	}
-	if task == nil {
-		return tools.ToolResult{Output: fmt.Sprintf("Error: task #%s not found", taskID), IsError: true}
-	}
-	if len(changed) == 0 {
-		return tools.ToolResult{Output: fmt.Sprintf("Task #%s: no changes applied", taskID)}
-	}
-
-	return tools.ToolResult{
-		Output: fmt.Sprintf("Task #%s updated: %s", taskID, strings.Join(changed, ", ")),
-	}
-}
+func (t *TodoWriteTool) ForSubagent() tools.Tool { list, _ := NewTaskList(nil); return t.ForList(list) }
