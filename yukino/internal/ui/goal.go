@@ -90,8 +90,6 @@ func (m Model) runGoalCommand(args string) (tea.Model, tea.Cmd) {
 	m.thinking = true
 	m.thinkingStart = time.Now()
 	m.thinkingDone = 0
-	m.textarea.Reset()
-	m.textarea.SetHeight(1)
 
 	prefetchCh := m.prefetchRelevantMemories(result.Prompt)
 	m.streamBuf = ""
@@ -105,6 +103,7 @@ func (m Model) runGoalCommand(args string) (tea.Model, tea.Cmd) {
 	ag := m.ag
 	ag.GoalManager = m.currentGoal()
 	ag.MemoryRecallCh = prefetchCh
+	m.startingAgent = true
 	startAgentCmd := func() tea.Msg {
 		return agentReadyMsg{ch: ag.Run(ctx, conv)}
 	}

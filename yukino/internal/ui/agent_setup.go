@@ -423,6 +423,8 @@ func (m *Model) savePartialResponse() {
 }
 
 func (m *Model) finishStreaming() {
+	m.retryStatus = ""
+	m.fileFactsVersion++
 	if m.thinking {
 		m.thinkingDone = time.Since(m.thinkingStart).Seconds()
 		m.thinking = false

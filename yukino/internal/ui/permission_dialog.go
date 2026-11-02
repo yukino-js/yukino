@@ -117,9 +117,9 @@ func nextPermissionMode(current permissions.PermissionMode) permissions.Permissi
 	case permissions.ModeDefault:
 		return permissions.ModeAcceptEdits
 	case permissions.ModeAcceptEdits:
-		return permissions.ModePlan
-	case permissions.ModePlan:
 		return permissions.ModeBypass
+	case permissions.ModePlan:
+		return permissions.ModeDefault
 	case permissions.ModeBypass:
 		return permissions.ModeDefault
 	default:

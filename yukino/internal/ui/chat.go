@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/yukino-js/yukino/yukino/internal/permissions"
 	"github.com/yukino-js/yukino/yukino/internal/teams"
 	"github.com/yukino-js/yukino/yukino/internal/utils"
 	"github.com/yukino-js/yukino/yukino/internal/version"
@@ -40,7 +39,7 @@ func (m *Model) updateViewport() {
 	m.viewport.SetContent(content)
 
 	statusHeight, sepHeight := 1, 1
-	inputHeight := m.textarea.Height() + 1
+	inputHeight := m.editor.Height() + 1
 	available := m.height - statusHeight - sepHeight - inputHeight - 1
 	if available < 1 {
 		available = 1
@@ -153,44 +152,35 @@ func (m Model) renderActiveDialog() string {
 }
 
 func (m Model) renderChatView() string {
-	var sb strings.Builder
-
-	dialog := m.renderActiveDialog()
-	hasActiveContent := len(m.chatMessages) > m.committedUpTo || m.streaming
-
-	if hasActiveContent {
-		bottomLines := 4
-		if dialog != "" {
-			bottomLines = lipgloss.Height(dialog) + 3
-		}
-		vpH := m.height - bottomLines
-		if vpH < 1 {
-			vpH = 1
-		}
-		m.viewport.Height = m.calcViewportHeight(vpH)
-		sb.WriteString(m.viewport.View())
-		sb.WriteString("\n")
+	footerRows, statusRows, dockRows := m.terminalBudgets()
+	footer := m.renderFooter(footerRows)
+	status := m.renderUIStatus(statusRows)
+	dock := strings.TrimSuffix(m.renderActiveDialog(), "\n")
+	if dock == "" {
+		dock = m.renderComposer(dockRows)
 	}
-
-	sb.WriteString(m.renderSeparator())
-	sb.WriteString("\n")
-	if dialog != "" {
-		sb.WriteString(dialog)
-	} else {
-		sb.WriteString(promptStyle.Render("❯ "))
-		sb.WriteString(m.textarea.View())
-		sb.WriteString("\n")
-		sb.WriteString(m.renderSeparator())
-		sb.WriteString("\n")
-		if m.slashMenuOpen && len(m.slashMatches) > 0 {
-			sb.WriteString(m.renderSlashMenu())
-		}
-		if m.atMenuOpen && len(m.atMatches) > 0 {
-			sb.WriteString(m.renderAtMenu())
-		}
+	dockLines := strings.Split(dock, "\n")
+	if len(dockLines) > dockRows {
+		dock = strings.Join(dockLines[:dockRows], "\n")
 	}
-	sb.WriteString(m.renderStatusBar())
-	return sb.String()
+	activityRows := max(0, dockRows-lineCount(dock))
+	activity := strings.TrimSuffix(m.renderChatContent(), "\n")
+	parts := []string{}
+	if activity != "" && activityRows > 0 {
+		lines := strings.Split(activity, "\n")
+		parts = append(parts, strings.Join(lines[max(0, len(lines)-activityRows):], "\n"))
+	}
+	if m.height-1 >= 4 {
+		parts = append(parts, "")
+	}
+	if status != "" {
+		parts = append(parts, status)
+	}
+	parts = append(parts, dock)
+	if footer != "" {
+		parts = append(parts, footer)
+	}
+	return strings.Join(parts, "\n")
 }
 
 // renderTranscriptHeader mirrors the Static transcript header in
@@ -218,71 +208,13 @@ func (m Model) renderTranscriptHeader() string {
 		}
 	}
 	pad := strings.Repeat(" ", padding)
-	title := lipgloss.NewStyle().Bold(true).Foreground(accentColor).Render("Yukino") +
-		lipgloss.NewStyle().Foreground(dimText).Render(" "+version.Version)
+	title := lipgloss.NewStyle().Foreground(accentColor).Render("✳ ") +
+		lipgloss.NewStyle().Bold(true).Foreground(normalText).Render("Yukino") +
+		lipgloss.NewStyle().Foreground(dimText).Render(" v"+version.Version)
 	line2 := lipgloss.NewStyle().Foreground(mutedText).Render(truncateToWidth(hint, width, "…"))
 	line3 := lipgloss.NewStyle().Foreground(dimText).Render(truncateToWidth(
 		plainTerminalLine(fmt.Sprintf("%s/%s · %s", provider, model, utils.CompactPath(m.getWorkDir()))), width, "…"))
 	return "\n" + pad + title + "\n" + pad + line2 + "\n" + pad + line3
-}
-
-func (m Model) renderSeparator() string {
-	line := strings.Repeat("─", m.width)
-	return separatorStyle.Render(line)
-}
-
-func (m Model) renderStatusBar() string {
-	left := "  default"
-	if m.ag != nil && m.ag.Checker != nil && m.ag.Checker.Mode() != permissions.ModeDefault {
-		name, _ := permissionModeInfo(m.ag.Checker.Mode())
-		var modeColor lipgloss.Color
-		switch m.ag.Checker.Mode() {
-		case permissions.ModeAcceptEdits:
-			modeColor = greenText
-		case permissions.ModePlan:
-			modeColor = yellowText
-		case permissions.ModeBypass:
-			modeColor = redText
-		default:
-			modeColor = dimText
-		}
-		modeStr := lipgloss.NewStyle().Foreground(modeColor).Render(
-			fmt.Sprintf("%s on", name),
-		)
-		hint := lipgloss.NewStyle().Foreground(dimText).Render(" (shift+tab to cycle)")
-		left = statusBarStyle.Render("  ") + modeStr + hint
-	} else {
-		left = statusBarStyle.Render(left)
-	}
-
-	right := ""
-	if m.teamMgr != nil {
-		activeCount := 0
-		for _, p := range m.teamMgr.GetAllTeammateProgress() {
-			if p.GetStatus() == "running" {
-				activeCount++
-			}
-		}
-		if activeCount > 0 {
-			label := fmt.Sprintf("● %d teammate", activeCount)
-			if activeCount > 1 {
-				label += "s"
-			}
-			right += lipgloss.NewStyle().Foreground(cyanText).Render(label + " ")
-		}
-	}
-	if m.mcpConnecting {
-		right += lipgloss.NewStyle().Foreground(yellowText).Render("MCP connecting… ")
-	}
-	if m.selectedProvider != nil {
-		right += statusItemStyle.Render(m.selectedProvider.Model)
-	}
-
-	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right) - 2
-	if gap < 0 {
-		gap = 0
-	}
-	return left + strings.Repeat(" ", gap) + right
 }
 
 func (m Model) renderChatContent() string {
@@ -404,60 +336,15 @@ func (m Model) renderChatContent() string {
 }
 
 func (m Model) renderMessagesRange(from, to int) string {
-	var sb strings.Builder
-	for i := from; i < to && i < len(m.chatMessages); i++ {
-		msg := m.chatMessages[i]
-		switch msg.role {
-		case "user":
-			sb.WriteString(promptStyle.Render("❯ "))
-			sb.WriteString(lipgloss.NewStyle().Foreground(brightText).Bold(true).Render(msg.content))
-			sb.WriteString("\n\n")
-		case "assistant":
-			sb.WriteString(aiMarkerStyle.Render("● "))
-			rendered := m.renderMarkdown(msg.content)
-			indented := indentBlock(rendered, "    ")
-			sb.WriteString(strings.TrimLeft(indented, " "))
-			sb.WriteString("\n\n")
-		case "tool", "tool_visible":
-			sb.WriteString("  ")
-			if strings.HasPrefix(msg.content, "✗") {
-				sb.WriteString(toolErrorStyle.Render(msg.content))
-			} else {
-				sb.WriteString(toolDoneStyle.Render(msg.content))
-			}
-			sb.WriteString("\n")
-			appendEditDiff(&sb, msg.toolGroup)
-		case "tool_collapsed":
-			for _, tb := range msg.toolGroup {
-				sb.WriteString("  ")
-				text := renderToolBlockText(tb)
-				if tb.isError {
-					sb.WriteString(toolErrorStyle.Render(text))
-				} else {
-					sb.WriteString(toolDoneStyle.Render(text))
-				}
-				sb.WriteString("\n")
-			}
-		case "tool_group":
-			summary := renderToolGroupSummary(msg.toolGroup)
-			sb.WriteString(toolDoneStyle.Render("  " + summary))
-			sb.WriteString("\n")
-		case "sub_agent":
-			if msg.subAgentBlock != nil {
-				sb.WriteString(renderSubAgentBlock(msg.subAgentBlock, false))
-			}
-		case "thinking":
-			sb.WriteString(lipgloss.NewStyle().Foreground(dimText).PaddingLeft(2).Render(msg.content))
-			sb.WriteString("\n\n")
-		case "system":
-			sb.WriteString(lipgloss.NewStyle().Foreground(dimText).PaddingLeft(2).Render(msg.content))
-			sb.WriteString("\n\n")
-		case "error":
-			sb.WriteString(errorStyle.Render("✖ " + msg.content))
-			sb.WriteString("\n\n")
-		}
-	}
-	return sb.String()
+	from = max(0, min(from, len(m.chatMessages)))
+	to = max(from, min(to, len(m.chatMessages)))
+	m.chatMessages = m.chatMessages[from:to]
+	m.committedUpTo = 0
+	m.streaming = false
+	m.toolBlocks = nil
+	m.activeSubAgent = nil
+	m.teamMgr = nil
+	return m.renderChatContent()
 }
 
 func (m Model) getModelName() string {

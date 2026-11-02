@@ -330,7 +330,6 @@ func (m Model) renderModelDialog() string {
 			content:  content,
 			width:    m.width,
 			rows:     rows,
-			compact:  true,
 		})
 	}
 
@@ -342,7 +341,6 @@ func (m Model) renderModelDialog() string {
 			content:  lipgloss.NewStyle().Foreground(mutedText).Render(StatusMessages["loading"]),
 			width:    m.width,
 			rows:     rows,
-			compact:  true,
 		})
 	}
 

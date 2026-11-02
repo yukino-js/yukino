@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/yukino-js/yukino/yukino/internal/agent"
 	"github.com/yukino-js/yukino/yukino/internal/commands"
@@ -27,7 +28,6 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/vscode"
 
 	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -48,10 +48,13 @@ type Model struct {
 	registry         *tools.Registry
 	ag               *agent.Agent
 
-	state     appState
-	streaming bool
+	state         appState
+	streaming     bool
+	startingAgent bool
+	settlingCh    <-chan agent.AgentEvent
+	settleWaiting bool
 
-	textarea textarea.Model
+	editor   inputEditor
 	viewport viewport.Model
 	width    int
 	height   int
@@ -85,10 +88,28 @@ type Model struct {
 	userScrolled  bool
 	committedUpTo int
 
-	atMenuOpen bool
-	atMatches  []string
-	atCursor   int
-	atPrefix   string
+	atMenuOpen         bool
+	atMatches          []string
+	atCursor           int
+	atPrefix           string
+	dropdownDismissed  bool
+	recentCommandCount int
+	fileCache          []string
+	fileCacheCwd       string
+	fileCacheTime      time.Time
+	fileFactsVersion   int
+	fileCacheVersion   int
+	pasteError         string
+	pastingImage       bool
+	pasteGeneration    int
+	ctrlCDeadline      time.Time
+	ctrlCGeneration    int
+	toolsExpanded      bool
+	pendingMessages    []string
+	queuePaused        bool
+	retryStatus        string
+	activityError      string
+	compacting         bool
 
 	spinner       spinner.Model
 	thinking      bool
@@ -107,7 +128,7 @@ type Model struct {
 
 	historyEntries []string
 	historyIndex   int
-	historyDraft   string
+	historyDraft   *inputSnapshot
 
 	sessionID  string
 	goalBinder *goalBinder
@@ -203,13 +224,8 @@ type Model struct {
 	resumeFocusSet  bool
 }
 
-// dialogAvailableRows is the row budget for a docked dialog: the terminal
-// height minus the separator, input and status bar.
 func (m Model) dialogAvailableRows() int {
-	rows := m.height - m.textarea.Height() - 4
-	if rows < 0 {
-		rows = 0
-	}
+	_, _, rows := m.terminalBudgets()
 	return rows
 }
 
@@ -225,16 +241,7 @@ func initialPermissionMode(mode string) permissions.PermissionMode {
 }
 
 func New(providers []config.ProviderConfig, mcpConfigs []config.MCPServerConfig, hookConfigs []config.HookConfig, sandboxCfg *config.SandboxYamlConfig, defaultProvider int, permissionMode string, memoryEnabled bool) Model {
-	ta := textarea.New()
-	ta.Placeholder = "Send a message..."
-	ta.Prompt = ""
-	ta.CharLimit = 0
-	ta.MaxHeight = 0
-	ta.ShowLineNumbers = false
-	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
-	ta.FocusedStyle.Base = lipgloss.NewStyle()
-	ta.BlurredStyle.Base = lipgloss.NewStyle()
-	ta.SetHeight(1)
+	ta := newInputEditor()
 
 	sp := spinner.New()
 	sp.Spinner = spinner.Spinner{
@@ -266,7 +273,7 @@ func New(providers []config.ProviderConfig, mcpConfigs []config.MCPServerConfig,
 		providerCursor:     defaultProvider,
 		permissionMode:     initialPermissionMode(permissionMode),
 		memoryEnabled:      memoryEnabled,
-		textarea:           ta,
+		editor:             ta,
 		conversation:       conversation.NewManager(),
 		registry:           reg,
 		defaultTools:       dt,
@@ -293,23 +300,23 @@ func New(providers []config.ProviderConfig, mcpConfigs []config.MCPServerConfig,
 }
 
 func (m Model) Init() tea.Cmd {
-	cmds := []tea.Cmd{textarea.Blink, m.connectIde()}
+	cmds := []tea.Cmd{m.connectIde()}
 	if len(m.providers) > 0 {
 		cmds = append(cmds, func() tea.Msg { return initSingleProviderMsg{} })
 	}
 	return tea.Batch(cmds...)
 }
 
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.textarea.SetWidth(msg.Width - 4)
+		m.editor.SetWidth(msg.Width - boolColumn(msg.Width > 2)*2)
 
 		statusHeight := 1
 		sepHeight := 2
-		inputHeight := m.textarea.Height() + 1
+		inputHeight := m.editor.Height() + 1
 		vpHeight := msg.Height - statusHeight - sepHeight - inputHeight - 1
 		if vpHeight < 1 {
 			vpHeight = 1
@@ -335,7 +342,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ideAtMentionMsg:
 		wd, _ := os.Getwd()
-		m.textarea.InsertString(ideMentionText(wd, msg.mention))
+		text := ideMentionText(wd, msg.mention)
+		before := []rune(m.editor.lines[m.editor.line])[:m.editor.col]
+		if len(before) > 0 && !unicode.IsSpace(before[len(before)-1]) {
+			text = " " + text
+		}
+		m.editor.InsertString(text)
+		m.resizeInput()
+		m.updateSlashMenu()
+		m.updateAtMenu()
 		return m, m.listenForIdeMentions()
 
 	case subAgentProgressMsg:
@@ -381,23 +396,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		if msg.String() == "ctrl+c" {
-			if m.streaming && m.cancelStream != nil {
-				m.interruptForeground()
-				return m, nil
-			}
-
-			if m.cancelStream != nil {
-				m.cancelStream()
-			}
-			if m.mcpMgr != nil {
-				m.mcpMgr.DisconnectAll()
-			}
-			if m.memoryTasks != nil {
-				m.memoryTasks.Dispose()
-			}
-			return m, tea.Quit
-		}
 
 		if m.permDialog {
 			return m.handlePermDialog(msg)
@@ -443,6 +441,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case compactDoneMsg:
+		m.compacting = false
+		if m.cancelStream != nil {
+			m.cancelStream()
+			m.cancelStream = nil
+		}
 		switch {
 		case msg.err != nil:
 			m.chatMessages = append(m.chatMessages, chatMessage{role: "error", content: "Compact failed: " + msg.err.Error()})
@@ -503,6 +506,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case agentReadyMsg:
+		m.startingAgent = false
 		m.agentCh = msg.ch
 		return m, m.listenForAgentEvents()
 
@@ -595,208 +599,5 @@ func (m Model) handleChat(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleSandboxDialog(msg)
 	}
 
-	if msg.String() == "ctrl+b" && tools.HasAnyForegroundTasks(m.registry) {
-		tools.BackgroundAllForegroundTasks(m.registry)
-		return m, nil
-	}
-
-	if msg.String() == "ctrl+o" {
-		toggled := false
-		for i := range m.chatMessages {
-			r := m.chatMessages[i].role
-			if r == "tool_group" || r == "tool_collapsed" || r == "sub_agent" {
-				m.chatMessages[i].expanded = !m.chatMessages[i].expanded
-				toggled = true
-			}
-		}
-		if toggled {
-			m.updateViewport()
-		}
-		return m, nil
-	}
-
-	if msg.String() == "esc" && m.streaming && m.cancelStream != nil {
-		m.interruptForeground()
-		return m, nil
-	}
-
-	if m.atMenuOpen {
-		switch msg.String() {
-		case "up":
-			if m.atCursor > 0 {
-				m.atCursor--
-			}
-			return m, nil
-		case "down":
-			if m.atCursor < len(m.atMatches)-1 {
-				m.atCursor++
-			}
-			return m, nil
-		case "enter", "tab":
-			if m.atCursor < len(m.atMatches) {
-				selected := m.atMatches[m.atCursor]
-				text := m.textarea.Value()
-				atIdx := strings.LastIndex(text, "@")
-				if atIdx >= 0 {
-					m.textarea.Reset()
-					m.textarea.SetHeight(1)
-					m.textarea.InsertString(text[:atIdx] + "@" + selected + " ")
-				}
-				m.atMenuOpen = false
-				m.atMatches = nil
-				m.atCursor = 0
-			}
-			return m, nil
-		case "esc":
-			m.atMenuOpen = false
-			m.atMatches = nil
-			m.atCursor = 0
-			return m, nil
-		}
-	}
-
-	if m.slashMenuOpen {
-		switch msg.String() {
-		case "up":
-			if m.slashCursor > 0 {
-				m.slashCursor--
-			}
-			return m, nil
-		case "down":
-			if m.slashCursor < len(m.slashMatches)-1 {
-				m.slashCursor++
-			}
-			return m, nil
-		case "enter":
-			if m.slashCursor < len(m.slashMatches) {
-				selected := m.slashMatches[m.slashCursor]
-				m.slashMenuOpen = false
-				m.slashMatches = nil
-				m.slashCursor = 0
-				m.textarea.Reset()
-				m.textarea.SetHeight(1)
-				return m.executeCommand(selected.Name, "")
-			}
-			return m, nil
-		case "esc":
-			m.slashMenuOpen = false
-			m.slashMatches = nil
-			m.slashCursor = 0
-			return m, nil
-		case "tab":
-			if m.slashCursor < len(m.slashMatches) {
-				selected := m.slashMatches[m.slashCursor]
-				m.textarea.Reset()
-				m.textarea.SetHeight(1)
-				m.textarea.InsertString("/" + selected.Name + " ")
-				m.slashMenuOpen = false
-				m.slashMatches = nil
-				m.slashCursor = 0
-			}
-			return m, nil
-		}
-	}
-
-	if msg.String() == "shift+tab" {
-		if m.ag != nil && m.ag.Checker != nil && !m.streaming {
-			m.ag.Checker.SetMode(nextPermissionMode(m.ag.Checker.Mode()))
-			m.updateViewport()
-		}
-		return m, nil
-	}
-
-	if msg.String() == "ctrl+j" {
-		m.textarea.InsertString("\n")
-		m.resizeTextarea()
-		return m, nil
-	}
-
-	if msg.String() == "enter" {
-		text := strings.TrimSpace(m.textarea.Value())
-		if text == "" {
-			return m, nil
-		}
-		if m.streaming {
-			if m.cancelStream != nil {
-				m.cancelStream()
-			}
-			m.savePartialResponse()
-			m.finishStreaming()
-		}
-		if strings.HasPrefix(text, "/") {
-			name, args, ok := commands.Parse(text)
-			if !ok {
-				m.slashMenuOpen = false
-				return m.sendMessage(text)
-			}
-			m.textarea.Reset()
-			m.textarea.SetHeight(1)
-			m.slashMenuOpen = false
-			m.slashMatches = nil
-			m.slashCursor = 0
-			return m.executeCommand(name, args)
-		}
-		m.slashMenuOpen = false
-		return m.sendMessage(text)
-	}
-
-	switch msg.String() {
-	case "pgup", "pgdown", "home", "end":
-		var vpCmd tea.Cmd
-		m.viewport, vpCmd = m.viewport.Update(msg)
-		m.userScrolled = !m.viewport.AtBottom()
-		return m, vpCmd
-	case "up":
-		if !m.streaming && m.textarea.Line() == 0 {
-			m.historyUp()
-			return m, nil
-		}
-	case "down":
-		if !m.streaming && m.textarea.Line() == m.textarea.LineCount()-1 {
-			m.historyDown()
-			return m, nil
-		}
-	}
-
-	prevText := m.textarea.Value()
-	var cmd tea.Cmd
-	m.textarea, cmd = m.textarea.Update(msg)
-	if m.textarea.Value() != prevText {
-		m.historyIndex = 0
-		m.resizeTextarea()
-	}
-
-	m.updateSlashMenu()
-	m.updateAtMenu()
-
-	return m, cmd
-}
-
-func (m Model) renderSlashMenu() string {
-	var sb strings.Builder
-	for i, cmd := range m.slashMatches {
-		desc := cmd.Description
-		if len([]rune(desc)) > 30 {
-			desc = string([]rune(desc)[:28]) + "…"
-		}
-		label := fmt.Sprintf("  /%-16s — %s", cmd.Name, desc)
-		if i == m.slashCursor {
-			sb.WriteString(menuActiveStyle.Render(label) + "\n")
-		} else {
-			sb.WriteString(lipgloss.NewStyle().Foreground(dimText).Render(label) + "\n")
-		}
-	}
-	return sb.String()
-}
-
-func (m Model) renderAtMenu() string {
-	var sb strings.Builder
-	for i, path := range m.atMatches {
-		if i == m.atCursor {
-			sb.WriteString(menuActiveStyle.Render("  "+path) + "\n")
-		} else {
-			sb.WriteString(lipgloss.NewStyle().Foreground(dimText).Render("  "+path) + "\n")
-		}
-	}
-	return sb.String()
+	return m.handleComposerKey(msg)
 }

@@ -31,7 +31,7 @@ func (m Model) sendMessage(text string) (tea.Model, tea.Cmd) {
 	}
 	m.historyEntries = append(m.historyEntries, text)
 	m.historyIndex = 0
-	m.historyDraft = ""
+	m.historyDraft = nil
 
 	m.streaming = true
 	m.thinking = true
@@ -39,8 +39,6 @@ func (m Model) sendMessage(text string) (tea.Model, tea.Cmd) {
 	m.thinkingDone = 0
 	m.atMenuOpen = false
 	m.atMatches = nil
-	m.textarea.Reset()
-	m.textarea.SetHeight(1)
 
 	m.chatMessages = append(m.chatMessages, chatMessage{role: "user", content: text})
 	userLine := promptStyle.Render("❯ ") + lipgloss.NewStyle().Foreground(brightText).Bold(true).Render(text)
@@ -59,6 +57,7 @@ func (m Model) sendMessage(text string) (tea.Model, tea.Cmd) {
 	conv := m.conversation
 	ag := m.ag
 	ag.MemoryRecallCh = prefetchCh
+	m.startingAgent = true
 	startAgentCmd := func() tea.Msg {
 		return agentReadyMsg{ch: ag.Run(ctx, conv)}
 	}
@@ -76,7 +75,7 @@ func (m Model) sendPromptCommand(displayText, prompt, agentRole string) (tea.Mod
 	}
 	m.historyEntries = append(m.historyEntries, displayText)
 	m.historyIndex = 0
-	m.historyDraft = ""
+	m.historyDraft = nil
 
 	m.streaming = true
 	m.thinking = true
@@ -84,8 +83,6 @@ func (m Model) sendPromptCommand(displayText, prompt, agentRole string) (tea.Mod
 	m.thinkingDone = 0
 	m.atMenuOpen = false
 	m.atMatches = nil
-	m.textarea.Reset()
-	m.textarea.SetHeight(1)
 
 	m.chatMessages = append(m.chatMessages, chatMessage{role: "user", content: displayText})
 	userLine := promptStyle.Render("❯ ") + lipgloss.NewStyle().Foreground(brightText).Bold(true).Render(displayText)
@@ -110,6 +107,7 @@ func (m Model) sendPromptCommand(displayText, prompt, agentRole string) (tea.Mod
 	conv := m.conversation
 	ag := m.ag
 	ag.MemoryRecallCh = prefetchCh
+	m.startingAgent = true
 	startAgentCmd := func() tea.Msg {
 		if agentRole != "" {
 			return agentReadyMsg{ch: commands.RunSubagentCommand(ctx, agentRole, prompt, displayText, m.registry, ag.Checker, conv, wd, m.sessionID, &input)}
@@ -122,6 +120,7 @@ func (m Model) sendPromptCommand(displayText, prompt, agentRole string) (tea.Mod
 }
 
 func (m Model) inputError(err error) (tea.Model, tea.Cmd) {
+	m.activityError = err.Error()
 	m.chatMessages = append(m.chatMessages, chatMessage{role: "error", content: err.Error()})
 	m.updateViewport()
 	return m, nil

@@ -78,8 +78,8 @@ func graphemeBounds(value string) []int {
 	runes := 0
 	rest := value
 	for len(rest) > 0 {
-		cluster, _, width, _ := uniseg.FirstGraphemeClusterInString(rest, -1)
-		rest = rest[width:]
+		cluster, remaining, _, _ := uniseg.FirstGraphemeClusterInString(rest, -1)
+		rest = remaining
 		runes += utf8.RuneCountInString(cluster)
 		bounds = append(bounds, runes)
 	}

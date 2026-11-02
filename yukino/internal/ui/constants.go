@@ -53,32 +53,7 @@ var ThinkingDescriptions = map[string]string{
 	"max":     "Most thorough reasoning",
 }
 
-// Icons mirrors the ICONS map in src/ui/constants.ts.
-var Icons = struct {
-	Active     string
-	Arrow      string
-	Branch     string
-	Collapsed  string
-	Expanded   string
-	Inactive   string
-	LastBranch string
-	Prompt     string
-	Success    string
-	Error      string
-	Tree       string
-}{
-	Active:     "◉",
-	Arrow:      "→",
-	Branch:     "├─",
-	Collapsed:  "⊞",
-	Expanded:   "⊟",
-	Inactive:   "○",
-	LastBranch: "└─",
-	Prompt:     ">",
-	Success:    "✓",
-	Error:      "✗",
-	Tree:       "│",
-}
+var Icons = struct{ Arrow, Success string }{Arrow: "→", Success: "✓"}
 
 var SpinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 

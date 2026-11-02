@@ -231,6 +231,8 @@ func (m Model) doResumeSession(wd, targetID string, saved []session.Message) (te
 	m.chatMessages = nil
 	m.committedUpTo = 0
 	m.conversation.Reset()
+	m.pendingMessages = nil
+	m.queuePaused = false
 	m.sessionID = targetID
 
 	// Re-key the session-derived stores to the resumed session.
@@ -269,7 +271,6 @@ func (m Model) doResumeSession(wd, targetID string, saved []session.Message) (te
 	// fresh header.
 	commitText := m.renderTranscriptHeader() + "\n" + m.renderMessagesRange(0, len(m.chatMessages))
 	m.committedUpTo = len(m.chatMessages)
-	m.textarea.Focus()
 	m.updateViewport()
 	return m, tea.Batch(
 		func() tea.Msg { return tea.ClearScreen() },

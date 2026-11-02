@@ -129,6 +129,11 @@ func (m Model) pollMailbox() tea.Cmd {
 }
 
 func (m Model) handleAgentEvent(ev agent.AgentEvent) (tea.Model, tea.Cmd) {
+	switch ev.(type) {
+	case agent.RetryEvent, agent.UsageEvent, agent.PermissionRequestEvent:
+	default:
+		m.retryStatus = ""
+	}
 	switch e := ev.(type) {
 	case agent.StreamText:
 		m.streamBuf += e.Text
@@ -160,6 +165,9 @@ func (m Model) handleAgentEvent(ev agent.AgentEvent) (tea.Model, tea.Cmd) {
 		m.updateViewport()
 
 	case agent.ToolResultEvent:
+		if e.ToolName == "WriteFile" || e.ToolName == "EditFile" {
+			m.fileFactsVersion++
+		}
 		var emitted *toolBlockInfo
 		for i := range m.toolBlocks {
 			if m.toolBlocks[i].toolName == e.ToolName && m.toolBlocks[i].loading {
@@ -299,6 +307,11 @@ func (m Model) handleAgentEvent(ev agent.AgentEvent) (tea.Model, tea.Cmd) {
 		m.updateViewport()
 
 	case agent.RetryEvent:
+		m.retryStatus = "Retrying"
+		if e.Wait > 0 {
+			m.retryStatus += fmt.Sprintf(" (%.0fs delay)", e.Wait.Seconds())
+		}
+		m.retryStatus += ": " + e.Reason
 		msg := "↻ Retrying: " + e.Reason
 		if e.Wait > 0 {
 			msg += fmt.Sprintf(" (waiting %s)", e.Wait)
@@ -310,6 +323,7 @@ func (m Model) handleAgentEvent(ev agent.AgentEvent) (tea.Model, tea.Cmd) {
 		m.updateViewport()
 
 	case agent.ErrorEvent:
+		m.activityError = e.Message
 		if m.streamBuf != "" {
 			m.chatMessages = append(m.chatMessages, chatMessage{role: "assistant", content: m.streamBuf})
 			m.streamBuf = ""

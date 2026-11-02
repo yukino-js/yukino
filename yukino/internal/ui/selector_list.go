@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"unicode"
 
@@ -45,6 +46,11 @@ func updateSelectorQuery(query string, msg tea.KeyMsg) string {
 		if len(msg.Runes) == 0 {
 			return query
 		}
+		raw := string(msg.Runes)
+		if strings.Contains(raw, "\x1b") || regexp.MustCompile(`\[<\d+;\d+;\d+[Mm]`).MatchString(raw) {
+			return query
+		}
+		raw = regexp.MustCompile(`[\r\n\t]+`).ReplaceAllString(raw, " ")
 		text := strings.Map(func(r rune) rune {
 			switch r {
 			case '\r', '\n', '\t':
@@ -54,7 +60,7 @@ func updateSelectorQuery(query string, msg tea.KeyMsg) string {
 				return -1
 			}
 			return r
-		}, string(msg.Runes))
+		}, raw)
 		return query + text
 	default:
 		return query
@@ -101,7 +107,7 @@ func renderSelectorListRow(p selectorListRowParams) string {
 	pad := strings.Repeat(" ", padding)
 	var sb strings.Builder
 	sb.WriteString(pad)
-	sb.WriteString(lipgloss.NewStyle().Foreground(labelColor).Render(pointer + truncateToWidth(singleLineLabel, labelWidth, "…")))
+	sb.WriteString(lipgloss.NewStyle().Foreground(labelColor).Bold(p.focused).Render(pointer + truncateToWidth(singleLineLabel, labelWidth, "…")))
 	sb.WriteString(lipgloss.NewStyle().Foreground(greenText).Render(marker))
 	sb.WriteString(lipgloss.NewStyle().Foreground(mutedText).Render(descriptionText))
 	sb.WriteString("\n")
@@ -110,7 +116,11 @@ func renderSelectorListRow(p selectorListRowParams) string {
 		sb.WriteString(selectorHintStyle.Render(truncateToWidth("  "+plainTerminalLine(p.detail), rowWidth, "…")))
 		sb.WriteString("\n")
 	}
-	return sb.String()
+	result := strings.TrimSuffix(sb.String(), "\n")
+	if p.focused {
+		result = lipgloss.NewStyle().Background(lipgloss.Color(Theme.SelectedBg)).Width(max(1, p.width)).Render(result)
+	}
+	return result + "\n"
 }
 
 type selectorListParams struct {
@@ -139,8 +149,7 @@ func renderSelectorList(p selectorListParams) string {
 	if width > 2 {
 		contentWidth = width - 2
 	}
-	compact := p.rows < 6+p.itemHeight
-	listRows := max(0, p.rows-selectorChrome(p.rows, false, compact).height-1)
+	listRows := max(0, p.rows-selectorChrome(p.rows, false).height-1)
 	visibleCount := 0
 	if p.itemHeight > 0 {
 		visibleCount = min(10, listRows/p.itemHeight)
@@ -223,6 +232,5 @@ func renderSelectorList(p selectorListParams) string {
 		content: strings.TrimSuffix(content.String(), "\n"),
 		width:   width,
 		rows:    p.rows,
-		compact: compact,
 	})
 }

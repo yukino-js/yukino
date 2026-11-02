@@ -166,6 +166,8 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 	case commands.TypeLocalUI:
 		switch name {
 		case "clear":
+			m.pendingMessages = nil
+			m.queuePaused = false
 			if m.taskMgr != nil {
 				if err := m.taskMgr.StopAll(context.Background()); err != nil {
 					return m, nil
@@ -238,8 +240,11 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 			}
 			sessionFilePath := session.SessionFilePath(compactWD, compactSessionID)
 			customInstructions := args
+			compactCtx, cancel := context.WithCancel(context.Background())
+			m.compacting = true
+			m.cancelStream = cancel
 			return m, func() tea.Msg {
-				result, err := compact.ForceCompact(context.Background(), conv, client, recovery, names, schemas, sessionFilePath, customInstructions)
+				result, err := compact.ForceCompact(compactCtx, conv, client, recovery, names, schemas, sessionFilePath, customInstructions)
 				if err == nil && result.Boundary != nil {
 					_ = session.SaveCompactBoundary(compactWD, compactSessionID, result.Boundary.Summary, result.Boundary.Keep)
 				}

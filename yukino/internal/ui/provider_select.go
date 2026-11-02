@@ -93,7 +93,6 @@ func (m *Model) activateInitialProvider(p *config.ProviderConfig) tea.Cmd {
 	}
 	m.historyEntries = entries
 	m.state = stateChat
-	m.textarea.Focus()
 	m.updateViewport()
 	return m.initMCPServersCmd()
 }

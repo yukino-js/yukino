@@ -21,18 +21,16 @@ type selectorChromeSpec struct {
 	title   bool
 	hint    bool
 	detail  bool
-	gap     bool
 	height  int
 }
 
 // selectorChrome mirrors selectorChrome in src/ui/selector-layout.ts.
-func selectorChrome(rows int, subtitle, compact bool) selectorChromeSpec {
+func selectorChrome(rows int, subtitle bool) selectorChromeSpec {
 	spec := selectorChromeSpec{
 		borders: rows >= 6,
 		title:   rows >= 2,
 		hint:    rows >= 3,
 		detail:  subtitle && rows >= 8,
-		gap:     !compact && rows >= 10,
 	}
 	if spec.borders {
 		spec.height += 2
@@ -44,9 +42,6 @@ func selectorChrome(rows int, subtitle, compact bool) selectorChromeSpec {
 		spec.height++
 	}
 	if spec.detail {
-		spec.height++
-	}
-	if spec.gap {
 		spec.height++
 	}
 	return spec
@@ -87,7 +82,7 @@ type selectorFrameParams struct {
 	content  string
 	width    int
 	rows     int
-	compact  bool
+	focusRow int
 }
 
 // renderSelectorFrame mirrors SelectorFrame in src/ui/selector-frame.tsx.
@@ -95,14 +90,18 @@ func renderSelectorFrame(p selectorFrameParams) string {
 	if p.rows <= 0 {
 		return ""
 	}
-	chrome := selectorChrome(p.rows, p.subtitle != "", p.compact)
+	chrome := selectorChrome(p.rows, p.subtitle != "")
 	frameWidth := max(1, p.width)
 	padding := 0
 	if frameWidth > 2 {
 		padding = 1
 	}
 	contentWidth := frameWidth - padding*2
-	rule := selectorBorderStyle.Render(strings.Repeat("─", frameWidth))
+	rule := strings.Repeat("─", max(0, frameWidth-2))
+	top, bottom := "─", "─"
+	if frameWidth >= 2 {
+		top, bottom = "╭"+rule+"╮", "╰"+rule+"╯"
+	}
 	singleLine := func(text string) string {
 		return truncateToWidth(plainTerminalLine(text), contentWidth, "…")
 	}
@@ -115,7 +114,7 @@ func renderSelectorFrame(p selectorFrameParams) string {
 
 	var sb strings.Builder
 	if chrome.borders {
-		sb.WriteString(rule)
+		sb.WriteString(selectorBorderStyle.Render(top))
 		sb.WriteString("\n")
 	}
 	if chrome.title {
@@ -126,11 +125,11 @@ func renderSelectorFrame(p selectorFrameParams) string {
 		sb.WriteString(pad(selectorSubtitleStyle.Render(singleLine(p.subtitle))))
 		sb.WriteString("\n")
 	}
-	if chrome.gap {
-		sb.WriteString("\n")
-	}
-	for _, line := range strings.Split(p.content, "\n") {
-		sb.WriteString(pad(line))
+	lines := strings.Split(p.content, "\n")
+	limit := max(0, p.rows-chrome.height)
+	start := min(max(0, p.focusRow-limit+1), max(0, len(lines)-limit))
+	for _, line := range lines[start:min(len(lines), start+limit)] {
+		sb.WriteString(pad(truncateToWidth(line, contentWidth, "…")))
 		sb.WriteString("\n")
 	}
 	if chrome.hint {
@@ -138,7 +137,7 @@ func renderSelectorFrame(p selectorFrameParams) string {
 		sb.WriteString("\n")
 	}
 	if chrome.borders {
-		sb.WriteString(rule)
+		sb.WriteString(selectorBorderStyle.Render(bottom))
 		sb.WriteString("\n")
 	}
 	return sb.String()

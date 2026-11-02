@@ -55,7 +55,7 @@ func (m Model) renderRewindDialog() string {
 
 func (m Model) renderRewindSnapshotList() string {
 	rows := m.dialogAvailableRows()
-	chrome := selectorChrome(rows, false, false)
+	chrome := selectorChrome(rows, false)
 	visibleCount := max(0, rows-chrome.height)
 	windowStart := getListWindowStart(len(m.rewindSnapshots), m.rewindCursor, visibleCount)
 	contentWidth := max(1, m.width-2)
@@ -172,7 +172,6 @@ func (m Model) handleRewindPhase0(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.rewindDialog = false
-		m.textarea.Focus()
 		m.updateViewport()
 		return m, nil
 	case "up":
@@ -311,12 +310,13 @@ func (m Model) executeRewindOption() (tea.Model, tea.Cmd) {
 	case 3:
 		m.rewindDialog = false
 		m.rewindPhase = 0
-		m.textarea.Focus()
 		m.updateViewport()
 		return m, nil
 	}
 
 	if rebuilt {
+		m.pendingMessages = nil
+		m.queuePaused = false
 		m.chatMessages = transcript
 		m.committedUpTo = 0
 		// The reference drops the goal manager on a conversation rewind so goal
@@ -329,7 +329,6 @@ func (m Model) executeRewindOption() (tea.Model, tea.Cmd) {
 	m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: summary})
 	m.rewindDialog = false
 	m.rewindPhase = 0
-	m.textarea.Focus()
 	m.updateViewport()
 
 	if rebuilt {
@@ -358,7 +357,6 @@ func (m Model) finishRewindError(err error) (tea.Model, tea.Cmd) {
 	})
 	m.rewindDialog = false
 	m.rewindPhase = 0
-	m.textarea.Focus()
 	m.updateViewport()
 	return m, nil
 }

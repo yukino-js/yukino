@@ -26,10 +26,7 @@ func (m *Model) interruptForeground() {
 	m.askUserDialog = false
 	m.planApprovalDialog = false
 	if ch := m.agentCh; ch != nil {
-		go func() {
-			for range ch {
-			}
-		}()
+		m.settlingCh = ch
 	}
 	m.savePartialResponse()
 	m.finishStreaming()

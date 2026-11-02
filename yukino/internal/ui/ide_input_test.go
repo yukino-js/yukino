@@ -71,7 +71,7 @@ func TestUpdateInsertsRelativeMention(t *testing.T) {
 	wd := t.TempDir()
 	t.Chdir(wd)
 	m := newIdeTestModel(t)
-	m.textarea.SetValue("prefix ")
+	m.editor.SetValue("prefix ")
 
 	updated, cmd := m.Update(ideAtMentionMsg{mention: vscode.IdeAtMention{
 		FilePath:  filepath.Join(wd, "sub", "file.go"),
@@ -83,7 +83,7 @@ func TestUpdateInsertsRelativeMention(t *testing.T) {
 		t.Fatal("expected the mention listener to restart")
 	}
 	want := "prefix @sub/file.go#L2-4 "
-	if got := model.textarea.Value(); got != want {
+	if got := model.editor.Value(); got != want {
 		t.Fatalf("textarea = %q, want %q", got, want)
 	}
 }
@@ -91,14 +91,14 @@ func TestUpdateInsertsRelativeMention(t *testing.T) {
 func TestUpdateInsertsAbsoluteMention(t *testing.T) {
 	t.Chdir(t.TempDir())
 	m := newIdeTestModel(t)
-	m.textarea.SetValue("")
+	m.editor.SetValue("")
 
 	updated, cmd := m.Update(ideAtMentionMsg{mention: vscode.IdeAtMention{FilePath: "/elsewhere/file.go"}})
 	model := updated.(Model)
 	if cmd == nil {
 		t.Fatal("expected the mention listener to restart")
 	}
-	if got := model.textarea.Value(); got != "@/elsewhere/file.go " {
+	if got := model.editor.Value(); got != "@/elsewhere/file.go " {
 		t.Fatalf("textarea = %q", got)
 	}
 }

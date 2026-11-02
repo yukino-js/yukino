@@ -1,12 +1,41 @@
 # Existing Module Alignment Ledger
 
-The reference implementation is `~/github/yukino-code/apps/yukino`. M16 reviewed its scoped files against commit `1847a71e03f90d0e5fc60a2a797c60af327b7750` (clean reference checkout); M15 reviewed its scoped files against `2cb9b6a4cb0114b8f912dfc04c3ec882f47bea94`. This is a targeted baseline update, not a revalidation of unchanged historical rows. M3 re-baselined to commit `a0881c68b0804c30f9147355e4e70e679f238b19`; the reference advanced past M2 chiefly by removing the LSP module (`src/lsp/*`, `src/tools/lsp.ts`) and restyling the browser bundle (Catppuccin). The Go port never contained LSP, so nothing needed removing there. M2 used the actual reference checkout at commit `8dbf96950d45fac1c7c68451478716898b35810d` (clean working tree). M1 recorded commit `3068413f121533ec0d7c4172fe680f4ce5d82fa1`. Earlier records retain their recorded baseline unless explicitly updated below; they have not all been revalidated against the M16 checkout.
+The reference implementation is `~/github/yukino-code/apps/yukino`. M17 reviewed its UI foundation scope and M16 reviewed its scoped files against commit `1847a71e03f90d0e5fc60a2a797c60af327b7750` (clean reference checkout); M15 reviewed its scoped files against `2cb9b6a4cb0114b8f912dfc04c3ec882f47bea94`. This is a targeted baseline update, not a revalidation of unchanged historical rows. M3 re-baselined to commit `a0881c68b0804c30f9147355e4e70e679f238b19`; the reference advanced past M2 chiefly by removing the LSP module (`src/lsp/*`, `src/tools/lsp.ts`) and restyling the browser bundle (Catppuccin). The Go port never contained LSP, so nothing needed removing there. M2 used the actual reference checkout at commit `8dbf96950d45fac1c7c68451478716898b35810d` (clean working tree). M1 recorded commit `3068413f121533ec0d7c4172fe680f4ce5d82fa1`. Earlier records retain their recorded baseline unless explicitly updated below; they have not all been revalidated against the M17 checkout.
 
 The long-term target is file-by-file alignment of existing Go modules with the reference. At the user's request, the current delivery is a bounded milestone rather than a complete alignment pass. Missing files and behavioral gaps within those modules are in scope. Entirely absent modules are now being implemented rather than deferred: goal (M3), logger (M4), update (M5), vscode (M6), images (M7), bootstrap (M8), theme palettes (M9), telemetry (M10), a2a (M11) and workflow (M12) are delivered; every previously absent module is now implemented, and M13 cleared the utils/storage/file-history/tool-result/compact pending rows. Implementation differences are acceptable only where TypeScript and Go require different language or runtime choices. Backward compatibility, deprecated APIs, and compatibility shims must not be retained.
 
 Every previously tracked reference file retains its own record. A module-level counterpart identifies the area to review; it does not certify the entire Go package. Full alignment requires reading the complete reference file, comparing its implementation, and validating the resulting behavior. Partial progress and unresolved differences are recorded explicitly. Shared browser inputs follow the artifact delivery policy below.
 
-Current inventory: **376 records**: 192 corrected, 19 reviewed, 44 partially aligned, 2 language-specific difference, 62 pending review, 0 deferred, 51 shared browser build inputs, 6 synchronized artifacts. **Full alignment is not complete.**
+Current inventory: **376 records**: 199 corrected, 20 reviewed, 56 partially aligned, 2 language-specific difference, 42 pending review, 0 deferred, 51 shared browser build inputs, 6 synchronized artifacts. **Full alignment is not complete.**
+
+## Milestone M17 — UI composer, responsive footer and selector foundations (2026-11-02)
+
+**Completed bounded delivery:** the user asked to stop at a milestone to limit token use and leave the remaining work for the next schedule. The reference remains the clean checkout at `1847a71e03f90d0e5fc60a2a797c60af327b7750`. This is a UI foundation milestone, not certification of the entire UI or repository.
+
+- **Composer:** replaced the old Bubble Tea textarea with an owned draft/editor. Ported long-paste and image markers, one-pass expansion, atomic marker movement/deletion, grapheme boundaries, two-column tabs, visual-row navigation with preferred columns, history-draft restoration, viewport-centered caret and overflow labels. Clipboard reads carry generations so stale completions cannot revive a cleared draft. IDE insertion preserves cursor position and inserts a separator when needed. Fixed the existing `graphemeBounds` loop, which consumed display columns as byte counts and could fail to advance on combining characters.
+- **Completion:** Enter completes a command before submitting; Up/Down wrap through completion results; Escape dismisses visible completion before interrupting foreground work. Added exact/prefix/fuzzy command ranking, recent commands, thinking-level suggestions, recursive cached file completion with a 30-second TTL and write/run-end invalidation. Completion renders within the available rows and is suppressed for shell input. Command aliases and the Down-to-agents shortcut remain open.
+- **Layout:** implemented the reference status-border construction and responsive footer (input/output tokens, context percentage/window, provider/model, thinking level, permission mode, cwd/session, adaptive hints). The transcript header now includes `✳ Yukino v…`. Removed obsolete selector `compact`/gap branches, restored rounded borders, bounded frame content, styled focused list rows and rejected terminal escape/mouse payloads in selector search. Shared row budgeting now reserves footer/status/dock space; full live transcript/tool viewport alignment remains open.
+- **Controls and follow-ups:** idle Ctrl+C clears the mounted draft and starts a two-second press-again exit window; other input or work invalidates it. Modal drafts survive Ctrl+C. Shift+Tab cycles Default → Accept Edits → YOLO, and leaving Plan injects the exit reminder. Ctrl+O replays committed messages under the new detail state. Busy submissions are preserved as recallable FIFO follow-ups instead of cancelling the current run. Queue dispatch waits for the previous event channel to close, preserves a newly typed draft, and resets on clear/resume/conversation rewind. `/compact` now owns a cancellation context and blocks new turns. **Plain text is still a follow-up, not turn-boundary steering**; steering remains a required next milestone.
+
+### M17 validation
+
+- Executed the actual reference TypeScript helpers/components to generate `internal/ui/testdata/m17-reference.json`: **153 cases** (35 input layouts/caret positions, 54 status borders, 32 responsive footers, 32 selector chrome budgets). The Go outputs match, with UTF-16 offsets normalized to rune offsets for Go.
+- Added interaction regressions for completion-first Enter, busy submit/recall, paste/history round trips, atomic emoji/marker deletion, preferred-column navigation, completion Escape precedence, Ctrl+C/timer/modal behavior, permission-mode cycling, clipboard generations, selector protocol filtering, queue cleanup ordering and draft preservation. Checked 40 terminal width/height combinations plus resize preservation.
+- Passed `go test -race ./... -timeout 90s`, `go vet ./...`, `go build ./...`, `gofmt -l` and `git diff --check`. No live provider calls, system clipboard reads, native terminal cursor/theme negotiation or browser interaction were exercised.
+
+### M17 language/runtime differences and remaining limits
+
+- Go stores rune offsets rather than UTF-16 offsets; displayed grapheme/cell positions are compared against the reference after normalization. Draft state is owned by the Bubble Tea model instead of React refs/effects.
+- The editor currently draws an inverse-video caret. The reference uses a real terminal underline caret; native cursor positioning and terminal input/output protocols remain open.
+- Follow-up dispatch is serialized in the UI model and waits for channel closure. The agent steering API, delivered-input metadata, full queue failure/lifecycle parity and notification polling remain unported.
+- The footer/status-border/helper rows below are the closed scope. Partial/pending UI rows retain their outstanding behavior; neither all dialogs nor live chat/tool rendering are certified by passing composer tests. Unchanged historical rows retain their earlier review baselines.
+
+### Next schedule handoff (M17 supersedes M16's handoff)
+
+1. Finish `src/ui/input.tsx` and terminal integration: command aliases, Down-to-agents, native caret, terminal-input/output/theme negotiation, real PTY resize/scrollback checks and screen-reader behavior. Reuse the M17 draft/layout/paste helpers; do not restore the removed textarea or compact selector branches.
+2. Implement agent steering and removal/drain APIs, delivered input metadata, and complete the UI follow-up/notification host lifecycle. Plain busy input currently queues as a follow-up; permission/AskUser FIFO serialization, background work and user Bash/`!!` remain separate open rows.
+3. Complete chat/thinking/tool cards and markdown/syntax/table/theme rendering, tool-id matching, subagent/teammate/todo/update progress, then the full selector/dialog review (including missing Thinking/Agents/Workflows docks and provider/model discovery cancellation). The shared frame changes do not certify each consumer.
+4. Continue the M16 non-UI queue: remote server/session-state, agent/subagent/teams, tools (ComputerUse/snippets absent), commands, CLI/main/print/recover, remaining permissions, telemetry and websocket-security. Compare every remaining file in full; do not infer parity from package tests.
 
 ## Milestone M16 — reference HEAD delta, hooks/conversation/MCP/memory/skills/LLM (2026-11-02)
 
@@ -763,45 +792,45 @@ The browser-serving fix has also passed the full race-enabled suite and `go vet 
 | `src/ui/agent-status.tsx` | `internal/ui` | Pending review |  |
 | `src/ui/agent-tool-progress.tsx` | `internal/ui` | Pending review |  |
 | `src/ui/agents-dialog.tsx` | `internal/ui` | Pending review |  |
-| `src/ui/app.tsx` | `internal/ui` | Partially aligned | M15: legacy global worktree restoration/cleanup removed; history query errors are now surfaced in the UI. M14: config-driven runtime wiring — `permission_mode` sets the startup PermissionChecker mode (plan rejected at startup), `default_provider` selects the initial provider, and `enable_memory` gates the manager, memory injection, recall, extraction and consolidation; `/status` and `/memory` are intercepted with the reference rich outputs. M3: goal wiring added — stable goalBinder + lazy per-session currentGoal(), GoalTool registration, agent binding at activation/clear/resume/rewind, and runGoalCommand for the `/goal` branch; in-flight goal control (handleSubmit goalControl) rides on the unported steering path. M2: Complete reference-file comparison remains outstanding. /plan and /review dispatch, plan approval, scoped user input records and conversation reset/resume integrations changed; unrelated UI behavior is not certified. |
+| `src/ui/app.tsx` | `internal/ui` | Partially aligned | M15: legacy global worktree restoration/cleanup removed; history query errors are now surfaced in the UI. M14: config-driven runtime wiring — `permission_mode` sets the startup PermissionChecker mode (plan rejected at startup), `default_provider` selects the initial provider, and `enable_memory` gates the manager, memory injection, recall, extraction and consolidation; `/status` and `/memory` are intercepted with the reference rich outputs. M3: goal wiring added — stable goalBinder + lazy per-session currentGoal(), GoalTool registration, agent binding at activation/clear/resume/rewind, and runGoalCommand for the `/goal` branch; in-flight goal control (handleSubmit goalControl) rides on the unported steering path. M2: Complete reference-file comparison remains outstanding. /plan and /review dispatch, plan approval, scoped user input records and conversation reset/resume integrations changed; unrelated UI behavior is not certified. M17: full reference file read; composer/footer/controls integration and basic follow-up dispatch updated. Steering, user Bash, modal queues, task/status docks and remaining host behavior are not certified. |
 | `src/ui/ask-user-dialog.tsx` | `internal/ui` | Pending review |  |
 | `src/ui/chat.tsx` | `internal/ui` | Pending review |  |
-| `src/ui/constants.ts` | `internal/ui` | Pending review |  |
+| `src/ui/constants.ts` | `internal/ui/constants.go` | Partially aligned | M17: full source read; removed pruned icon entries and consumed current paste/completion/thinking/status constants. Terminal protocol constants and remaining UI consumers are still open. |
 | `src/ui/cursor-text.tsx` | `internal/ui` | Pending review |  |
 | `src/ui/diff-render.tsx` | `internal/ui` | Pending review |  |
-| `src/ui/footer.tsx` | `internal/ui` | Pending review |  |
-| `src/ui/input-draft.ts` | `internal/ui` | Pending review |  |
-| `src/ui/input-navigation.ts` | `internal/ui` | Pending review |  |
-| `src/ui/input-paste.ts` | `internal/ui` | Pending review |  |
-| `src/ui/input.tsx` | `internal/ui` | Pending review |  |
-| `src/ui/interaction-dock.tsx` | `internal/ui` | Pending review |  |
+| `src/ui/footer.tsx` | `internal/ui/footer.go` | Corrected | M17: full reference renderer ported and wired to usage/context/provider/checker/session state; 32 reference-generated width/row combinations match. |
+| `src/ui/input-draft.ts` | `internal/ui/input_draft.go`, `internal/ui/input.go` | Corrected | M17: owned draft with cursor, paste store and history snapshot survives dock changes; Go model state replaces React refs and synchronous field setters. Rune offsets replace UTF-16 offsets. |
+| `src/ui/input-navigation.ts` | `internal/ui/input_draft.go` | Corrected | M17: full file compared; hard wrapping, two-column tabs, ANSI skipping, paste atoms, real end-caret cell, locateInputCursor and preferred-column visual navigation. 35 reference-generated layout/caret cases match after offset normalization. |
+| `src/ui/input-paste.ts` | `internal/ui/input_draft.go` | Corrected | M17: full file compared and ported — >10 lines/>1000 UTF-16 chars, paste/image counters, immutable store updates, one-pass expansion with image separators, and atomic marker/grapheme boundaries. |
+| `src/ui/input.tsx` | `internal/ui/input.go`, `internal/ui/composer.go` | Partially aligned | M17: full reference file read; custom editor, completion-first Enter, paste/image lifecycle, ranking/cache, history, visual navigation, responsive borders and draft preservation implemented. Aliases, Down-to-agents, native caret and complete host integration remain open. |
+| `src/ui/interaction-dock.tsx` | `internal/ui/ui.go`, `internal/ui/chat.go` | Partially aligned | M17: full source read; editor draft is owned outside dialogs and survives keyboard ownership changes. Thinking/Agents/Workflows docks and complete priority/lifecycle parity remain open. |
 | `src/ui/interaction-summary.ts` | `internal/ui` | Pending review |  |
 | `src/ui/interrupt-scope.ts` | `internal/ui/interrupt.go` | Partially aligned | Full source reviewed. Esc/Ctrl+C foreground cancellation and prompt dismissal corrected. Queue and busy-state behavior await the complete UI review. |
-| `src/ui/list-window.ts` | `internal/ui` | Pending review |  |
+| `src/ui/list-window.ts` | `internal/ui/selector_list.go` | Reviewed | M17: full file and Go counterpart compared; clamped trailing list-window calculation is identical. |
 | `src/ui/markdown.ts` | `internal/ui` | Pending review |  |
 | `src/ui/marked-terminal.ts` | `internal/ui` | Pending review |  |
 | `src/ui/model-select.tsx` | `internal/ui` | Pending review |  |
-| `src/ui/pending-queue.tsx` | `internal/ui` | Pending review |  |
+| `src/ui/pending-queue.tsx` | `internal/ui/footer.go` | Partially aligned | M17: full source read; responsive follow-up rows/count/recall hint implemented. Steering rows await agent steering support. |
 | `src/ui/permission-dialog.tsx` | `internal/ui` | Pending review |  |
 | `src/ui/permission-request.ts` | `internal/ui` | Pending review |  |
 | `src/ui/plan-approval.tsx` | `internal/ui/plan_approval.go` | Partially aligned | M2: Full source read. Manual/YOLO/feedback choices, Esc manual approval, blank-feedback retention, Shift+Tab feedback and plan-exit reminders corrected. Actual terminal interaction/rendering still needs a dedicated UI pass. |
 | `src/ui/provider-login.tsx` | `internal/ui` | Pending review |  |
 | `src/ui/provider-select.tsx` | `internal/ui` | Pending review |  |
 | `src/ui/rewind-dialog.tsx` | `internal/ui` | Pending review |  |
-| `src/ui/selector-frame.tsx` | `internal/ui` | Pending review |  |
-| `src/ui/selector-layout.ts` | `internal/ui` | Pending review |  |
-| `src/ui/selector-list.tsx` | `internal/ui` | Pending review |  |
-| `src/ui/selector-search.ts` | `internal/ui` | Pending review |  |
+| `src/ui/selector-frame.tsx` | `internal/ui/selector_frame.go` | Partially aligned | M17: full source read; current rounded borders, no legacy gap/compact, hint fitting and bounded content implemented. Focus scrolling must still be wired and checked for every dialog consumer. |
+| `src/ui/selector-layout.ts` | `internal/ui/selector_frame.go` | Corrected | M17: full current selectorChrome ported; removed compact/gap compatibility logic. All 32 row/subtitle combinations match the reference. |
+| `src/ui/selector-list.tsx` | `internal/ui/selector_list.go` | Partially aligned | M17: full source read; current no-gap budget, focused background/bold rows and query handling aligned. Actual multi-line entry measurement and native cursor integration remain open. |
+| `src/ui/selector-search.ts` | `internal/ui/selector_list.go` | Corrected | M17: full query reducer compared; Ctrl+U, grapheme deletion, modifier/navigation filtering, newline/tab run normalization and terminal escape/mouse rejection. |
 | `src/ui/session-selector.tsx` | `internal/ui` | Pending review | M2: Complete reference-file comparison remains outstanding. Resume now reuses the conversation object and the shared metadata-preserving session reconstruction; this does not certify selector UI parity. |
-| `src/ui/status-border.tsx` | `internal/ui` | Pending review |  |
+| `src/ui/status-border.tsx` | `internal/ui/composer.go` | Corrected | M17: full construction ported — status/spinner fallback, centered overflow and narrow-width truncation. 54 reference-generated cases match. |
 | `src/ui/streaming-markdown.ts` | `internal/ui` | Pending review |  |
 | `src/ui/styles.ts` | `internal/ui` | Pending review |  |
 | `src/ui/syntax-highlight.ts` | `internal/ui` | Pending review |  |
 | `src/ui/table-layout.ts` | `internal/ui` | Pending review |  |
 | `src/ui/terminal-input.ts` | `internal/ui` | Pending review |  |
-| `src/ui/terminal-layout.tsx` | `internal/ui` | Pending review |  |
+| `src/ui/terminal-layout.tsx` | `internal/ui/chat.go`, `internal/ui/footer.go` | Partially aligned | M17: full source read; footer/status/dock budgets and bounded composer rendering implemented. Full measured live activity/status and focused dock viewport behavior remain open. |
 | `src/ui/terminal-output.ts` | `internal/ui` | Pending review |  |
-| `src/ui/terminal-text.ts` | `internal/ui` | Pending review |  |
+| `src/ui/terminal-text.ts` | `internal/ui/terminal_text.go` | Partially aligned | M17: full source read; fixed non-advancing byte/column confusion in graphemeBounds, and verified cell/cursor use against reference input fixtures. Word-wrap helpers and complete terminal renderer integration remain open. |
 | `src/ui/terminal-theme.ts` | `internal/ui` | Pending review |  |
 | `src/ui/text-field.tsx` | `internal/ui` | Pending review |  |
 | `src/ui/thinking-block.tsx` | `internal/ui` | Pending review |  |
@@ -809,17 +838,17 @@ The browser-serving fix has also passed the full race-enabled suite and `go vet 
 | `src/ui/todo-progress.tsx` | `internal/ui` | Pending review |  |
 | `src/ui/tool-display.tsx` | `internal/ui` | Pending review |  |
 | `src/ui/tool-preview.ts` | `internal/ui` | Pending review |  |
-| `src/ui/transcript.tsx` | `internal/ui` | Pending review |  |
+| `src/ui/transcript.tsx` | `internal/ui/chat.go` | Partially aligned | M17: full source read; current star/version header and Ctrl+O replay updated. Full committed message model, static output revision handling and terminal-output integration remain open. |
 | `src/ui/update-notice.tsx` | `internal/ui` | Pending review |  |
-| `src/ui/use-agent-output.ts` | `internal/ui` | Pending review |  |
-| `src/ui/use-follow-up-queue.ts` | `internal/ui` | Pending review |  |
+| `src/ui/use-agent-output.ts` | `internal/ui/agent_events.go` | Partially aligned | M17: full source read; retry/error border state and file-completion invalidation wired. Thinking/tool-id/card/streaming commits and full output lifecycle remain open. |
+| `src/ui/use-follow-up-queue.ts` | `internal/ui/terminal_controls.go` | Partially aligned | M17: full source read; FIFO queue, latest recall, cleanup gate, preserved editor draft and session reset implemented. Full input-entry/generation/failure parity and steering integration remain open. |
 | `src/ui/use-ide-input.ts` | `internal/ui/ide_input.go` | Corrected | M6: Ported 1:1 as bubbletea commands — background connect on Init, at-mention delivery through a stable channel, relative-path `@file#L<start>-<end> ` insertion into the textarea, and cancel+close on Dispose. The reference's insert/clear refs map to direct textarea access; clearInputRef's terminal-controls consumer remains open with use-terminal-controls. |
 | `src/ui/use-notification-wakeup.ts` | `internal/ui` | Pending review |  |
 | `src/ui/use-subagents.ts` | `internal/ui` | Pending review |  |
 | `src/ui/use-task-progress.ts` | `internal/ui` | Pending review |  |
 | `src/ui/use-teammate-states.ts` | `internal/ui` | Pending review |  |
-| `src/ui/use-terminal-controls.ts` | `internal/ui/ui.go` | Partially aligned | Full source reviewed. Ctrl+B is wired in. The idle double-Ctrl+C exit sequence and its two-second timer remain outstanding. |
-| `src/ui/use-terminal-layout.ts` | `internal/ui` | Pending review |  |
+| `src/ui/use-terminal-controls.ts` | `internal/ui/terminal_controls.go` | Partially aligned | M17: full source read; idle double-Ctrl+C/timer invalidation, modal draft preservation, foreground interruption, global detail replay and modal Ctrl+B ownership implemented. Full native exit/interaction-summary teardown is still open. |
+| `src/ui/use-terminal-layout.ts` | `internal/ui/ui.go`, `internal/ui/footer.go` | Partially aligned | M17: full source read; WindowSizeMsg updates preserve logical draft and frame reserves the caret row. React external-store lifecycle is language-specific; complete terminal output/resize behavior remains open. |
 | `src/ui/use-update-notice.ts` | `internal/ui` | Pending review |  |
 | `src/ui/use-user-bash.ts` | `internal/ui` | Pending review |  |
 | `src/ui/workflows-dialog.tsx` | `internal/ui` | Pending review |  |
