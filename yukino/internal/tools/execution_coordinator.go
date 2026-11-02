@@ -8,6 +8,7 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/file_history"
 	"github.com/yukino-js/yukino/yukino/internal/plan_file"
 	"github.com/yukino-js/yukino/yukino/internal/utils"
+	"github.com/yukino-js/yukino/yukino/internal/worktree"
 )
 
 type executionContextKey struct{}
@@ -21,6 +22,7 @@ type PlanContext struct {
 }
 
 type ExecutionContext struct {
+	Worktrees             WorktreeRuntime
 	RequestPermission     func(context.Context, string, string) (int, string)
 	Plan                  *PlanContext
 	FileStateCache        *FileStateCache
@@ -36,6 +38,15 @@ type ExecutionContext struct {
 	CanReadSearchPath     func(string) bool
 	CanTraverseSearchPath func(string) bool
 	CheckPermission       func(string, map[string]any) *ToolResult
+}
+
+type WorktreeRuntime interface {
+	WorktreeSession() *worktree.WorktreeSession
+	EnterWorktree(context.Context, worktree.WorktreeResult, string) error
+	LeaveWorktree()
+	RemoveWorktree(context.Context, string, bool) (*worktree.ChangeSummary, error)
+	SandboxWriteRoots([]string) []string
+	SandboxTempDirectory() string
 }
 
 func PlanningContext(ctx context.Context) *PlanContext {

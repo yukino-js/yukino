@@ -23,20 +23,19 @@ const (
 )
 
 var (
-	locksMu   sync.Mutex
-	locks     = map[string]*sync.Mutex{}
-	heldLocks = map[string]bool{}
+	locksMu sync.Mutex
+	locks   = map[string]chan struct{}{}
 )
 
-func lockMutexFor(dir string) *sync.Mutex {
+func lockChannelFor(dir string) chan struct{} {
 	locksMu.Lock()
 	defer locksMu.Unlock()
-	mu, ok := locks[dir]
+	ch, ok := locks[dir]
 	if !ok {
-		mu = &sync.Mutex{}
-		locks[dir] = mu
+		ch = make(chan struct{}, 1)
+		locks[dir] = ch
 	}
-	return mu
+	return ch
 }
 
 type lockContender struct {
@@ -133,15 +132,19 @@ func createContender(lockDir string) (*lockContender, error) {
 		os.Remove(ticketPath)
 		return nil, err
 	}
-	os.Remove(choosingPath)
+	if err := os.Remove(choosingPath); err != nil {
+		os.Remove(choosingPath)
+		os.Remove(ticketPath)
+		return nil, err
+	}
 	return &lockContender{choosingPath: choosingPath, ticketPath: ticketPath, ticketName: ticketName}, nil
 }
 
-func liveLockEntries(lockDir string, contender *lockContender) (choosing []string, tickets []string) {
+func liveLockEntries(lockDir string, contender *lockContender) (choosing []string, tickets []string, resultErr error) {
 	now := time.Now()
 	entries, err := os.ReadDir(lockDir)
 	if err != nil {
-		return nil, nil
+		return nil, nil, err
 	}
 	for _, entry := range entries {
 		entryPath := filepath.Join(lockDir, entry.Name())
@@ -170,7 +173,7 @@ func liveLockEntries(lockDir string, contender *lockContender) (choosing []strin
 	}
 	entries, err = os.ReadDir(lockDir)
 	if err != nil {
-		return nil, nil
+		return nil, nil, err
 	}
 	for _, entry := range entries {
 		switch {
@@ -181,65 +184,78 @@ func liveLockEntries(lockDir string, contender *lockContender) (choosing []strin
 		}
 	}
 	sort.Strings(tickets)
-	return choosing, tickets
+	return choosing, tickets, nil
 }
 
-func releaseTicket(lockDir string, contender *lockContender) {
+func releaseTicket(lockDir string, contender *lockContender) error {
 	if err := os.Remove(contender.ticketPath); err != nil && !os.IsNotExist(err) {
-		// Best effort: another contender may already have reclaimed it.
-		_ = err
+		return err
 	}
 	// Other contenders still holding tickets keep the directory alive.
 	_ = os.Remove(lockDir)
+	return nil
 }
 
-func acquireLock(filePath string, wait bool) (func(), error) {
-	lockDir := filePath + ".lock"
-	locksMu.Lock()
-	held := heldLocks[lockDir]
-	locksMu.Unlock()
-	if held {
-		if !wait {
+func acquireLock(filePath string, wait bool) (func() error, error) {
+	lockDir, err := filepath.Abs(filePath + ".lock")
+	if err != nil {
+		return nil, err
+	}
+	ch := lockChannelFor(lockDir)
+	deadline := time.Now().Add(lockAcquireTimeout)
+	if wait {
+		timer := time.NewTimer(lockAcquireTimeout)
+		defer timer.Stop()
+		select {
+		case ch <- struct{}{}:
+		case <-timer.C:
+			return nil, fmt.Errorf("file lock %s: timed out after %dms", lockDir, lockAcquireTimeout.Milliseconds())
+		}
+	} else {
+		select {
+		case ch <- struct{}{}:
+		default:
 			return nil, nil
 		}
-		return nil, fmt.Errorf("file lock %s: recursive acquisition", lockDir)
-	}
-	mu := lockMutexFor(lockDir)
-	if wait {
-		mu.Lock()
-	} else if !mu.TryLock() {
-		return nil, nil
 	}
 
 	contender, err := createContender(lockDir)
 	if err != nil {
-		mu.Unlock()
+		<-ch
 		return nil, err
 	}
-	deadline := time.Now().Add(lockAcquireTimeout)
 	backoff := lockMinBackoff
 	for {
-		choosing, tickets := liveLockEntries(lockDir, contender)
+		choosing, tickets, err := liveLockEntries(lockDir, contender)
+		if err != nil {
+			_ = releaseTicket(lockDir, contender)
+			<-ch
+			return nil, err
+		}
 		if len(choosing) == 0 && len(tickets) > 0 && tickets[0] == contender.ticketName {
-			locksMu.Lock()
-			heldLocks[lockDir] = true
-			locksMu.Unlock()
+			var releaseMu sync.Mutex
 			released := false
-			return func() {
+			return func() error {
+				releaseMu.Lock()
+				defer releaseMu.Unlock()
 				if released {
-					return
+					return nil
 				}
-				releaseTicket(lockDir, contender)
+				if err := releaseTicket(lockDir, contender); err != nil {
+					return err
+				}
 				released = true
-				locksMu.Lock()
-				delete(heldLocks, lockDir)
-				locksMu.Unlock()
-				mu.Unlock()
+				<-ch
+				return nil
 			}, nil
 		}
+
 		if !wait || !time.Now().Before(deadline) {
-			releaseTicket(lockDir, contender)
-			mu.Unlock()
+			releaseErr := releaseTicket(lockDir, contender)
+			<-ch
+			if releaseErr != nil {
+				return nil, releaseErr
+			}
 			if !wait {
 				return nil, nil
 			}
@@ -256,12 +272,11 @@ func acquireLock(filePath string, wait bool) (func(), error) {
 
 // TryAcquireFileSyncLock returns a release function, or nil when the lock is
 // held elsewhere.
-func TryAcquireFileSyncLock(filePath string) func() {
-	release, _ := acquireLock(filePath, false)
-	return release
+func TryAcquireFileSyncLock(filePath string) (func() error, error) {
+	return acquireLock(filePath, false)
 }
 
-func WithFileSyncLock(filePath string, fn func() error) error {
+func WithFileSyncLock(filePath string, fn func() error) (resultErr error) {
 	release, err := acquireLock(filePath, true)
 	if err != nil {
 		return err
@@ -269,6 +284,10 @@ func WithFileSyncLock(filePath string, fn func() error) error {
 	if release == nil {
 		return fmt.Errorf("file lock %s: acquisition failed", filePath)
 	}
-	defer release()
+	defer func() {
+		if err := release(); err != nil {
+			resultErr = err
+		}
+	}()
 	return fn()
 }

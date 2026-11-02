@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"os"
 	"sync"
 
 	"github.com/yukino-js/yukino/yukino/internal/sandbox"
@@ -76,8 +77,21 @@ func (t *BashTool) Execute(ctx context.Context, args map[string]any) ToolResult 
 			return prepared, fmt.Errorf("%s sandbox is unavailable; command was not executed", t.Sandbox.Implementation())
 		}
 		cfg := t.SandboxConfig
+		runtime, _ := RuntimeContext(ctx)
+		if runtime.Worktrees != nil {
+			cfg.AllowWrite = runtime.Worktrees.SandboxWriteRoots(cfg.AllowWrite)
+		}
 		cfg.AllowWrite = append(append([]string(nil), cfg.AllowWrite...), outputDirectory)
-		return t.Sandbox.Prepare(ctx, command, cfg, cwd)
+		prepared, err := t.Sandbox.Prepare(ctx, command, cfg, cwd)
+		if err != nil {
+			return prepared, err
+		}
+		if runtime.Worktrees != nil {
+			if dir := runtime.Worktrees.SandboxTempDirectory(); dir != "" {
+				prepared.Env = append(append(os.Environ(), prepared.Env...), "TMPDIR="+dir, "TMP="+dir, "TEMP="+dir)
+			}
+		}
+		return prepared, nil
 	})
 }
 func shellTimeout(args map[string]any) (int, bool) {

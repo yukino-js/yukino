@@ -31,7 +31,6 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/todo"
 	"github.com/yukino-js/yukino/yukino/internal/tools"
 	"github.com/yukino-js/yukino/yukino/internal/workflow"
-	"github.com/yukino-js/yukino/yukino/internal/worktree"
 )
 
 // Runtime is the minimal agent runtime surface the A2A executor drives,
@@ -142,13 +141,10 @@ func CreateA2aRuntime(cwd string, sessionID string) (Runtime, error) {
 		return nil, err
 	}
 
-	gitRoot := worktree.FindCanonicalGitRoot(cwd)
 	defaultTools := bootstrap.CreateToolRegistry(r.todoList, bootstrap.ToolRegistryOptions{
 		InteractionMode: "non-interactive",
 		TeamMgr:         r.teamMgr,
 		WorkDir:         cwd,
-		SessionID:       sessionID,
-		RepoRoot:        gitRoot,
 		GoalManager:     func() *goal.GoalManager { return r.goalManager },
 	})
 	r.registry = defaultTools.Registry

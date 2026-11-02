@@ -26,7 +26,6 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/teams"
 	"github.com/yukino-js/yukino/yukino/internal/todo"
 	"github.com/yukino-js/yukino/yukino/internal/tools"
-	"github.com/yukino-js/yukino/yukino/internal/worktree"
 )
 
 func (m *Model) drainTaskNotifications() []string {
@@ -102,24 +101,8 @@ func (m *Model) registerAgentTools(client llm.Client, providerCfg *config.Provid
 	m.teamMgr = teamMgr
 	m.registry.Register(&teams.TeamTodoWriteTool{TeamMgr: m.teamMgr, Fallback: m.todoList})
 
-	gitRoot := worktree.FindCanonicalGitRoot(wd)
-	m.registry.Register(&tools.EnterWorktreeTool{
-		SessionID: m.sessionID,
-		RepoRoot:  gitRoot,
-	})
-	m.registry.Register(&tools.ExitWorktreeTool{
-		RepoRoot: gitRoot,
-	})
-
-	if gitRoot != "" {
-		if savedSession, err := worktree.LoadWorktreeSession(gitRoot); err == nil && savedSession != nil {
-			if info, err := os.Stat(savedSession.WorktreePath); err == nil && info.IsDir() {
-				worktree.RestoreWorktreeSession(savedSession)
-			}
-		}
-	}
-
-	worktree.StartCleanupLoop(context.Background())
+	m.registry.Register(&tools.EnterWorktreeTool{})
+	m.registry.Register(&tools.ExitWorktreeTool{})
 
 	m.registry.Register(&tools.ExitPlanModeTool{})
 

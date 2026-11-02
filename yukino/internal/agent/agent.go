@@ -20,11 +20,6 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/tools"
 )
 
-const (
-	maxTokensCeiling          = 64000
-	maxOutputTokensRecoveries = 3
-)
-
 type Agent struct {
 	Client              llm.Client
 	Registry            *tools.Registry
@@ -62,6 +57,15 @@ type Agent struct {
 	recallMu            sync.Mutex
 	recentToolNames     []string
 	surfacedMemPaths    map[string]struct{}
+}
+
+func (a *Agent) CurrentCwd() string {
+	if a.Checker != nil {
+		if wt := a.Checker.WorktreeSession(); wt != nil {
+			return wt.WorktreePath
+		}
+	}
+	return a.WorkDir
 }
 
 type RecallResult struct {
@@ -170,7 +174,7 @@ func (a *Agent) emitHook(event hooks.EventName, message string, args map[string]
 		Event:   event,
 		Args:    args,
 		Message: message,
-	}, hooks.HookRuntimeOptions{Cwd: a.WorkDir}) {
+	}, hooks.HookRuntimeOptions{Cwd: a.CurrentCwd()}) {
 		a.Hooks.RecordNotification(result.Output)
 	}
 }
@@ -245,7 +249,7 @@ func (a *Agent) executeSingleTool(ctx context.Context, eventCh chan AgentEvent, 
 	}
 	if a.Hooks != nil {
 		for _, call := range calls {
-			if rejected, reason := a.Hooks.FirePreToolHooks(call.tool.Name(), call.args, hooks.HookRuntimeOptions{Cwd: a.WorkDir, Abort: ctx}); rejected {
+			if rejected, reason := a.Hooks.FirePreToolHooks(call.tool.Name(), call.args, hooks.HookRuntimeOptions{Cwd: a.CurrentCwd(), Abort: ctx}); rejected {
 				return fail("Rejected by hook: " + reason)
 			}
 		}
@@ -271,7 +275,7 @@ func (a *Agent) executeSingleTool(ctx context.Context, eventCh chan AgentEvent, 
 			}
 		}
 		if decision.Effect == permissions.Deny {
-			return fail(fmt.Sprintf("Permission denied: %s. This operation has been blocked by the security policy. Inform the user that the command was denied; do not describe what the command would do.", decision.Reason))
+			return fail(BuildPermissionDeniedOutput(decision.Reason))
 		}
 		if decision.Effect == permissions.Ask {
 			patterns := append([]string{}, a.Checker.RememberPatterns(tc.toolName, tc.arguments)...)
@@ -311,7 +315,11 @@ func (a *Agent) executeSingleTool(ctx context.Context, eventCh chan AgentEvent, 
 	if a.Checker != nil {
 		planning = &tools.PlanContext{Owner: a.Checker, IsPlanMode: func() bool { return a.Checker.Mode() == permissions.ModePlan }, EnterPlanMode: func() { a.Checker.EnterPlanMode() }, IsSubagent: a.Checker.IsSubagent(), IsTeammate: a.Checker.Teammate}
 	}
-	ctx = tools.WithExecutionContext(ctx, tools.ExecutionContext{Plan: planning, RequestPermission: func(requestCtx context.Context, name, desc string) (int, string) {
+	var worktrees tools.WorktreeRuntime
+	if a.Checker != nil {
+		worktrees = a.Checker
+	}
+	ctx = tools.WithExecutionContext(ctx, tools.ExecutionContext{Worktrees: worktrees, Plan: planning, RequestPermission: func(requestCtx context.Context, name, desc string) (int, string) {
 		response := make(chan PermissionReply, 1)
 		select {
 		case eventCh <- PermissionRequestEvent{ToolName: name, Desc: desc, ResponseCh: response}:
@@ -324,7 +332,7 @@ func (a *Agent) executeSingleTool(ctx context.Context, eventCh chan AgentEvent, 
 		case <-requestCtx.Done():
 			return int(PermDeny), ""
 		}
-	}, IsAgentRuntime: true, FileStateCache: a.FileStateCache, FileHistory: a.FileHistory, WorkDir: a.WorkDir, SessionID: a.SessionID, ToolCallID: tc.toolID, TaskManager: a.TaskManager, DisableBackground: a.DisableBackground, CanReadSearchPath: func(path string) bool { return a.Checker == nil || a.Checker.CanReadSearchPath(path) }, CanTraverseSearchPath: func(path string) bool { return a.Checker == nil || a.Checker.CanTraverseSearchPath(path) }, CheckPermission: func(name string, args map[string]any) *tools.ToolResult {
+	}, IsAgentRuntime: true, FileStateCache: a.FileStateCache, FileHistory: a.FileHistory, WorkDir: a.CurrentCwd(), SessionID: a.SessionID, ToolCallID: tc.toolID, TaskManager: a.TaskManager, DisableBackground: a.DisableBackground, CanReadSearchPath: func(path string) bool { return a.Checker == nil || a.Checker.CanReadSearchPath(path) }, CanTraverseSearchPath: func(path string) bool { return a.Checker == nil || a.Checker.CanTraverseSearchPath(path) }, CheckPermission: func(name string, args map[string]any) *tools.ToolResult {
 		if a.Checker == nil {
 			return nil
 		}
@@ -350,7 +358,7 @@ func (a *Agent) executeSingleTool(ctx context.Context, eventCh chan AgentEvent, 
 	if a.Hooks != nil {
 		for i := len(calls) - 1; i >= 0; i-- {
 			call := calls[i]
-			for _, hookResult := range a.Hooks.Fire(hooks.EventPostToolUse, hooks.HookContext{Event: hooks.EventPostToolUse, ToolName: call.tool.Name(), Args: call.args, FilePath: extractFilePath(call.args), Message: result.Output}, hooks.HookRuntimeOptions{Cwd: a.WorkDir, Abort: ctx}) {
+			for _, hookResult := range a.Hooks.Fire(hooks.EventPostToolUse, hooks.HookContext{Event: hooks.EventPostToolUse, ToolName: call.tool.Name(), Args: call.args, FilePath: extractFilePath(call.args), Message: result.Output}, hooks.HookRuntimeOptions{Cwd: a.CurrentCwd(), Abort: ctx}) {
 				a.Hooks.RecordNotification(hookResult.Output)
 			}
 		}

@@ -20,19 +20,19 @@ func HasWorktreeChanges(ctx context.Context, worktreePath, headCommit string) bo
 		return true
 	}
 
-	stdout, _, code = runGit(ctx, worktreePath, "rev-list", "--count", headCommit+"..HEAD")
-	if code != 0 {
-		return true
+	head, _ := ReadWorktreeHeadSha(worktreePath)
+	if head == "" {
+		stdout, _, code = runGit(ctx, worktreePath, "rev-parse", "HEAD")
+		if code != 0 {
+			return true
+		}
+		head = strings.TrimSpace(stdout)
 	}
-	n, err := strconv.Atoi(strings.TrimSpace(stdout))
-	if err != nil {
-		return true
-	}
-	return n > 0
+	return head != headCommit
 }
 
 func CountWorktreeChanges(ctx context.Context, worktreePath, originalHeadCommit string) *ChangeSummary {
-	stdout, _, code := runGit(ctx, worktreePath, "status", "--porcelain")
+	stdout, _, code := runGit(ctx, worktreePath, "status", "--porcelain", "--untracked-files=all")
 	if code != 0 {
 		return nil
 	}
@@ -43,16 +43,12 @@ func CountWorktreeChanges(ctx context.Context, worktreePath, originalHeadCommit 
 		}
 	}
 
-	if originalHeadCommit == "" {
-		return nil
-	}
-
 	stdout, _, code = runGit(ctx, worktreePath, "rev-list", "--count", originalHeadCommit+"..HEAD")
 	if code != 0 {
 		return nil
 	}
 	commits, err := strconv.Atoi(strings.TrimSpace(stdout))
-	if err != nil {
+	if err != nil || commits < 0 || uint64(commits) > 9007199254740991 {
 		return nil
 	}
 

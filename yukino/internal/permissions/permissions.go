@@ -15,6 +15,7 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/storage"
 	"github.com/yukino-js/yukino/yukino/internal/tools"
 	"github.com/yukino-js/yukino/yukino/internal/utils"
+	"github.com/yukino-js/yukino/yukino/internal/worktree"
 )
 
 type DecisionEffect string
@@ -172,6 +173,7 @@ func ExtractContent(toolName string, args map[string]any) string {
 // PathSandbox restricts writes to the project directory plus os.TempDir();
 // extra roots can be added explicitly.
 type PathSandbox struct {
+	mu           sync.RWMutex
 	projectDir   string
 	allowedRoots []string
 }
@@ -189,16 +191,24 @@ func NewPathSandbox(projectDir string, includeTempOption ...bool) *PathSandbox {
 	return &PathSandbox{projectDir: abs, allowedRoots: roots}
 }
 
-func (s *PathSandbox) ProjectDir() string { return s.projectDir }
+func (s *PathSandbox) ProjectDir() string { s.mu.RLock(); defer s.mu.RUnlock(); return s.projectDir }
 
 func (s *PathSandbox) AddRoot(root string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.allowedRoots = append(s.allowedRoots, utils.ResolveToolPath(s.projectDir, root))
 }
 
-func (s *PathSandbox) GetAllowedRoots() []string { return s.allowedRoots }
+func (s *PathSandbox) GetAllowedRoots() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return append([]string(nil), s.allowedRoots...)
+}
 
 // Check returns nil when the path is inside an allowed root.
 func (s *PathSandbox) Check(filePath string) *Decision {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	deny := &Decision{Effect: Deny, Reason: fmt.Sprintf("Path %s is outside allowed directories", filePath)}
 	absolute, err := utils.CanonicalPath(utils.ResolveToolPath(s.projectDir, filePath), 0)
 	if err != nil {
@@ -457,9 +467,14 @@ type Checker struct {
 	modeState            *permissionModeState
 	planModeState        *planModeState
 	parent               *Checker
-	// Cwd is the working directory used to resolve relative paths in rules
-	// and tool arguments.
-	Cwd string
+	projectCwd           string
+	worktreeMu           sync.RWMutex
+	Worktrees            *worktree.OwnedWorktrees
+	extraRoots           []string
+	isolatedRoot         string
+	activeWorktree       *worktree.WorktreeSession
+	restoredCwd          string
+	enteredWorktrees     map[string]bool
 	// PlanFilePath is the only file writable while in plan mode.
 	planFilePath string
 	planPathMu   sync.RWMutex
@@ -484,11 +499,13 @@ func NewChecker(sandbox *PathSandbox, ruleEngine *RuleEngine, mode PermissionMod
 		cwd = sandbox.ProjectDir()
 	}
 	return &Checker{
-		Sandbox:       sandbox,
-		RuleEngine:    ruleEngine,
-		modeState:     &permissionModeState{value: mode, events: &modeEvents{listeners: make(map[uint64]func())}},
-		planModeState: &planModeState{},
-		Cwd:           cwd,
+		Sandbox:          sandbox,
+		RuleEngine:       ruleEngine,
+		modeState:        &permissionModeState{value: mode, events: &modeEvents{listeners: make(map[uint64]func())}},
+		planModeState:    &planModeState{},
+		projectCwd:       cwd,
+		Worktrees:        &worktree.OwnedWorktrees{},
+		enteredWorktrees: make(map[string]bool),
 	}
 }
 
@@ -516,8 +533,8 @@ func (c *Checker) checkAction(toolName string, category tools.ToolCategory, args
 	planControl := mode == ModePlan && PlanCoordinationTools[toolName]
 	planFileWrite := false
 	if mode == ModePlan && (toolName == "WriteFile" || toolName == "EditFile") && c.CurrentPlanPath() != "" {
-		target, err1 := utils.CanonicalPath(utils.ResolveToolPath(c.Cwd, filePath), 0)
-		plan, err2 := utils.CanonicalPath(utils.ResolveToolPath(c.Cwd, c.CurrentPlanPath()), 0)
+		target, err1 := utils.CanonicalPath(utils.ResolveToolPath(c.Cwd(), filePath), 0)
+		plan, err2 := utils.CanonicalPath(utils.ResolveToolPath(c.Cwd(), c.CurrentPlanPath()), 0)
 		planFileWrite = err1 == nil && err2 == nil && target == plan
 	}
 	if mode == ModePlan && category != tools.CategoryRead && !coordination && !planControl &&
@@ -585,7 +602,7 @@ func (c *Checker) checkAction(toolName string, category tools.ToolCategory, args
 
 	// Layer 4: only writes need path approval; reads and bypass mode skip it.
 	if category == tools.CategoryWrite && filePath != "" && mode != ModeBypass && c.Sandbox != nil {
-		if sandboxDecision := c.Sandbox.Check(utils.ResolveToolPath(c.Cwd, filePath)); sandboxDecision != nil && explicitEffect != Allow {
+		if sandboxDecision := c.Sandbox.Check(utils.ResolveToolPath(c.Cwd(), filePath)); sandboxDecision != nil && explicitEffect != Allow {
 			return Decision{Effect: Ask, Reason: sandboxDecision.Reason}
 		}
 	}
@@ -622,7 +639,7 @@ func (c *Checker) CheckExplicitRules(toolName string, args map[string]any) (deci
 		}
 		pattern := rule.Pattern
 		if FileTools[rule.Tool] || rule.Tool == "Glob" {
-			normalized, err := normalizePathPattern(c.Cwd, rule.Pattern)
+			normalized, err := normalizePathPattern(c.Cwd(), rule.Pattern)
 			if err != nil {
 				return &Decision{Effect: Deny, Reason: fmt.Sprintf("Permission path resolution failed: %s", err)}
 			}
@@ -699,7 +716,7 @@ func (c *Checker) CheckExplicitRules(toolName string, args map[string]any) (deci
 	} else {
 		content := rawContent
 		if FileTools[toolName] && rawContent != "" {
-			canonical, err := utils.CanonicalPath(utils.ResolveToolPath(c.Cwd, rawContent), 0)
+			canonical, err := utils.CanonicalPath(utils.ResolveToolPath(c.Cwd(), rawContent), 0)
 			if err != nil {
 				return &Decision{Effect: Deny, Reason: fmt.Sprintf("Permission path resolution failed: %s", err)}
 			}
@@ -709,7 +726,7 @@ func (c *Checker) CheckExplicitRules(toolName string, args map[string]any) (deci
 			if pathArg == "" {
 				pathArg = "."
 			}
-			normalized, err := normalizePathPattern(utils.ResolveToolPath(c.Cwd, pathArg), rawContent)
+			normalized, err := normalizePathPattern(utils.ResolveToolPath(c.Cwd(), pathArg), rawContent)
 			if err != nil {
 				return &Decision{Effect: Deny, Reason: fmt.Sprintf("Permission path resolution failed: %s", err)}
 			}
@@ -730,7 +747,7 @@ func (c *Checker) RememberPatterns(toolName string, args map[string]any) []strin
 		return nil
 	}
 	if FileTools[toolName] {
-		abs, err := utils.CanonicalPath(utils.ResolveToolPath(c.Cwd, content), 0)
+		abs, err := utils.CanonicalPath(utils.ResolveToolPath(c.Cwd(), content), 0)
 		if err != nil {
 			return nil
 		}

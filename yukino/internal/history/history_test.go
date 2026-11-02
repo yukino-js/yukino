@@ -86,14 +86,14 @@ func TestRetainsDuplicateInputsDedupesConsecutiveTexts(t *testing.T) {
 	if first.ID == second.ID {
 		t.Fatal("entries must have distinct ids")
 	}
-	inputs := LoadInputs()
+	inputs := mustHistory(LoadInputs())
 	if len(inputs) != 2 || *inputs[0].SessionID != "one" || *inputs[1].SessionID != "two" {
 		t.Fatalf("inputs = %+v", inputs)
 	}
-	if texts := LoadInputTexts(); len(texts) != 1 || texts[0] != "continue" {
+	if texts := mustHistory(LoadInputTexts()); len(texts) != 1 || texts[0] != "continue" {
 		t.Fatalf("texts = %v, want [continue]", texts)
 	}
-	projects := ListProjects()
+	projects := mustHistory(ListProjects())
 	if len(projects) != 1 {
 		t.Fatalf("projects = %+v, want 1", projects)
 	}
@@ -112,7 +112,7 @@ func TestBoundsRecallKeepsUsageAndProjects(t *testing.T) {
 	if err := RegisterProject(wd); err != nil {
 		t.Fatal(err)
 	}
-	project := ListProjects()[0]
+	project := mustHistory(ListProjects())[0]
 	help := "help"
 	var lines []string
 	for i := 0; i < MaxHistoryEntries+2; i++ {
@@ -120,7 +120,7 @@ func TestBoundsRecallKeepsUsageAndProjects(t *testing.T) {
 	}
 	appendActivity(t, lines...)
 
-	inputs := LoadInputs()
+	inputs := mustHistory(LoadInputs())
 	if len(inputs) != MaxHistoryEntries {
 		t.Fatalf("inputs = %d, want %d", len(inputs), MaxHistoryEntries)
 	}
@@ -141,24 +141,24 @@ func TestBoundsRecallKeepsUsageAndProjects(t *testing.T) {
 	if !strings.Contains(trimmed[0], `"type":"checkpoint"`) {
 		t.Fatalf("line is not a checkpoint: %s", trimmed[0][:60])
 	}
-	projects := ListProjects()
+	projects := mustHistory(ListProjects())
 	if len(projects) != 1 || projects[0].ProjectKey != project.ProjectKey {
 		t.Fatalf("projects = %+v, want %+v", projects, project)
 	}
-	usage := GetCommandUsage()["help"]
+	usage := mustHistory(GetCommandUsage()).Entries["help"]
 	if usage.UsageCount != MaxHistoryEntries+2 || usage.LastUsedAt != MaxHistoryEntries+1 {
 		t.Fatalf("usage = %+v", usage)
 	}
 	if _, err := RecordInput(InputOptions{Text: "/help", Cwd: wd, Source: "cli", CommandName: &help}); err != nil {
 		t.Fatal(err)
 	}
-	if got := GetCommandUsage()["help"].UsageCount; got != MaxHistoryEntries+3 {
+	if got := mustHistory(GetCommandUsage()).Entries["help"].UsageCount; got != MaxHistoryEntries+3 {
 		t.Fatalf("usageCount = %d, want %d", got, MaxHistoryEntries+3)
 	}
 	if err := CompactActivity(); err != nil {
 		t.Fatal(err)
 	}
-	if got := GetCommandUsage()["help"].UsageCount; got != MaxHistoryEntries+3 {
+	if got := mustHistory(GetCommandUsage()).Entries["help"].UsageCount; got != MaxHistoryEntries+3 {
 		t.Fatalf("post-compact usageCount = %d, want %d", got, MaxHistoryEntries+3)
 	}
 }
@@ -170,13 +170,13 @@ func TestRepairsIncompleteTailAndSkipsCorruptRecords(t *testing.T) {
 		t.Fatal(err)
 	}
 	appendActivity(t, "not-json\n", `{"type":"input","text":"未完成`)
-	if texts := LoadInputTexts(); len(texts) != 1 || texts[0] != "first" {
+	if texts := mustHistory(LoadInputTexts()); len(texts) != 1 || texts[0] != "first" {
 		t.Fatalf("texts = %v, want [first]", texts)
 	}
 	if _, err := RecordInput(InputOptions{Text: "last", Cwd: wd, SessionID: strPtr("one"), Source: "cli"}); err != nil {
 		t.Fatal(err)
 	}
-	if texts := LoadInputTexts(); len(texts) != 2 || texts[1] != "last" {
+	if texts := mustHistory(LoadInputTexts()); len(texts) != 2 || texts[1] != "last" {
 		t.Fatalf("texts = %v, want [first last]", texts)
 	}
 	data, err := os.ReadFile(storage.YukinoPath(ActivityFileName))
@@ -221,7 +221,7 @@ func TestCheckpointOnRecordThreshold(t *testing.T) {
 	if got := len(strings.Split(strings.TrimSpace(string(data)), "\n")); got != 1 {
 		t.Fatalf("file has %d lines after threshold checkpoint, want 1", got)
 	}
-	if got := GetCommandUsage()["help"].UsageCount; got != CompactAfterRecords-2 {
+	if got := mustHistory(GetCommandUsage()).Entries["help"].UsageCount; got != CompactAfterRecords-2 {
 		t.Fatalf("usageCount = %d, want %d", got, CompactAfterRecords-2)
 	}
 }
@@ -242,7 +242,7 @@ func TestCanonicalizesAliasesAndRegistersProjectsWithoutInput(t *testing.T) {
 	if err := RegisterProject(project); err != nil {
 		t.Fatal(err)
 	}
-	projects := ListProjects()
+	projects := mustHistory(ListProjects())
 	if len(projects) != 1 {
 		t.Fatalf("projects = %+v, want 1", projects)
 	}
@@ -253,7 +253,7 @@ func TestCanonicalizesAliasesAndRegistersProjectsWithoutInput(t *testing.T) {
 	if projects[0].Cwd != real {
 		t.Fatalf("cwd = %s, want %s", projects[0].Cwd, real)
 	}
-	if inputs := LoadInputs(); len(inputs) != 0 {
+	if inputs := mustHistory(LoadInputs()); len(inputs) != 0 {
 		t.Fatalf("inputs = %+v, want none", inputs)
 	}
 	info, err := os.Stat(storage.YukinoPath(ActivityFileName))
@@ -272,7 +272,7 @@ func TestIgnoresMismatchedProjectRegistrations(t *testing.T) {
 		t.Fatal(err)
 	}
 	appendActivity(t, `{"type":"project","cwd":"/wrong","projectKey":"`+strings.Repeat("0", 64)+`","createdAt":1}`+"\n")
-	if projects := ListProjects(); len(projects) != 1 {
+	if projects := mustHistory(ListProjects()); len(projects) != 1 {
 		t.Fatalf("projects = %+v, want 1", projects)
 	}
 }
@@ -304,10 +304,10 @@ func TestConcurrentWritersPreserveUpdatesWhileCompacting(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	if got := GetCommandUsage()["help"].UsageCount; got != 60 {
+	if got := mustHistory(GetCommandUsage()).Entries["help"].UsageCount; got != 60 {
 		t.Fatalf("usageCount = %d, want 60", got)
 	}
-	if got := len(LoadInputs()); got != 60 {
+	if got := len(mustHistory(LoadInputs())); got != 60 {
 		t.Fatalf("inputs = %d, want 60", got)
 	}
 }
@@ -332,7 +332,7 @@ func TestActivityCacheNoticesSameSizeRewriteWithRestoredMtime(t *testing.T) {
 	if _, err := RecordInput(InputOptions{Text: "first", Cwd: wd, Source: "cli"}); err != nil {
 		t.Fatal(err)
 	}
-	if texts := LoadInputTexts(); len(texts) != 1 || texts[0] != "first" {
+	if texts := mustHistory(LoadInputTexts()); len(texts) != 1 || texts[0] != "first" {
 		t.Fatal(texts)
 	}
 	path := storage.YukinoPath(ActivityFileName)
@@ -351,7 +351,14 @@ func TestActivityCacheNoticesSameSizeRewriteWithRestoredMtime(t *testing.T) {
 	if err := os.Chtimes(path, info.ModTime(), info.ModTime()); err != nil {
 		t.Fatal(err)
 	}
-	if texts := LoadInputTexts(); len(texts) != 1 || texts[0] != "other" {
+	if texts := mustHistory(LoadInputTexts()); len(texts) != 1 || texts[0] != "other" {
 		t.Fatal("history cache hid external rewrite", texts)
 	}
+}
+
+func mustHistory[T any](value T, err error) T {
+	if err != nil {
+		panic(err)
+	}
+	return value
 }

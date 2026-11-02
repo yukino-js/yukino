@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/yukino-js/yukino/yukino/internal/logger"
 	"github.com/yukino-js/yukino/yukino/internal/storage"
 	"github.com/yukino-js/yukino/yukino/internal/utils"
 )
@@ -63,9 +64,10 @@ type CommandUsage struct {
 }
 
 type ActivityState struct {
-	Projects     map[string]ProjectInfo  `json:"projects"`
-	Inputs       []InputEntry            `json:"inputs"`
-	CommandUsage map[string]CommandUsage `json:"commandUsage"`
+	Projects          map[string]ProjectInfo  `json:"projects"`
+	Inputs            []InputEntry            `json:"inputs"`
+	CommandUsage      map[string]CommandUsage `json:"commandUsage"`
+	commandUsageOrder []string
 }
 
 type projectRecord struct {
@@ -92,6 +94,7 @@ type loadedActivity struct {
 var (
 	cacheMu        sync.Mutex
 	cachedActivity = map[string]*loadedActivity{}
+	log            = logger.CreateChildLogger("history")
 )
 
 func emptyState() ActivityState {
@@ -106,23 +109,30 @@ func activityFilePath() string {
 	return storage.YukinoPath(ActivityFileName)
 }
 
-func fileSignature(path string) string {
+func fileSignature(path string) (string, error) {
 	info, err := os.Stat(path)
 	if err != nil {
-		return ""
+		return "", err
 	}
-	return platformFileSignature(path, info)
+	return platformFileSignature(path, info), nil
 }
 
-func validateProject(key string, project ProjectInfo) error {
+func validateProjectFields(project ProjectInfo) error {
 	if !projectKeyRe.MatchString(project.ProjectKey) {
 		return errors.New("invalid projectKey")
 	}
 	if !filepath.IsAbs(project.Cwd) {
 		return errors.New("cwd must be absolute")
 	}
-	if project.CreatedAt < 0 {
-		return errors.New("negative createdAt")
+	if project.CreatedAt < 0 || project.CreatedAt > 9007199254740991 {
+		return errors.New("invalid createdAt")
+	}
+	return nil
+}
+
+func validateProject(key string, project ProjectInfo) error {
+	if err := validateProjectFields(project); err != nil {
+		return err
 	}
 	if key != project.ProjectKey {
 		return errors.New(InvalidProjectMessage)
@@ -144,8 +154,28 @@ func applyRecord(state ActivityState, raw []byte) (ActivityState, error) {
 	if err := json.Unmarshal(raw, &head); err != nil {
 		return state, err
 	}
+	var usageOrder []string
+	if head.Type == "checkpoint" {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			return state, err
+		}
+		var err error
+		usageOrder, err = objectKeys(fields["commandUsage"])
+		if err != nil {
+			return state, err
+		}
+	}
+	normalized, err := normalizeActivityNumbers(raw, head.Type)
+	if err != nil {
+		return state, err
+	}
+	raw = normalized
 	switch head.Type {
 	case "checkpoint":
+		if err := validateCheckpointShape(raw); err != nil {
+			return state, err
+		}
 		var record checkpointRecord
 		if err := json.Unmarshal(raw, &record); err != nil {
 			return state, err
@@ -153,17 +183,19 @@ func applyRecord(state ActivityState, raw []byte) (ActivityState, error) {
 		next := emptyState()
 		for key, project := range record.Projects {
 			if err := validateProject(key, project); err != nil {
+				log.Error(map[string]any{"err": err}, "parse activity project failed")
 				continue
 			}
 			next.Projects[key] = project
 		}
 		next.Inputs = record.Inputs
 		next.CommandUsage = record.CommandUsage
-		if next.CommandUsage == nil {
-			next.CommandUsage = map[string]CommandUsage{}
-		}
+		next.commandUsageOrder = usageOrder
 		return next, nil
 	case "project":
+		if err := validateProjectShape(raw, true); err != nil {
+			return state, err
+		}
 		var record projectRecord
 		if err := json.Unmarshal(raw, &record); err != nil {
 			return state, err
@@ -177,6 +209,9 @@ func applyRecord(state ActivityState, raw []byte) (ActivityState, error) {
 		}
 		return state, nil
 	case "input":
+		if err := validateInputShape(raw); err != nil {
+			return state, err
+		}
 		var record InputEntry
 		if err := json.Unmarshal(raw, &record); err != nil {
 			return state, err
@@ -189,6 +224,9 @@ func applyRecord(state ActivityState, raw []byte) (ActivityState, error) {
 			state.Inputs = state.Inputs[len(state.Inputs)-MaxHistoryEntries:]
 		}
 		if record.CommandName != nil {
+			if _, exists := state.CommandUsage[*record.CommandName]; !exists {
+				state.commandUsageOrder = append(state.commandUsageOrder, *record.CommandName)
+			}
 			entry := state.CommandUsage[*record.CommandName]
 			entry.UsageCount++
 			if record.Timestamp > entry.LastUsedAt {
@@ -202,10 +240,10 @@ func applyRecord(state ActivityState, raw []byte) (ActivityState, error) {
 }
 
 func validateInput(record InputEntry) error {
-	if _, err := uuid.Parse(record.ID); err != nil {
+	if !inputIDPattern.MatchString(record.ID) {
 		return errors.New("invalid input id")
 	}
-	if record.Timestamp < 0 {
+	if record.Timestamp < 0 || record.Timestamp > 9007199254740991 {
 		return errors.New("negative timestamp")
 	}
 	if !filepath.IsAbs(record.Cwd) {
@@ -217,6 +255,9 @@ func validateInput(record InputEntry) error {
 	if !validSources[record.Source] {
 		return fmt.Errorf("invalid source %q", record.Source)
 	}
+	if record.Type != "input" {
+		return errors.New("invalid input type")
+	}
 	if record.Text == "" {
 		return errors.New("text must not be empty")
 	}
@@ -226,20 +267,26 @@ func validateInput(record InputEntry) error {
 	return nil
 }
 
-func readActivity(filePath string) *loadedActivity {
+func readActivity(filePath string) (*loadedActivity, error) {
 	if _, err := os.Stat(filePath); err != nil {
-		return &loadedActivity{state: emptyState()}
+		if os.IsNotExist(err) {
+			return &loadedActivity{state: emptyState()}, nil
+		}
+		return nil, err
 	}
-	current := fileSignature(filePath)
+	current, err := fileSignature(filePath)
+	if err != nil {
+		return nil, err
+	}
 	cacheMu.Lock()
 	cached, ok := cachedActivity[filePath]
 	cacheMu.Unlock()
 	if ok && cached.signature == current {
-		return cached
+		return cached, nil
 	}
 	content, err := storage.ReadPrivateFileSync(filePath)
 	if err != nil {
-		return &loadedActivity{state: emptyState()}
+		return nil, err
 	}
 	completeBytes := int64(strings.LastIndex(string(content), "\n")) + 1
 	state := emptyState()
@@ -251,12 +298,17 @@ func readActivity(filePath string) *loadedActivity {
 		recordCount++
 		next, err := applyRecord(state, []byte(line))
 		if err != nil {
+			log.Error(map[string]any{"err": err}, "parse activity record failed")
 			continue
 		}
 		state = next
 	}
+	signature, err := fileSignature(filePath)
+	if err != nil {
+		return nil, err
+	}
 	loaded := &loadedActivity{
-		signature:     fileSignature(filePath),
+		signature:     signature,
 		state:         state,
 		recordCount:   recordCount,
 		completeBytes: completeBytes,
@@ -264,7 +316,7 @@ func readActivity(filePath string) *loadedActivity {
 	cacheMu.Lock()
 	cachedActivity[filePath] = loaded
 	cacheMu.Unlock()
-	return loaded
+	return loaded, nil
 }
 
 func writeCheckpoint(filePath string, loaded *loadedActivity) error {
@@ -275,7 +327,7 @@ func writeCheckpoint(filePath string, loaded *loadedActivity) error {
 		Inputs:       loaded.state.Inputs,
 		CommandUsage: loaded.state.CommandUsage,
 	}
-	data, err := json.Marshal(record)
+	data, err := marshalCheckpoint(record, loaded.state.commandUsageOrder)
 	if err != nil {
 		return err
 	}
@@ -288,26 +340,50 @@ func writeCheckpoint(filePath string, loaded *loadedActivity) error {
 		return err
 	}
 	loaded.recordCount = 1
-	if info, err := os.Stat(filePath); err == nil {
-		loaded.completeBytes = info.Size()
+	info, err := os.Stat(filePath)
+	if err != nil {
+		return err
 	}
+	loaded.completeBytes = info.Size()
 	return nil
 }
 
-func updateActivity(buildRecords func(state ActivityState) [][]byte, compact bool) error {
+func updateActivity(buildRecords func(state ActivityState) ([][]byte, error), compact bool) error {
 	if err := storage.MkdirPrivateSync(storage.GetYukinoDir()); err != nil {
 		return err
 	}
 	filePath := activityFilePath()
-	return storage.WithFileSyncLock(filePath, func() error {
-		loaded := readActivity(filePath)
-		records := buildRecords(loaded.state)
-		if info, err := os.Stat(filePath); err == nil && info.Size() != loaded.completeBytes {
-			// Drop a torn trailing line so appends stay parseable.
-			if f, err := os.OpenFile(filePath, os.O_WRONLY, 0); err == nil {
-				_ = f.Truncate(loaded.completeBytes)
-				f.Close()
+	return storage.WithFileSyncLock(filePath, func() (resultErr error) {
+		defer func() {
+			if resultErr != nil {
+				cacheMu.Lock()
+				delete(cachedActivity, filePath)
+				cacheMu.Unlock()
 			}
+		}()
+		loaded, err := readActivity(filePath)
+		if err != nil {
+			return err
+		}
+		records, err := buildRecords(loaded.state)
+		if err != nil {
+			return err
+		}
+		if info, err := os.Stat(filePath); err == nil && info.Size() != loaded.completeBytes {
+			f, err := storage.OpenPrivateFile(filePath, os.O_WRONLY|os.O_APPEND)
+			if err != nil {
+				return err
+			}
+			truncateErr := f.Truncate(loaded.completeBytes)
+			closeErr := f.Close()
+			if truncateErr != nil {
+				return truncateErr
+			}
+			if closeErr != nil {
+				return closeErr
+			}
+		} else if err != nil && !os.IsNotExist(err) {
+			return err
 		}
 		if len(records) > 0 {
 			var content []byte
@@ -316,15 +392,14 @@ func updateActivity(buildRecords func(state ActivityState) [][]byte, compact boo
 				content = append(content, '\n')
 			}
 			if err := storage.AppendPrivateFileSync(filePath, content); err != nil {
-				cacheMu.Lock()
-				delete(cachedActivity, filePath)
-				cacheMu.Unlock()
 				return err
 			}
 			for _, record := range records {
-				if next, err := applyRecord(loaded.state, record); err == nil {
-					loaded.state = next
+				next, err := applyRecord(loaded.state, record)
+				if err != nil {
+					return err
 				}
+				loaded.state = next
 			}
 			loaded.recordCount += len(records)
 			loaded.completeBytes += int64(len(content))
@@ -332,15 +407,17 @@ func updateActivity(buildRecords func(state ActivityState) [][]byte, compact boo
 		if compact || loaded.recordCount >= CompactAfterRecords {
 			if err := writeCheckpoint(filePath, loaded); err != nil {
 				if len(records) == 0 {
-					cacheMu.Lock()
-					delete(cachedActivity, filePath)
-					cacheMu.Unlock()
 					return err
 				}
+				log.Error(map[string]any{"err": err}, "compact activity failed")
 			}
 		}
 		if _, err := os.Stat(filePath); err == nil {
-			loaded.signature = fileSignature(filePath)
+			signature, err := fileSignature(filePath)
+			if err != nil {
+				return err
+			}
+			loaded.signature = signature
 			cacheMu.Lock()
 			cachedActivity[filePath] = loaded
 			cacheMu.Unlock()
@@ -349,13 +426,13 @@ func updateActivity(buildRecords func(state ActivityState) [][]byte, compact boo
 	})
 }
 
-func projectRecords(cwd string, state ActivityState) [][]byte {
+func projectRecords(cwd string, state ActivityState) ([][]byte, error) {
 	key, err := storage.ProjectKey(cwd)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	if _, exists := state.Projects[key]; exists {
-		return nil
+		return nil, nil
 	}
 	record := projectRecord{
 		Type:       "project",
@@ -365,9 +442,9 @@ func projectRecords(cwd string, state ActivityState) [][]byte {
 	}
 	data, err := json.Marshal(record)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	return [][]byte{data}
+	return [][]byte{data}, nil
 }
 
 func RegisterProject(cwd string) error {
@@ -375,7 +452,7 @@ func RegisterProject(cwd string) error {
 	if err != nil {
 		return err
 	}
-	return updateActivity(func(state ActivityState) [][]byte {
+	return updateActivity(func(state ActivityState) ([][]byte, error) {
 		return projectRecords(canonical, state)
 	}, false)
 }
@@ -384,6 +461,14 @@ func RecordInput(options InputOptions) (InputEntry, error) {
 	canonical, err := utils.CanonicalPath(options.Cwd, 0)
 	if err != nil {
 		return InputEntry{}, err
+	}
+	if options.SessionID != nil {
+		value := *options.SessionID
+		options.SessionID = &value
+	}
+	if options.CommandName != nil {
+		value := *options.CommandName
+		options.CommandName = &value
 	}
 	entry := InputEntry{
 		Type:        "input",
@@ -402,8 +487,12 @@ func RecordInput(options InputOptions) (InputEntry, error) {
 	if err != nil {
 		return InputEntry{}, err
 	}
-	err = updateActivity(func(state ActivityState) [][]byte {
-		return append(projectRecords(canonical, state), data)
+	err = updateActivity(func(state ActivityState) ([][]byte, error) {
+		records, err := projectRecords(canonical, state)
+		if err != nil {
+			return nil, err
+		}
+		return append(records, data), nil
 	}, false)
 	if err != nil {
 		return InputEntry{}, err
@@ -411,61 +500,81 @@ func RecordInput(options InputOptions) (InputEntry, error) {
 	return entry, nil
 }
 
-func queryState(read func(state ActivityState)) {
+func queryState(read func(state ActivityState)) error {
 	filePath := activityFilePath()
 	if _, err := os.Stat(filePath); err != nil {
+		if !os.IsNotExist(err) {
+			return err
+		}
 		read(emptyState())
-		return
+		return nil
 	}
-	_ = storage.WithFileSyncLock(filePath, func() error {
-		read(readActivity(filePath).state)
+	return storage.WithFileSyncLock(filePath, func() error {
+		loaded, err := readActivity(filePath)
+		if err != nil {
+			return err
+		}
+		read(loaded.state)
 		return nil
 	})
 }
 
-func LoadInputs() []InputEntry {
-	var inputs []InputEntry
-	queryState(func(state ActivityState) {
-		inputs = append([]InputEntry{}, state.Inputs...)
+func LoadInputs() ([]InputEntry, error) {
+	inputs := []InputEntry{}
+	err := queryState(func(state ActivityState) {
+		for _, input := range state.Inputs {
+			if input.SessionID != nil {
+				value := *input.SessionID
+				input.SessionID = &value
+			}
+			if input.CommandName != nil {
+				value := *input.CommandName
+				input.CommandName = &value
+			}
+			inputs = append(inputs, input)
+		}
 	})
-	return inputs
+	return inputs, err
 }
 
-func LoadInputTexts() []string {
-	var texts []string
-	for _, input := range LoadInputs() {
+func LoadInputTexts() ([]string, error) {
+	inputs, err := LoadInputs()
+	if err != nil {
+		return nil, err
+	}
+	texts := []string{}
+	for _, input := range inputs {
 		if len(texts) == 0 || texts[len(texts)-1] != input.Text {
 			texts = append(texts, input.Text)
 		}
 	}
-	return texts
+	return texts, nil
 }
 
-func GetCommandUsage() map[string]CommandUsage {
-	usage := map[string]CommandUsage{}
-	queryState(func(state ActivityState) {
+func GetCommandUsage() (CommandUsageSnapshot, error) {
+	usage := CommandUsageSnapshot{Entries: map[string]CommandUsage{}}
+	err := queryState(func(state ActivityState) {
 		for name, entry := range state.CommandUsage {
-			usage[name] = entry
+			usage.Entries[name] = entry
 		}
+		usage.Order = jsObjectOrder(state.commandUsageOrder)
 	})
-	return usage
+	return usage, err
 }
 
-func ListProjects() []ProjectInfo {
-	var projects []ProjectInfo
-	queryState(func(state ActivityState) {
+func ListProjects() ([]ProjectInfo, error) {
+	projects := []ProjectInfo{}
+	err := queryState(func(state ActivityState) {
 		for _, project := range state.Projects {
 			projects = append(projects, project)
 		}
 	})
-	sort.Slice(projects, func(i, j int) bool {
-		return projects[i].ProjectKey < projects[j].ProjectKey
-	})
-	return projects
+	sort.Slice(projects, func(i, j int) bool { return projects[i].ProjectKey < projects[j].ProjectKey })
+	return projects, err
 }
 
 func CompactActivity() error {
-	return updateActivity(func(state ActivityState) [][]byte {
-		return nil
+	return updateActivity(func(state ActivityState) ([][]byte, error) {
+		return nil, nil
 	}, true)
 }

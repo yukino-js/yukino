@@ -43,7 +43,6 @@ func TestCreateToolRegistryInteractiveOrder(t *testing.T) {
 		InteractionMode: "interactive",
 		TeamMgr:         teamMgr,
 		WorkDir:         t.TempDir(),
-		SessionID:       "sess-1",
 	})
 	names := registryToolNames(dt.Registry)
 	// The reference order (ComputerUse has no Go counterpart).

@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -14,7 +15,7 @@ func TestHasWorktreeChanges_Clean(t *testing.T) {
 	}
 
 	repo := t.TempDir()
-	initTestRepo(t, repo)
+	initBareRepoWithCommit(t, repo)
 
 	cmd := exec.Command("git", "rev-parse", "HEAD")
 	cmd.Dir = repo
@@ -22,7 +23,7 @@ func TestHasWorktreeChanges_Clean(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	head := trimNewline(string(out))
+	head := strings.TrimSpace(string(out))
 
 	if HasWorktreeChanges(context.Background(), repo, head) {
 		t.Fatal("expected no changes in clean repo")
@@ -35,12 +36,12 @@ func TestHasWorktreeChanges_Dirty(t *testing.T) {
 	}
 
 	repo := t.TempDir()
-	initTestRepo(t, repo)
+	initBareRepoWithCommit(t, repo)
 
 	cmd := exec.Command("git", "rev-parse", "HEAD")
 	cmd.Dir = repo
 	out, _ := cmd.Output()
-	head := trimNewline(string(out))
+	head := strings.TrimSpace(string(out))
 
 	os.WriteFile(filepath.Join(repo, "dirty.txt"), []byte("dirty"), 0o644)
 
@@ -55,12 +56,12 @@ func TestHasWorktreeChanges_NewCommit(t *testing.T) {
 	}
 
 	repo := t.TempDir()
-	initTestRepo(t, repo)
+	initBareRepoWithCommit(t, repo)
 
 	cmd := exec.Command("git", "rev-parse", "HEAD")
 	cmd.Dir = repo
 	out, _ := cmd.Output()
-	head := trimNewline(string(out))
+	head := strings.TrimSpace(string(out))
 
 	os.WriteFile(filepath.Join(repo, "new.txt"), []byte("new"), 0o644)
 	exec.Command("git", "-C", repo, "add", ".").Run()
@@ -83,12 +84,12 @@ func TestCountWorktreeChanges_Clean(t *testing.T) {
 	}
 
 	repo := t.TempDir()
-	initTestRepo(t, repo)
+	initBareRepoWithCommit(t, repo)
 
 	cmd := exec.Command("git", "rev-parse", "HEAD")
 	cmd.Dir = repo
 	out, _ := cmd.Output()
-	head := trimNewline(string(out))
+	head := strings.TrimSpace(string(out))
 
 	summary := CountWorktreeChanges(context.Background(), repo, head)
 	if summary == nil {
@@ -96,20 +97,6 @@ func TestCountWorktreeChanges_Clean(t *testing.T) {
 	}
 	if summary.ChangedFiles != 0 || summary.Commits != 0 {
 		t.Fatalf("expected 0/0, got %d/%d", summary.ChangedFiles, summary.Commits)
-	}
-}
-
-func TestCountWorktreeChanges_EmptyHeadCommit(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not on PATH")
-	}
-
-	repo := t.TempDir()
-	initTestRepo(t, repo)
-
-	summary := CountWorktreeChanges(context.Background(), repo, "")
-	if summary != nil {
-		t.Fatal("expected nil with empty head commit (fail-closed)")
 	}
 }
 

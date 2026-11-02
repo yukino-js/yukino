@@ -36,3 +36,6 @@ const GoalUpdateRequiresStatusReason = "Updating a goal requires status and reas
 const GoalInvalidStatusError = "Goal update accepts only 'in_progress', 'complete', or 'blocked'. A goal is active as soon as the user sets it. Only the user can pause or resume a goal."
 
 const GoalInvalidArgsError = "Goal expects action 'get' or 'update'. Updating requires status 'in_progress', 'complete', or 'blocked' and a non-empty reason; no other fields are accepted."
+
+const SlugInvalidError = "Error: slug must contain only alphanumeric, hyphen, underscore"
+const WorktreeRuntimeRequiredError = "Error: a runtime permission checker is required for worktree sessions"

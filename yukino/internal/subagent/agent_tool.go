@@ -234,15 +234,31 @@ func (t *AgentTool) runDefinition(ctx context.Context, spec SubAgentSpec, descri
 			return tools.ToolResult{Output: err.Error(), IsError: true}
 		}
 	}
+	checker := t.ParentChecker
+	if runtime, ok := tools.RuntimeContext(ctx); ok && runtime.Plan != nil {
+		if scoped, ok := runtime.Plan.Owner.(*permissions.Checker); ok {
+			checker = scoped
+		}
+	}
 	cwd := ""
-	if t.ParentChecker != nil {
-		cwd = t.ParentChecker.Cwd
+	if runtime, ok := tools.RuntimeContext(ctx); ok {
+		cwd = runtime.WorkDir
+	}
+	if cwd == "" && checker != nil {
+		cwd = checker.Cwd()
 	}
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}
+	if checker == nil {
+		checker = permissions.NewChecker(permissions.NewPathSandbox(cwd, true), permissions.NewRuleEngine(cwd), permissions.ModeDefault)
+	}
 	if isolate {
-		wt, err := worktree.CreateAgentWorktreeAt(ctx, generateAgentSlug(description), cwd)
+		wt, err := worktree.CreateAgentWorktree(ctx, generateAgentSlug(description), "", cwd)
+		if err != nil {
+			return tools.ToolResult{Output: "Error creating agent worktree: " + err.Error(), IsError: true}
+		}
+		checker, err = checker.ForWorktree(ctx, *wt)
 		if err != nil {
 			return tools.ToolResult{Output: "Error creating agent worktree: " + err.Error(), IsError: true}
 		}
@@ -252,7 +268,7 @@ func (t *AgentTool) runDefinition(ctx context.Context, spec SubAgentSpec, descri
 	sessionID := session.NewID()
 	transcriptPath, _ := storage.SessionPath(sessionID, "transcript.jsonl")
 	run := func(runCtx context.Context) tools.ToolResult {
-		result := t.runChild(runCtx, spec, description, prompt, model, cwd, snapshot, background, sessionID, transcriptPath)
+		result := t.runChild(runCtx, spec, description, prompt, model, cwd, snapshot, background, sessionID, transcriptPath, checker)
 		if isolate {
 			result.Output += "\n\nWorktree retained at: " + cwd
 		}
@@ -284,7 +300,7 @@ func (t *AgentTool) runDefinition(ctx context.Context, spec SubAgentSpec, descri
 	}
 	return tools.ToolResult{Output: fmt.Sprintf("Background agent '%s' started (task_id: %s). Its result will arrive as a task notification.", description, id)}
 }
-func (t *AgentTool) runChild(ctx context.Context, spec SubAgentSpec, description, prompt, model, cwd string, snapshot *conversation.Manager, background bool, sessionID, transcriptPath string) tools.ToolResult {
+func (t *AgentTool) runChild(ctx context.Context, spec SubAgentSpec, description, prompt, model, cwd string, snapshot *conversation.Manager, background bool, sessionID, transcriptPath string, checker *permissions.Checker) tools.ToolResult {
 	registry := FilterToolsForAgent(t.Registry, spec.Tools, spec.DisallowedTools, background, spec.PermissionMode)
 	defer registry.Dispose()
 	client, err := t.selectClient(spec, model, cwd)
@@ -307,10 +323,6 @@ func (t *AgentTool) runChild(ctx context.Context, spec SubAgentSpec, description
 	}
 	child.WorkDir = cwd
 	child.MaxIterations = spec.MaxTurns
-	checker := t.ParentChecker
-	if checker == nil {
-		checker = permissions.NewChecker(permissions.NewPathSandbox(cwd, true), permissions.NewRuleEngine(cwd), permissions.ModeDefault)
-	}
 	child.Checker = checker.ForSubagent(cwd, permissions.PermissionMode(spec.PermissionMode))
 	child.Checker.ReadOnly = spec.ReadOnly || checker.ReadOnly
 	child.Instructions = memory.LoadInstructions(cwd)
@@ -387,7 +399,7 @@ func deriveSubAgentChecker(parent *permissions.Checker, mode string) *permission
 	if parent == nil {
 		return nil
 	}
-	return parent.ForSubagent(parent.Cwd, permissions.PermissionMode(mode))
+	return parent.ForSubagent(parent.Cwd(), permissions.PermissionMode(mode))
 }
 
 func emitProgress(ch chan<- SubAgentProgress, ctx context.Context, p SubAgentProgress) {
@@ -442,8 +454,26 @@ func (t *AgentTool) runAsTeammate(ctx context.Context, targetTeam, description, 
 	registry.Register(&teams.SendMessageTool{TeamMgr: t.TeamMgr, SenderName: memberName, TeamName: team.Name})
 	registry.Register(&teams.TeamTodoWriteTool{TeamMgr: t.TeamMgr, TeamName: team.Name, AgentName: memberName})
 	cwd := team.Cwd
+	parent := t.ParentChecker
+	if runtime, ok := tools.RuntimeContext(ctx); ok {
+		if runtime.WorkDir != "" {
+			cwd = runtime.WorkDir
+		}
+		if runtime.Plan != nil {
+			if scoped, ok := runtime.Plan.Owner.(*permissions.Checker); ok {
+				parent = scoped
+			}
+		}
+	}
+	if parent == nil {
+		parent = permissions.NewChecker(permissions.NewPathSandbox(cwd, true), permissions.NewRuleEngine(cwd), permissions.ModeDefault)
+	}
+	inherited := parent
 	if isolate {
-		wt, err := worktree.CreateAgentWorktreeAt(ctx, generateAgentSlug(description), cwd)
+		wt, err := worktree.CreateAgentWorktree(ctx, generateAgentSlug(description), "", cwd)
+		if err == nil {
+			inherited, err = parent.ForWorktree(ctx, *wt)
+		}
 		if err != nil {
 			registry.Dispose()
 			return tools.ToolResult{Output: "Error creating teammate worktree: " + err.Error(), IsError: true}
@@ -451,11 +481,7 @@ func (t *AgentTool) runAsTeammate(ctx context.Context, targetTeam, description, 
 		prompt = worktree.BuildWorktreeNotice(cwd, wt.WorktreePath) + "\n\n" + prompt
 		cwd = wt.WorktreePath
 	}
-	parent := t.ParentChecker
-	if parent == nil {
-		parent = permissions.NewChecker(permissions.NewPathSandbox(cwd, true), permissions.NewRuleEngine(cwd), permissions.ModeDefault)
-	}
-	checker := parent.ForSubagent(cwd, permissions.PermissionMode(spec.PermissionMode))
+	checker := inherited.ForSubagent(cwd, permissions.PermissionMode(spec.PermissionMode))
 	checker.Teammate = true
 	checker.ReadOnly = spec.ReadOnly || parent.ReadOnly
 	t.TeamMgr.SetPermissionChecker(parent)

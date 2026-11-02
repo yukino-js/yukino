@@ -5,11 +5,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 )
-
-var safeRefName = regexp.MustCompile(`^[a-zA-Z0-9/._+@-]+$`)
 
 func IsSafeRefName(name string) bool {
 	if name == "" || strings.HasPrefix(name, "-") || strings.HasPrefix(name, "/") {
@@ -26,15 +23,10 @@ func IsSafeRefName(name string) bool {
 	return safeRefName.MatchString(name)
 }
 
-var sha1Pattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
-var sha256Pattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
-
-func IsValidGitSha(s string) bool {
-	return sha1Pattern.MatchString(s) || sha256Pattern.MatchString(s)
-}
+func IsValidGitSha(s string) bool { return shaPattern.MatchString(s) }
 
 func ResolveGitDir(root string) (string, error) {
-	gitPath := filepath.Join(root, ".git")
+	gitPath := filepath.Join(root, GitDirName)
 	st, err := os.Stat(gitPath)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -48,10 +40,10 @@ func ResolveGitDir(root string) (string, error) {
 			return "", err
 		}
 		content := strings.TrimSpace(string(raw))
-		if !strings.HasPrefix(content, "gitdir:") {
+		if !strings.HasPrefix(content, GitdirPrefix) {
 			return "", nil
 		}
-		rel := strings.TrimSpace(strings.TrimPrefix(content, "gitdir:"))
+		rel := strings.TrimSpace(strings.TrimPrefix(content, GitdirPrefix))
 		if filepath.IsAbs(rel) {
 			return rel, nil
 		}
@@ -89,10 +81,10 @@ func readGitHead(gitDir string) (*gitHead, error) {
 		return nil, err
 	}
 	content := strings.TrimSpace(string(raw))
-	if strings.HasPrefix(content, "ref:") {
-		ref := strings.TrimSpace(strings.TrimPrefix(content, "ref:"))
-		if strings.HasPrefix(ref, "refs/heads/") {
-			name := strings.TrimPrefix(ref, "refs/heads/")
+	if strings.HasPrefix(content, RefPrefix) {
+		ref := strings.TrimSpace(strings.TrimPrefix(content, RefPrefix))
+		if strings.HasPrefix(ref, RefsHeadsPrefix) {
+			name := strings.TrimPrefix(ref, RefsHeadsPrefix)
 			if !IsSafeRefName(name) {
 				return nil, nil
 			}
@@ -114,7 +106,11 @@ func readGitHead(gitDir string) (*gitHead, error) {
 }
 
 func ResolveRef(gitDir, ref string) (string, error) {
-	sha, err := resolveRefInDir(gitDir, ref)
+	return resolveRef(gitDir, ref, make(map[string]bool))
+}
+
+func resolveRef(gitDir, ref string, seen map[string]bool) (string, error) {
+	sha, err := resolveRefInDir(gitDir, ref, seen)
 	if err != nil {
 		return "", err
 	}
@@ -126,21 +122,26 @@ func ResolveRef(gitDir, ref string) (string, error) {
 		return "", err
 	}
 	if commonDir != "" && commonDir != gitDir {
-		return resolveRefInDir(commonDir, ref)
+		return resolveRefInDir(commonDir, ref, seen)
 	}
 	return "", nil
 }
 
-func resolveRefInDir(dir, ref string) (string, error) {
+func resolveRefInDir(dir, ref string, seen map[string]bool) (string, error) {
+	key := dir + "\x00" + ref
+	if len(seen) >= MaxRefResolutionDepth || seen[key] {
+		return "", nil
+	}
+	seen[key] = true
 	raw, err := os.ReadFile(filepath.Join(dir, ref))
 	if err == nil {
 		content := strings.TrimSpace(string(raw))
-		if strings.HasPrefix(content, "ref:") {
-			target := strings.TrimSpace(strings.TrimPrefix(content, "ref:"))
+		if strings.HasPrefix(content, RefPrefix) {
+			target := strings.TrimSpace(strings.TrimPrefix(content, RefPrefix))
 			if !IsSafeRefName(target) {
 				return "", nil
 			}
-			return ResolveRef(dir, target)
+			return resolveRef(dir, target, seen)
 		}
 		if !IsValidGitSha(content) {
 			return "", nil
@@ -177,63 +178,6 @@ func resolveRefInDir(dir, ref string) (string, error) {
 	return "", nil
 }
 
-func ReadRawSymref(gitDir, refPath, branchPrefix string) (string, error) {
-	raw, err := os.ReadFile(filepath.Join(gitDir, refPath))
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return "", nil
-		}
-		return "", err
-	}
-	content := strings.TrimSpace(string(raw))
-	if !strings.HasPrefix(content, "ref:") {
-		return "", nil
-	}
-	target := strings.TrimSpace(strings.TrimPrefix(content, "ref:"))
-	if !strings.HasPrefix(target, branchPrefix) {
-		return "", nil
-	}
-	name := strings.TrimPrefix(target, branchPrefix)
-	if !IsSafeRefName(name) {
-		return "", nil
-	}
-	return name, nil
-}
-
-func GetDefaultBranch(repoRoot string) (string, error) {
-	gitDir, err := ResolveGitDir(repoRoot)
-	if err != nil {
-		return "main", err
-	}
-	if gitDir == "" {
-		return "main", nil
-	}
-	commonDir, err := GetCommonDir(gitDir)
-	if err != nil {
-		return "main", err
-	}
-	if commonDir == "" {
-		commonDir = gitDir
-	}
-	branch, err := ReadRawSymref(commonDir, "refs/remotes/origin/HEAD", "refs/remotes/origin/")
-	if err != nil {
-		return "main", err
-	}
-	if branch != "" {
-		return branch, nil
-	}
-	for _, candidate := range []string{"main", "master"} {
-		sha, err := ResolveRef(commonDir, "refs/remotes/origin/"+candidate)
-		if err != nil {
-			return "main", err
-		}
-		if sha != "" {
-			return candidate, nil
-		}
-	}
-	return "main", nil
-}
-
 func GetCurrentBranch(repoRoot string) (string, error) {
 	gitDir, err := ResolveGitDir(repoRoot)
 	if err != nil || gitDir == "" {
@@ -247,7 +191,7 @@ func GetCurrentBranch(repoRoot string) (string, error) {
 }
 
 func ReadWorktreeHeadSha(worktreePath string) (string, error) {
-	raw, err := os.ReadFile(filepath.Join(worktreePath, ".git"))
+	raw, err := os.ReadFile(filepath.Join(worktreePath, GitDirName))
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return "", nil
@@ -255,10 +199,10 @@ func ReadWorktreeHeadSha(worktreePath string) (string, error) {
 		return "", err
 	}
 	ptr := strings.TrimSpace(string(raw))
-	if !strings.HasPrefix(ptr, "gitdir:") {
+	if !strings.HasPrefix(ptr, GitdirPrefix) {
 		return "", nil
 	}
-	rel := strings.TrimSpace(strings.TrimPrefix(ptr, "gitdir:"))
+	rel := strings.TrimSpace(strings.TrimPrefix(ptr, GitdirPrefix))
 	var gitDir string
 	if filepath.IsAbs(rel) {
 		gitDir = rel
@@ -273,7 +217,7 @@ func ReadWorktreeHeadSha(worktreePath string) (string, error) {
 		return "", nil
 	}
 	if head.branch != "" {
-		return ResolveRef(gitDir, "refs/heads/"+head.branch)
+		return ResolveRef(gitDir, RefsHeadsPrefix+head.branch)
 	}
 	return head.sha, nil
 }

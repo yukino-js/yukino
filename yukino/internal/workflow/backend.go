@@ -153,13 +153,13 @@ func (b *yukinoBackend) Run(params *AgentRunParams, ctx *AgentAdapterContext) (r
 		checker = permissions.NewChecker(permissions.NewPathSandbox(cwd, true), permissions.NewRuleEngine(cwd), permissions.ModeDefault)
 	}
 
-	var wt *worktree.AgentWorktreeResult
+	var wt *worktree.WorktreeResult
 	defer func() {
 		if wt == nil {
 			return
 		}
 		if !worktree.HasWorktreeChanges(context.Background(), wt.WorktreePath, wt.HeadCommit) {
-			if !worktree.RemoveAgentWorktree(context.Background(), wt.WorktreePath, wt.WorktreeBranch, wt.GitRoot) {
+			if err := worktree.RemoveAgentWorktree(context.Background(), wt.WorktreePath, wt.WorktreeBranch, wt.GitRoot, false); err != nil {
 				backendLog.Warn(map[string]any{"path": wt.WorktreePath}, "workflow worktree cleanup failed")
 			}
 		} else {
@@ -171,7 +171,7 @@ func (b *yukinoBackend) Run(params *AgentRunParams, ctx *AgentAdapterContext) (r
 		return result, err
 	}
 	if params.Isolation == "worktree" {
-		created, err := worktree.CreateAgentWorktreeAt(ctx.Ctx, fmt.Sprintf("wf_%s_%d", ctx.RunID, ctx.AgentID), cwd)
+		created, err := worktree.CreateAgentWorktree(ctx.Ctx, fmt.Sprintf("wf_%s_%d", ctx.RunID, ctx.AgentID), "", cwd)
 		if err != nil {
 			return DeadResult("worktree-failed", ErrorString(err)), nil
 		}
@@ -219,7 +219,11 @@ func (b *yukinoBackend) Run(params *AgentRunParams, ctx *AgentAdapterContext) (r
 	runChecker := checker
 	if wt != nil {
 		runCwd = wt.WorktreePath
-		runChecker = checker.ForCwd(wt.WorktreePath)
+		var err error
+		runChecker, err = checker.ForWorktree(ctx.Ctx, *wt)
+		if err != nil {
+			return DeadResult("worktree-failed", ErrorString(err)), nil
+		}
 	}
 	output, err := subagent.SpawnSubagent(spawnCtx, definition, promptText, client, registry, provider, runCwd, nil, onEvent, params.Model, runChecker, subagent.SubagentRunOptions{
 		Background:      true,

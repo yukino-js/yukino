@@ -31,7 +31,6 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/todo"
 	"github.com/yukino-js/yukino/yukino/internal/tools"
 	"github.com/yukino-js/yukino/yukino/internal/workflow"
-	"github.com/yukino-js/yukino/yukino/internal/worktree"
 )
 
 // errGoalCommand signals that a /goal print-mode invocation failed; main exits
@@ -168,14 +167,11 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 
 	teamMgr := teams.NewTeamManager(wd)
 	teamMgr.CoordinatorMode = cfg.EnableCoordinatorMode
-	gitRoot := worktree.FindCanonicalGitRoot(wd)
 
 	defaultTools := bootstrap.CreateToolRegistry(todoList, bootstrap.ToolRegistryOptions{
 		InteractionMode: "non-interactive",
 		TeamMgr:         teamMgr,
 		WorkDir:         wd,
-		SessionID:       sessionID,
-		RepoRoot:        gitRoot,
 		GoalManager:     func() *goal.GoalManager { return goalManager },
 	})
 	registry := defaultTools.Registry

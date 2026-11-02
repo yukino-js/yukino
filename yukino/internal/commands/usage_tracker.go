@@ -21,14 +21,19 @@ func (t CommandUsageTracker) score(entry history.CommandUsage, found bool, now t
 	return float64(entry.UsageCount) * math.Max(recency, CommandMinRecencyWeight)
 }
 
-func (t CommandUsageTracker) GetScore(name string) float64 {
-	usage, found := history.GetCommandUsage()[name]
-	return t.score(usage, found, time.Now())
+func (t CommandUsageTracker) GetScore(name string) (float64, error) {
+	entries, err := history.GetCommandUsage()
+	if err != nil {
+		return 0, err
+	}
+	usage, found := entries.Entries[name]
+	return t.score(usage, found, time.Now()), nil
 }
 
-func (t CommandUsageTracker) GetRecentlyUsed(limit int) []string {
-	if limit <= 0 {
-		return nil
+func (t CommandUsageTracker) GetRecentlyUsed(limits ...int) ([]string, error) {
+	limit := 5
+	if len(limits) > 0 {
+		limit = limits[0]
 	}
 	now := time.Now()
 	type scored struct {
@@ -36,18 +41,25 @@ func (t CommandUsageTracker) GetRecentlyUsed(limit int) []string {
 		score float64
 	}
 	var entries []scored
-	for name, usage := range history.GetCommandUsage() {
-		if s := t.score(usage, true, now); s > 0 {
+	usage, err := history.GetCommandUsage()
+	if err != nil {
+		return nil, err
+	}
+	for _, name := range usage.Order {
+		if s := t.score(usage.Entries[name], true, now); s > 0 {
 			entries = append(entries, scored{name: name, score: s})
 		}
 	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].score > entries[j].score })
-	out := make([]string, 0, limit)
+	sort.SliceStable(entries, func(i, j int) bool { return entries[i].score > entries[j].score })
+	if limit < 0 {
+		limit = max(0, len(entries)+limit)
+	}
+	out := make([]string, 0, min(limit, len(entries)))
 	for i, entry := range entries {
 		if i >= limit {
 			break
 		}
 		out = append(out, entry.name)
 	}
-	return out
+	return out, nil
 }

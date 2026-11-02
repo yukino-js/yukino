@@ -46,8 +46,6 @@ type ToolRegistryOptions struct {
 	TeamMgr         *teams.TeamManager
 
 	WorkDir     string
-	SessionID   string
-	RepoRoot    string
 	GoalManager func() *goal.GoalManager
 }
 
@@ -76,9 +74,9 @@ func CreateToolRegistry(taskList *todo.TaskList, opts ToolRegistryOptions) tools
 	if enableModelPlanMode {
 		registry.Register(&tools.EnterPlanModeTool{Registry: registry})
 	}
-	registry.Register(&tools.EnterWorktreeTool{SessionID: opts.SessionID, RepoRoot: opts.RepoRoot})
+	registry.Register(&tools.EnterWorktreeTool{})
 	registry.Register(&tools.ExitPlanModeTool{})
-	registry.Register(&tools.ExitWorktreeTool{RepoRoot: opts.RepoRoot})
+	registry.Register(&tools.ExitWorktreeTool{})
 	registry.Register(&tools.ReadFileTool{FileStateCache: fileStateCache})
 	registry.Register(&tools.ToolSearchTool{Registry: registry})
 	registry.Register(&tools.McpCallTool{Registry: registry})

@@ -132,10 +132,18 @@ func (c *Checker) ForCwd(cwd string) *Checker {
 	checker.RequiresLeaderPlanApproval = c.RequiresLeaderPlanApproval
 	checker.SandboxEnabled = c.SandboxEnabled
 	checker.SandboxAutoAllow = c.SandboxAutoAllow
-	if c.Sandbox != nil {
-		for _, root := range c.Sandbox.GetAllowedRoots()[1:] {
-			checker.Sandbox.AddRoot(root)
-		}
+	c.worktreeMu.RLock()
+	checker.Worktrees = c.Worktrees
+	checker.extraRoots = append([]string(nil), c.extraRoots...)
+	checker.isolatedRoot = c.isolatedRoot
+	c.worktreeMu.RUnlock()
+	root := cwd
+	if checker.isolatedRoot != "" {
+		root = checker.isolatedRoot
+	}
+	checker.Sandbox = NewPathSandbox(root, checker.isolatedRoot == "")
+	for _, root := range checker.extraRoots {
+		checker.Sandbox.AddRoot(root)
 	}
 	return checker
 }

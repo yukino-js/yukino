@@ -3,138 +3,80 @@ package tools
 import (
 	"context"
 	"fmt"
-	"strings"
+	"os"
 
 	"github.com/yukino-js/yukino/yukino/internal/worktree"
 )
 
-type ExitWorktreeTool struct {
-	RepoRoot string
-}
+type ExitWorktreeTool struct{}
 
-func (t *ExitWorktreeTool) Name() string { return "ExitWorktree" }
-
-func (t *ExitWorktreeTool) Category() ToolCategory { return CategoryCommand }
-
-func (t *ExitWorktreeTool) Description() string {
-	return "Exits a worktree session created by EnterWorktree and restores the original working directory"
-}
-
+func (t *ExitWorktreeTool) Name() string           { return "ExitWorktree" }
+func (t *ExitWorktreeTool) Category() ToolCategory { return CategoryWrite }
+func (t *ExitWorktreeTool) Description() string    { return ExitWorktreeDescription }
 func (t *ExitWorktreeTool) Schema() map[string]any {
-	return map[string]any{
-		"name":        t.Name(),
-		"description": t.Description(),
-		"input_schema": map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"action": map[string]any{
-					"type":        "string",
-					"enum":        []string{"keep", "remove"},
-					"description": `"keep" leaves the worktree and branch on disk; "remove" deletes both.`,
-				},
-				"discard_changes": map[string]any{
-					"type":        "boolean",
-					"description": `Required true when action is "remove" and the worktree has uncommitted files or unmerged commits. The tool will refuse and list them otherwise.`,
-				},
-			},
-			"required": []string{"action"},
-		},
-	}
+	return map[string]any{"name": t.Name(), "description": t.Description(), "input_schema": map[string]any{
+		"type": "object", "properties": map[string]any{
+			"action":          map[string]any{"type": "string", "enum": []string{"keep", "remove"}, "description": WorktreeActionDescription},
+			"discard_changes": map[string]any{"type": "boolean", "description": WorktreeDiscardChangesDescription},
+		}, "required": []string{"action"}, "additionalProperties": false,
+	}}
 }
-
 func (t *ExitWorktreeTool) Execute(ctx context.Context, args map[string]any) ToolResult {
-	session := worktree.GetCurrentWorktreeSession()
-	if session == nil {
-		return ToolResult{
-			Output:  "No-op: there is no active EnterWorktree session to exit. This tool only operates on worktrees created by EnterWorktree in the current session — it will not touch worktrees created manually or in a previous session. No filesystem changes were made.",
-			IsError: true,
+	for key := range args {
+		if key != "action" && key != "discard_changes" {
+			return ToolResult{Output: "Error: unrecognized key: " + key, IsError: true}
 		}
 	}
-
 	action, _ := args["action"].(string)
-	discardChanges, _ := args["discard_changes"].(bool)
-
-	repoRoot := t.RepoRoot
-	if repoRoot == "" {
-		repoRoot = session.OriginalCwd
+	if action != "keep" && action != "remove" {
+		return ToolResult{Output: `Error: action must be "keep" or "remove"`, IsError: true}
 	}
-
-	if action == "remove" && !discardChanges {
-		summary := worktree.CountWorktreeChanges(ctx, session.WorktreePath, session.OriginalHeadCommit)
-		if summary == nil {
-			return ToolResult{
-				Output: fmt.Sprintf(
-					"Could not verify worktree state at %s. Refusing to remove without explicit confirmation. Re-invoke with discard_changes: true to proceed — or use action: \"keep\" to preserve the worktree.",
-					session.WorktreePath,
-				),
-				IsError: true,
-			}
+	discard := false
+	if value, exists := args["discard_changes"]; exists {
+		flag, ok := value.(bool)
+		if !ok {
+			return ToolResult{Output: "Error: discard_changes must be a boolean", IsError: true}
 		}
-		if summary.ChangedFiles > 0 || summary.Commits > 0 {
-			var parts []string
-			if summary.ChangedFiles > 0 {
-				word := "files"
-				if summary.ChangedFiles == 1 {
-					word = "file"
-				}
-				parts = append(parts, fmt.Sprintf("%d uncommitted %s", summary.ChangedFiles, word))
-			}
-			if summary.Commits > 0 {
-				word := "commits"
-				if summary.Commits == 1 {
-					word = "commit"
-				}
-				branchName := session.WorktreeBranch
-				if branchName == "" {
-					branchName = "the worktree branch"
-				}
-				parts = append(parts, fmt.Sprintf("%d %s on %s", summary.Commits, word, branchName))
-			}
-			return ToolResult{
-				Output: fmt.Sprintf(
-					"Worktree has %s. Removing will discard this work permanently. Confirm with the user, then re-invoke with discard_changes: true — or use action: \"keep\" to preserve the worktree.",
-					strings.Join(parts, " and "),
-				),
-				IsError: true,
-			}
+		discard = flag
+	}
+	runtime, _ := RuntimeContext(ctx)
+	if runtime.Worktrees == nil {
+		return ToolResult{Output: worktree.NoWorktreeSessionMessage, IsError: true}
+	}
+	session := runtime.Worktrees.WorktreeSession()
+	if session == nil {
+		return ToolResult{Output: worktree.NoWorktreeSessionMessage, IsError: true}
+	}
+	info, err := os.Stat(session.OriginalCwd)
+	if err == nil && !info.IsDir() {
+		err = fmt.Errorf("Original working directory is unavailable: %s", session.OriginalCwd)
+	}
+	var changes *worktree.ChangeSummary
+	if err == nil && action == "remove" {
+		changes, err = runtime.Worktrees.RemoveWorktree(ctx, session.WorktreePath, discard)
+	}
+	clearSession := func() {
+		runtime.Worktrees.LeaveWorktree()
+		if runtime.FileStateCache != nil {
+			runtime.FileStateCache.Clear()
 		}
 	}
-
-	originalCwd := session.OriginalCwd
-	worktreePath := session.WorktreePath
-	worktreeBranch := session.WorktreeBranch
-
-	if action == "keep" {
-		if err := worktree.KeepWorktree(repoRoot); err != nil {
-			return ToolResult{
-				Output:  fmt.Sprintf("Error keeping worktree: %s", err),
-				IsError: true,
-			}
+	if err != nil {
+		log.Error(map[string]any{"err": err}, "tool operation failed")
+		message := "Error exiting worktree: " + err.Error()
+		if _, statErr := os.Stat(session.WorktreePath); os.IsNotExist(statErr) {
+			clearSession()
+			message += fmt.Sprintf(" The worktree directory no longer exists. Session restored to %s; the branch may remain.", session.OriginalCwd)
 		}
-
-		branchInfo := ""
-		if worktreeBranch != "" {
-			branchInfo = " on branch " + worktreeBranch
-		}
-		return ToolResult{
-			Output: fmt.Sprintf(
-				"Exited worktree. Your work is preserved at %s%s. Session is now back in %s.",
-				worktreePath, branchInfo, originalCwd,
-			),
+		return ToolResult{Output: message, IsError: true}
+	}
+	clearSession()
+	result := fmt.Sprintf("Your work is preserved at %s on branch %s.", session.WorktreePath, session.WorktreeBranch)
+	if action == "remove" {
+		result = fmt.Sprintf("Removed worktree at %s and branch %s.", session.WorktreePath, session.WorktreeBranch)
+		if changes != nil {
+			result += fmt.Sprintf(" Discarded %d uncommitted files and %d commits.", changes.ChangedFiles, changes.Commits)
 		}
 	}
-
-	if err := worktree.CleanupWorktree(ctx, repoRoot); err != nil {
-		return ToolResult{
-			Output:  fmt.Sprintf("Error removing worktree: %s", err),
-			IsError: true,
-		}
-	}
-
-	return ToolResult{
-		Output: fmt.Sprintf(
-			"Exited and removed worktree at %s. Session is now back in %s.",
-			worktreePath, originalCwd,
-		),
-	}
+	return ToolResult{Output: fmt.Sprintf("Exited worktree. %s Session is now back in %s.", result, session.OriginalCwd)}
 }

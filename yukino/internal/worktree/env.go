@@ -3,9 +3,19 @@ package worktree
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 )
+
+func gitOutput(ctx context.Context, dir string, args ...string) (string, error) {
+	out, stderr, code := runGit(ctx, dir, args...)
+	if code != 0 {
+		return "", fmt.Errorf("git %s: %s", strings.Join(args, " "), strings.TrimSpace(stderr))
+	}
+	return out, nil
+}
 
 func gitNoPromptEnv() []string {
 	return append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=")

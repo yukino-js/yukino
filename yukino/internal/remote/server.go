@@ -40,7 +40,6 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/todo"
 	"github.com/yukino-js/yukino/yukino/internal/tools"
 	"github.com/yukino-js/yukino/yukino/internal/workflow"
-	"github.com/yukino-js/yukino/yukino/internal/worktree"
 )
 
 type wsMessage struct {
@@ -363,8 +362,6 @@ func (s *Server) initAgent() error {
 		s.memoryExtractor = installMemExtractor(ag, wd, p.Protocol, client, s.registry, s.conv)
 	}
 
-	worktree.StartCleanupLoop(context.Background())
-
 	return nil
 }
 
@@ -390,14 +387,11 @@ func (s *Server) registerTools(client llm.Client, p *config.ProviderConfig, wd s
 	loader.LoadAll()
 	s.teamMgr = teams.NewTeamManager(wd)
 	s.teamMgr.CoordinatorMode = s.enableCoordinatorMode
-	gitRoot := worktree.FindCanonicalGitRoot(wd)
 
 	s.defaultTools = bootstrap.CreateToolRegistry(s.todoList, bootstrap.ToolRegistryOptions{
 		InteractionMode: "interactive",
 		TeamMgr:         s.teamMgr,
 		WorkDir:         wd,
-		SessionID:       s.sessionID,
-		RepoRoot:        gitRoot,
 		GoalManager:     func() *goal.GoalManager { return s.goal() },
 	})
 	s.registry = s.defaultTools.Registry

@@ -4,6 +4,8 @@ package vscode
 
 import "golang.org/x/sys/windows"
 
+const processStillActiveExitCode = 259
+
 // isPidAlive mirrors process.kill(pid, 0) via OpenProcess: a running process
 // reports STILL_ACTIVE.
 func isPidAlive(pid int) bool {
@@ -16,5 +18,5 @@ func isPidAlive(pid int) bool {
 	if err := windows.GetExitCodeProcess(handle, &exitCode); err != nil {
 		return false
 	}
-	return exitCode == windows.STILL_ACTIVE
+	return exitCode == processStillActiveExitCode
 }

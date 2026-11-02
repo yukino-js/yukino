@@ -31,3 +31,9 @@ const GoalDescription = "Get the user-set persistent goal, or report in_progress
 const GoalActionDescription = "Read goal status, or report progress, completion, or blockage."
 const GoalStatusDescription = "Required for update. Use in_progress to report progress and reset the blocker audit on an active goal, complete when verified, or blocked for an unavoidable blocker."
 const GoalReasonDescription = "Required for update. Describe progress, evidence of completion, or the specific blocker."
+
+const EnterWorktreeDescription = "Create an isolated git worktree and switch this agent's working directory into it. Use only when the user explicitly requests a worktree. Only one worktree session may be active at a time. The optional slug is generated randomly when omitted. Use ExitWorktree to return to the original directory."
+const ExitWorktreeDescription = "Exit this agent's active EnterWorktree session and restore its original working directory. Use only when the user asks to leave the worktree. With no active session this is a no-op. Use action: keep to preserve the worktree and branch, or remove to delete both. Removal refuses uncommitted files, new commits, or unverifiable state unless discard_changes is true. If removal is refused, confirm with the user before retrying with discard_changes: true. Manually created worktrees and worktrees from other runtimes are never adopted."
+const WorktreeSlugDescription = "Optional worktree identifier and branch suffix, using letters, digits, hyphens, or underscores. A random slug is generated when omitted."
+const WorktreeActionDescription = `"keep" preserves the worktree and branch; "remove" deletes both.`
+const WorktreeDiscardChangesDescription = "Explicitly allow discarding uncommitted files and new commits, or removing when changes cannot be verified. Confirm with the user before setting true. Only applies to remove."

@@ -87,7 +87,11 @@ func (m *Model) activateInitialProvider(p *config.ProviderConfig) tea.Cmd {
 	}
 	m.wireSkillsToAgent()
 	m.memoryExtractor = m.installMemoryExtractor(ag, wd, p.Protocol)
-	m.historyEntries = history.LoadInputTexts()
+	entries, err := history.LoadInputTexts()
+	if err != nil {
+		m.chatMessages = append(m.chatMessages, chatMessage{role: "error", content: "Unable to load input history: " + err.Error()})
+	}
+	m.historyEntries = entries
 	m.state = stateChat
 	m.textarea.Focus()
 	m.updateViewport()

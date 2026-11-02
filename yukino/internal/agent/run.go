@@ -15,6 +15,7 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/goal"
 	"github.com/yukino-js/yukino/yukino/internal/hooks"
 	"github.com/yukino-js/yukino/yukino/internal/llm"
+	"github.com/yukino-js/yukino/yukino/internal/memory"
 	"github.com/yukino-js/yukino/yukino/internal/permissions"
 	"github.com/yukino-js/yukino/yukino/internal/plan_file"
 	"github.com/yukino-js/yukino/yukino/internal/prompt"
@@ -151,10 +152,21 @@ func (a *Agent) runTurn(ctx context.Context, ch chan AgentEvent, conv *conversat
 	coordinating := a.CoordinatorActiveFn != nil && a.CoordinatorActiveFn()
 	guidance := prompt.BuildToolGuidance(names, coordinating)
 	if guidance == "" && conv.HasReminderContaining(prompt.ToolGuidanceMarker) {
-		guidance = prompt.ToolGuidanceMarker + "\nNo tools are currently callable. Return findings or blockers without issuing tool calls."
+		guidance = prompt.ToolGuidanceMarker + "\n" + NoCallableToolsReminder
 	}
 	if guidance != "" {
 		conv.AddSystemReminderIfChanged(prompt.ToolGuidanceMarker, guidance)
+	}
+	if a.Checker != nil {
+		wt := a.Checker.WorktreeSession()
+		if wt != nil || conv.HasReminderContaining(WorkingDirectoryMarker) {
+			branch := ""
+			if wt != nil {
+				branch = wt.WorktreeBranch
+			}
+			cwd := a.CurrentCwd()
+			conv.AddSystemReminderIfChanged(WorkingDirectoryMarker, BuildWorkingDirectoryReminder(cwd, branch, memory.LoadInstructions(cwd)))
+		}
 	}
 	goalReminder := ""
 	if a.GoalManager != nil {
@@ -189,7 +201,7 @@ func (a *Agent) runTurn(ctx context.Context, ch chan AgentEvent, conv *conversat
 	}
 	deferredGuidance := prompt.BuildDeferredToolGuidance(deferred, names, a.Registry.McpLoadingMode == tools.McpLoadingDispatch)
 	if deferredGuidance == "" && conv.HasReminderContaining(prompt.DeferredGuidanceMarker) {
-		deferredGuidance = prompt.DeferredGuidanceMarker + "\nNo deferred tools can currently be discovered and invoked. Do not use earlier deferred-tool lists."
+		deferredGuidance = prompt.DeferredGuidanceMarker + "\n" + NoDeferredToolsReminder
 	}
 	if deferredGuidance != "" {
 		conv.AddSystemReminderIfChanged(prompt.DeferredGuidanceMarker, deferredGuidance)
@@ -211,7 +223,7 @@ func (a *Agent) runTurn(ctx context.Context, ch chan AgentEvent, conv *conversat
 	}
 	if a.SkillDeltaFn != nil {
 		if delta := a.SkillDeltaFn(); delta != "" {
-			conv.AddSystemReminder("The following skills became available:\n" + delta)
+			conv.AddSystemReminder(NewSkillsReminderPrefix + delta)
 		}
 	}
 	a.emitHook(hooks.EventTurnStart, "", nil)
@@ -385,11 +397,11 @@ func (a *Agent) runTurn(ctx context.Context, ch chan AgentEvent, conv *conversat
 		if !state.escalated && state.maxOutput < ceiling {
 			state.maxOutput = ceiling
 			state.escalated = true
-			recovery = "Output token limit hit. Resume directly from where you stopped. Do not apologize or repeat previous content. Pick up mid-thought if needed."
+			recovery = MaxTokensResumePrompt
 			reason = "max_tokens escalation"
 		} else if state.outputRecoveries < maxOutputTokensRecoveries {
 			state.outputRecoveries++
-			recovery = "Output token limit hit. Resume directly from where you stopped. Break remaining work into smaller pieces."
+			recovery = MaxTokensRecoveryPrompt
 			reason = fmt.Sprintf("max_tokens recovery %d/%d", state.outputRecoveries, maxOutputTokensRecoveries)
 		}
 		if recovery != "" {
@@ -409,7 +421,7 @@ func (a *Agent) runTurn(ctx context.Context, ch chan AgentEvent, conv *conversat
 	var uses []conversation.ToolUseBlock
 	for _, call := range calls {
 		if stopReason == "max_tokens" {
-			call.ParseError = "The response hit the output token limit, so tool arguments may be truncated. Re-issue the call with complete arguments"
+			call.ParseError = MaxTokensTruncatedArgsNotice
 		}
 		if state.summarizingGoal || budgetLimited {
 			call.ParseError = GoalBudgetLimitedNotice
@@ -463,7 +475,7 @@ func (a *Agent) runTurn(ctx context.Context, ch chan AgentEvent, conv *conversat
 	results := executor.ExecuteAll(ctx, a)
 	exempt := map[string]bool{}
 	for _, call := range calls {
-		if tool_result.IsSpillReadback(call.ToolName, call.Arguments, a.WorkDir, a.SessionID) {
+		if tool_result.IsSpillReadback(call.ToolName, call.Arguments, a.CurrentCwd(), a.SessionID) {
 			exempt[call.ToolID] = true
 		}
 	}

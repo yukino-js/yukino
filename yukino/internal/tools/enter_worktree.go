@@ -2,86 +2,54 @@ package tools
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/yukino-js/yukino/yukino/internal/worktree"
 )
 
-type EnterWorktreeTool struct {
-	SessionID string
-	RepoRoot  string
-}
+type EnterWorktreeTool struct{}
 
-func (t *EnterWorktreeTool) Name() string { return "EnterWorktree" }
-
-func (t *EnterWorktreeTool) Category() ToolCategory { return CategoryCommand }
-
-func (t *EnterWorktreeTool) Description() string {
-	return "Creates an isolated worktree (via git) and switches the session into it"
-}
-
+func (t *EnterWorktreeTool) Name() string           { return "EnterWorktree" }
+func (t *EnterWorktreeTool) Category() ToolCategory { return CategoryWrite }
+func (t *EnterWorktreeTool) Description() string    { return EnterWorktreeDescription }
 func (t *EnterWorktreeTool) Schema() map[string]any {
-	return map[string]any{
-		"name":        t.Name(),
-		"description": t.Description(),
-		"input_schema": map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"name": map[string]any{
-					"type":        "string",
-					"description": `Optional name for the worktree. Each "/"-separated segment may contain only letters, digits, dots, underscores, and dashes; max 64 chars total. A random name is generated if not provided.`,
-				},
-			},
-		},
-	}
+	return map[string]any{"name": t.Name(), "description": t.Description(), "input_schema": map[string]any{
+		"type": "object", "properties": map[string]any{"slug": map[string]any{"type": "string", "description": WorktreeSlugDescription}}, "additionalProperties": false,
+	}}
 }
-
 func (t *EnterWorktreeTool) Execute(ctx context.Context, args map[string]any) ToolResult {
-	if worktree.GetCurrentWorktreeSession() != nil {
-		return ToolResult{
-			Output:  "Already in a worktree session",
-			IsError: true,
+	for key := range args {
+		if key != "slug" {
+			return ToolResult{Output: "Error: unrecognized key: " + key, IsError: true}
 		}
 	}
-
-	slug, _ := args["name"].(string)
-	if slug == "" {
-		slug = generateWorktreeSlug()
-	}
-
-	repoRoot := t.RepoRoot
-	if repoRoot == "" {
-		return ToolResult{
-			Output:  "Error: not in a git repository",
-			IsError: true,
+	slug := uuid.NewString()
+	if value, exists := args["slug"]; exists {
+		text, ok := value.(string)
+		if !ok || !worktree.WorktreeSlugPattern.MatchString(text) {
+			return ToolResult{Output: SlugInvalidError, IsError: true}
 		}
+		slug = text
 	}
-
-	session, err := worktree.CreateWorktreeForSession(ctx, t.SessionID, slug, repoRoot)
+	runtime, _ := RuntimeContext(ctx)
+	if runtime.Worktrees == nil {
+		return ToolResult{Output: WorktreeRuntimeRequiredError, IsError: true}
+	}
+	if runtime.Worktrees.WorktreeSession() != nil {
+		return ToolResult{Output: worktree.WorktreeAlreadyActiveError, IsError: true}
+	}
+	cwd := workingDirectory(ctx)
+	wt, err := worktree.CreateAgentWorktree(ctx, slug, "", cwd)
+	if err == nil {
+		err = runtime.Worktrees.EnterWorktree(ctx, *wt, cwd)
+	}
 	if err != nil {
-		return ToolResult{
-			Output:  fmt.Sprintf("Error creating worktree: %s", err),
-			IsError: true,
-		}
+		log.Error(map[string]any{"err": err}, "tool operation failed")
+		return ToolResult{Output: "Error creating worktree: " + err.Error(), IsError: true}
 	}
-
-	branchInfo := ""
-	if session.WorktreeBranch != "" {
-		branchInfo = " on branch " + session.WorktreeBranch
+	if runtime.FileStateCache != nil {
+		runtime.FileStateCache.Clear()
 	}
-
-	return ToolResult{
-		Output: fmt.Sprintf(
-			"Created worktree at %s%s. The session is now working in the worktree. Use ExitWorktree to leave mid-session, or exit the session to be prompted.",
-			session.WorktreePath, branchInfo,
-		),
-	}
-}
-
-func generateWorktreeSlug() string {
-	b := make([]byte, 4)
-	_, _ = rand.Read(b)
-	return "wt-" + hex.EncodeToString(b)
+	return ToolResult{Output: fmt.Sprintf("Entered worktree at %s\nBranch: %s\nHead: %s\nThe session is now working in the worktree. Use ExitWorktree with action: \"keep\" or \"remove\" to return to %s.", wt.WorktreePath, wt.WorktreeBranch, wt.HeadCommit, cwd)}
 }
