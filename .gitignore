@@ -173,3 +173,4 @@ target
 
 .playwright-cli/
 **/.claude
+!yukino/internal/remote/browser/dist
