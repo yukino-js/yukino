@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"sync"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/yukino-js/yukino/yukino/internal/conversation"
@@ -71,7 +70,6 @@ func (m Model) runGoalCommand(args string) (tea.Model, tea.Cmd) {
 	m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: result.Message})
 	commitText := m.renderMessagesRange(m.committedUpTo, len(m.chatMessages))
 	m.committedUpTo = len(m.chatMessages)
-	m.updateViewport()
 
 	if result.Prompt == "" || m.client == nil || m.ag == nil {
 		if commitText != "" {
@@ -87,14 +85,9 @@ func (m Model) runGoalCommand(args string) (tea.Model, tea.Cmd) {
 	m.conversation.AppendMessages([]conversation.Message{recorded.ToConversation()})
 
 	m.streaming = true
-	m.thinking = true
-	m.thinkingStart = time.Now()
-	m.thinkingDone = 0
 
 	prefetchCh := m.prefetchRelevantMemories(result.Prompt)
-	m.streamBuf = ""
-	m.toolBlocks = nil
-	m.userScrolled = false
+	m.prepareOutput()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancelStream = cancel
@@ -107,5 +100,5 @@ func (m Model) runGoalCommand(args string) (tea.Model, tea.Cmd) {
 	startAgentCmd := func() tea.Msg {
 		return agentReadyMsg{ch: ag.Run(ctx, conv)}
 	}
-	return m, tea.Batch(tea.Println(commitText), startAgentCmd, m.listenForAskUser(), m.listenForSubAgentProgress(), m.spinner.Tick)
+	return m, tea.Batch(tea.Println(commitText), startAgentCmd, m.spinner.Tick)
 }

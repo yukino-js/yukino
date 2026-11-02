@@ -3,10 +3,8 @@ package ui
 import (
 	"context"
 	"os"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/yukino-js/yukino/yukino/internal/commands"
 	"github.com/yukino-js/yukino/yukino/internal/conversation"
 	"github.com/yukino-js/yukino/yukino/internal/history"
@@ -34,22 +32,18 @@ func (m Model) sendMessage(text string) (tea.Model, tea.Cmd) {
 	m.historyDraft = nil
 
 	m.streaming = true
-	m.thinking = true
-	m.thinkingStart = time.Now()
-	m.thinkingDone = 0
 	m.atMenuOpen = false
 	m.atMatches = nil
 
 	m.chatMessages = append(m.chatMessages, chatMessage{role: "user", content: text})
-	userLine := promptStyle.Render("❯ ") + lipgloss.NewStyle().Foreground(brightText).Bold(true).Render(text)
+	userLine := m.renderMessage(m.chatMessages[len(m.chatMessages)-1])
 	m.committedUpTo = len(m.chatMessages)
 	m.conversation.AppendMessages([]conversation.Message{recorded.ToConversation()})
 
 	prefetchCh := m.prefetchRelevantMemories(expanded)
 
-	m.streamBuf = ""
+	m.prepareOutput()
 	m.toolBlocks = nil
-	m.userScrolled = false
 
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancelStream = cancel
@@ -62,8 +56,7 @@ func (m Model) sendMessage(text string) (tea.Model, tea.Cmd) {
 		return agentReadyMsg{ch: ag.Run(ctx, conv)}
 	}
 
-	m.updateViewport()
-	return m, tea.Batch(tea.Println(userLine), startAgentCmd, m.listenForAskUser(), m.listenForSubAgentProgress(), m.spinner.Tick)
+	return m, tea.Batch(tea.Println(userLine), startAgentCmd, m.spinner.Tick)
 }
 
 func (m Model) sendPromptCommand(displayText, prompt, agentRole string) (tea.Model, tea.Cmd) {
@@ -78,14 +71,11 @@ func (m Model) sendPromptCommand(displayText, prompt, agentRole string) (tea.Mod
 	m.historyDraft = nil
 
 	m.streaming = true
-	m.thinking = true
-	m.thinkingStart = time.Now()
-	m.thinkingDone = 0
 	m.atMenuOpen = false
 	m.atMatches = nil
 
 	m.chatMessages = append(m.chatMessages, chatMessage{role: "user", content: displayText})
-	userLine := promptStyle.Render("❯ ") + lipgloss.NewStyle().Foreground(brightText).Bold(true).Render(displayText)
+	userLine := m.renderMessage(m.chatMessages[len(m.chatMessages)-1])
 	m.committedUpTo = len(m.chatMessages)
 	if agentRole == "" {
 		recorded, err := session.SaveUserMessage(wd, m.sessionID, input, session.Message{Content: prompt})
@@ -97,9 +87,8 @@ func (m Model) sendPromptCommand(displayText, prompt, agentRole string) (tea.Mod
 
 	prefetchCh := m.prefetchRelevantMemories(prompt)
 
-	m.streamBuf = ""
+	m.prepareOutput()
 	m.toolBlocks = nil
-	m.userScrolled = false
 
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancelStream = cancel
@@ -115,13 +104,11 @@ func (m Model) sendPromptCommand(displayText, prompt, agentRole string) (tea.Mod
 		return agentReadyMsg{ch: ag.Run(ctx, conv)}
 	}
 
-	m.updateViewport()
-	return m, tea.Batch(tea.Println(userLine), startAgentCmd, m.listenForAskUser(), m.listenForSubAgentProgress(), m.spinner.Tick)
+	return m, tea.Batch(tea.Println(userLine), startAgentCmd, m.spinner.Tick)
 }
 
 func (m Model) inputError(err error) (tea.Model, tea.Cmd) {
 	m.activityError = err.Error()
 	m.chatMessages = append(m.chatMessages, chatMessage{role: "error", content: err.Error()})
-	m.updateViewport()
 	return m, nil
 }

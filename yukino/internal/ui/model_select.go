@@ -76,13 +76,11 @@ func (m Model) openModelDialog() (tea.Model, tea.Cmd) {
 	m.modelCustomMode = false
 	m.modelCustomText = ""
 	m.modelCustomCursor = 0
-	m.updateViewport()
 	return m, m.startModelDiscovery()
 }
 
 func (m Model) closeModelDialog() (tea.Model, tea.Cmd) {
 	m.modelDialog = false
-	m.updateViewport()
 	return m, nil
 }
 
@@ -172,7 +170,6 @@ func (m Model) handleModelDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	}
-	m.updateViewport()
 	return m, nil
 }
 
@@ -219,7 +216,6 @@ func (m Model) handleModelTextField(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.modelCustomCursor = position + len(inserted)
 		}
 	}
-	m.updateViewport()
 	return m, nil
 }
 
@@ -234,7 +230,6 @@ func (m Model) applyModelSelection(modelID string) (tea.Model, tea.Cmd) {
 			role:    "system",
 			content: fmt.Sprintf("Model already set to %s.", nextModel),
 		})
-		m.updateViewport()
 		return m, nil
 	}
 	updated := *m.selectedProvider
@@ -247,7 +242,6 @@ func (m Model) applyModelSelection(modelID string) (tea.Model, tea.Cmd) {
 			role:    "error",
 			content: fmt.Sprintf("Failed to switch model: %s", err),
 		})
-		m.updateViewport()
 		return m, nil
 	}
 	m.client = client
@@ -283,7 +277,6 @@ func (m Model) applyModelSelection(modelID string) (tea.Model, tea.Cmd) {
 		note = fmt.Sprintf("Model set to %s for this session.", updated.Model)
 	}
 	m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: note})
-	m.updateViewport()
 	return m, nil
 }
 

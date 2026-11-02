@@ -42,7 +42,6 @@ func (m Model) handleResume(args string) (tea.Model, tea.Cmd) {
 		sessions := listResumableSessions(wd)
 		if len(sessions) == 0 {
 			m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: "No sessions found."})
-			m.updateViewport()
 			return m, nil
 		}
 		return m.openResumeDialog(sessions)
@@ -58,7 +57,6 @@ func (m Model) handleResume(args string) (tea.Model, tea.Cmd) {
 		if len(sessions) > 0 {
 			return m.openResumeDialog(sessions)
 		}
-		m.updateViewport()
 		return m, nil
 	}
 	return m.doResumeSession(wd, arg, saved)
@@ -70,7 +68,6 @@ func (m Model) openResumeDialog(sessions []session.SessionInfo) (tea.Model, tea.
 	m.resumeFocusedID = m.sessionID
 	m.resumeFocusSet = true
 	m.resumeDialog = true
-	m.updateViewport()
 	return m, nil
 }
 
@@ -98,7 +95,6 @@ func (m Model) handleResumeDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.resumeDialog = false
-		m.updateViewport()
 		return m, nil
 	case "up", "down":
 		if len(matches) > 0 {
@@ -111,7 +107,6 @@ func (m Model) handleResumeDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.resumeFocusedID = matches[next].ID
 			m.resumeFocusSet = true
 		}
-		m.updateViewport()
 		return m, nil
 	case "enter":
 		if len(matches) > 0 {
@@ -132,7 +127,6 @@ func (m Model) handleResumeDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.resumeFocusSet = true
 			}
 		}
-		m.updateViewport()
 		return m, nil
 	}
 }
@@ -214,7 +208,6 @@ func (m Model) doResumeSession(wd, targetID string, saved []session.Message) (te
 			role:    "error",
 			content: fmt.Sprintf("Session %q not found or empty.", targetID),
 		})
-		m.updateViewport()
 		return m, nil
 	}
 
@@ -224,7 +217,6 @@ func (m Model) doResumeSession(wd, targetID string, saved []session.Message) (te
 		}
 		if err := m.taskMgr.UseSession(targetID); err != nil {
 			m.chatMessages = append(m.chatMessages, chatMessage{role: "error", content: err.Error()})
-			m.updateViewport()
 			return m, nil
 		}
 	}
@@ -271,7 +263,6 @@ func (m Model) doResumeSession(wd, targetID string, saved []session.Message) (te
 	// fresh header.
 	commitText := m.renderTranscriptHeader() + "\n" + m.renderMessagesRange(0, len(m.chatMessages))
 	m.committedUpTo = len(m.chatMessages)
-	m.updateViewport()
 	return m, tea.Batch(
 		func() tea.Msg { return tea.ClearScreen() },
 		tea.Println(commitText),

@@ -174,6 +174,9 @@ func (m Model) renderUIStatus(rows int) string {
 	lines := []string{}
 	padding := strings.Repeat(" ", boolColumn(m.width > 2))
 	width := max(1, m.width-len(padding)*2)
+	if m.latestVersion != "" && !m.updateDismissed {
+		lines = append(lines, padding+truncateToWidth(paint("New Yukino version v"+m.latestVersion+" is available. Run ", Theme.Warning)+ansiStyle(paint("yukino update", Theme.Accent), "\x1b[1m", "\x1b[22m"), width, "…"))
+	}
 	if len(m.pendingMessages) > 0 {
 		limit := min(3, max(1, rows-4))
 		if m.height < 12 {
@@ -190,6 +193,19 @@ func (m Model) renderUIStatus(rows int) string {
 	}
 	if !m.ctrlCDeadline.IsZero() {
 		lines = append(lines, padding+truncateToWidth("Press Ctrl+C again to exit.", width, "…"))
+	}
+	todos, agents := m.renderTodoProgress(), m.renderAgentStatus()
+	if todos != "" || agents != "" {
+		if todos != "" && agents != "" {
+			left := max(1, width-visibleWidth(agents)-2)
+			todos = truncateToWidth(todos, left, "…")
+			lines = append(lines, padding+todos+strings.Repeat(" ", max(2, width-visibleWidth(todos)-visibleWidth(agents)))+agents)
+		} else {
+			lines = append(lines, padding+todos+agents)
+		}
+	}
+	for i := range lines {
+		lines[i] = truncateToWidth(lines[i], max(1, m.width), "…")
 	}
 	for i := range lines {
 		lines[i] = lipgloss.NewStyle().Foreground(dimText).Render(lines[i])

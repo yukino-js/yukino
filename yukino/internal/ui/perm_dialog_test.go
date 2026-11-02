@@ -1,114 +1,77 @@
 package ui
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-
 	"github.com/yukino-js/yukino/yukino/internal/agent"
-	"github.com/yukino-js/yukino/yukino/internal/config"
+	"github.com/yukino-js/yukino/yukino/internal/permissions"
 )
 
 func newPermDialogModel(t *testing.T) (Model, chan agent.PermissionReply) {
 	t.Helper()
-	provider := config.ProviderConfig{Name: "test", Protocol: "anthropic", Model: "m", APIKey: "k"}
-	m := New([]config.ProviderConfig{provider}, nil, nil, nil, 0, "", true)
+	m := newChatModel(t)
 	ch := make(chan agent.PermissionReply, 1)
-	updated, _ := m.handleAgentEvent(agent.PermissionRequestEvent{ToolName: "Bash", Desc: "rm -rf build", ResponseCh: ch})
-	return updated.(Model), ch
+	next, _ := m.handleAgentEvent(agent.PermissionRequestEvent{ToolName: "Bash", Desc: "rm -rf build", ResponseCh: ch})
+	return asModel(t, next), ch
 }
-
-func pressKey(m Model, key tea.KeyMsg) Model {
-	updated, _ := m.handlePermDialog(key)
-	return updated.(Model)
-}
-
-func typeText(m Model, s string) Model {
-	return pressKey(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)})
-}
-
-func TestPermDialogDenyWithFeedback(t *testing.T) {
+func pressKey(m Model, key tea.KeyMsg) Model { next, _ := m.handlePermDialog(key); return next.(Model) }
+func TestPermissionOptionsRequireRememberScopes(t *testing.T) {
 	m, ch := newPermDialogModel(t)
-	m = pressKey(m, tea.KeyMsg{Type: tea.KeyDown})
-	m = pressKey(m, tea.KeyMsg{Type: tea.KeyDown})
-	m = typeText(m, "别删，移到 backupX")
-	m = pressKey(m, tea.KeyMsg{Type: tea.KeyBackspace})
-	if !strings.Contains(m.renderPermDialog(), "别删，移到 backup█") {
-		t.Errorf("dialog should echo the feedback being typed, got:\n%s", m.renderPermDialog())
+	if len(m.permissionOptions()) != 2 {
+		t.Fatal("offered remember without a scope")
 	}
-	m = pressKey(m, tea.KeyMsg{Type: tea.KeyEnter})
-
-	reply := <-ch
-	if reply.Response != agent.PermDeny || reply.Feedback != "别删，移到 backup" {
-		t.Errorf("reply = %+v, want deny with feedback", reply)
-	}
-	if m.permDialog || m.permFeedback != "" || m.permCursor != 0 {
-		t.Error("dialog state should be reset after replying")
-	}
-}
-
-func TestPermDialogTypingIgnoredOutsideNo(t *testing.T) {
-	m, ch := newPermDialogModel(t)
-	m = typeText(m, "hello")
-	if m.permFeedback != "" {
-		t.Errorf("typing on Yes must not collect feedback, got %q", m.permFeedback)
-	}
-	m = pressKey(m, tea.KeyMsg{Type: tea.KeyEnter})
-	reply := <-ch
-	if reply.Response != agent.PermAllow || reply.Feedback != "" {
-		t.Errorf("reply = %+v, want plain allow", reply)
-	}
-}
-
-func TestPermDialogFeedbackDroppedWhenLeavingNo(t *testing.T) {
-	m, ch := newPermDialogModel(t)
-	m = pressKey(m, tea.KeyMsg{Type: tea.KeyDown})
-	m = pressKey(m, tea.KeyMsg{Type: tea.KeyDown})
-	m = typeText(m, "draft")
 	m = pressKey(m, tea.KeyMsg{Type: tea.KeyUp})
 	m = pressKey(m, tea.KeyMsg{Type: tea.KeyEnter})
-	reply := <-ch
-	if reply.Response != agent.PermAllowAlways || reply.Feedback != "" {
-		t.Errorf("reply = %+v, want allowAlways without feedback", reply)
+	if reply := <-ch; reply.Response != agent.PermDeny {
+		t.Fatal(reply)
 	}
-}
-
-func TestPermDialogEscDenies(t *testing.T) {
-	m, ch := newPermDialogModel(t)
-	m = pressKey(m, tea.KeyMsg{Type: tea.KeyEsc})
-	reply := <-ch
-	if reply.Response != agent.PermDeny {
-		t.Errorf("esc should deny, got %+v", reply)
-	}
-	if m.permDialog {
-		t.Error("esc should close the dialog")
-	}
-}
-
-func TestPermDialogPlaceholderOnlyOnNo(t *testing.T) {
-	m, _ := newPermDialogModel(t)
-	if strings.Contains(m.renderPermDialog(), "tell Yukino what to do differently") {
-		t.Error("placeholder should be hidden while cursor is on Yes")
+	m, ch = newPermDialogModel(t)
+	m.permissionCurrent.Decision = permissions.Decision{RememberPatterns: []string{"Bash(go test*)"}}
+	if len(m.permissionOptions()) != 3 {
+		t.Fatal("remember scope omitted")
 	}
 	m = pressKey(m, tea.KeyMsg{Type: tea.KeyDown})
-	m = pressKey(m, tea.KeyMsg{Type: tea.KeyDown})
-	if !strings.Contains(m.renderPermDialog(), "tell Yukino what to do differently") {
-		t.Error("placeholder should show when cursor is on No")
+	m = pressKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if reply := <-ch; reply.Response != agent.PermAllowAlways {
+		t.Fatal(reply)
 	}
 }
-
-func TestCtrlCClosesPermDialogWhileStreaming(t *testing.T) {
-	m, _ := newPermDialogModel(t)
-	cancelled := false
+func TestPermissionRequestsStayFIFOAndCancel(t *testing.T) {
+	m, first := newPermDialogModel(t)
+	second := make(chan agent.PermissionReply, 1)
+	third := make(chan agent.PermissionReply, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	m.enqueuePermission(agent.PermissionRequestEvent{Context: ctx, ToolName: "second", ResponseCh: second})
+	m.enqueuePermission(agent.PermissionRequestEvent{ToolName: "third", ResponseCh: third})
+	if m.permToolName != "Bash" {
+		t.Fatal("active request overwritten")
+	}
+	cancel()
+	m = pressKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if (<-first).Response != agent.PermAllow || (<-second).Response != agent.PermDeny || m.permToolName != "third" {
+		t.Fatal("FIFO/cancellation mismatch")
+	}
 	m.streaming = true
-	m.cancelStream = func() { cancelled = true }
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
-	m = updated.(Model)
-	if !cancelled {
-		t.Error("ctrl+c should cancel the running turn")
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	m = asModel(t, next)
+	if m.permDialog || m.permRespCh != nil || (<-third).Response != agent.PermDeny {
+		t.Fatal("interrupt left pending permission")
 	}
-	if m.permDialog || m.permRespCh != nil {
-		t.Error("ctrl+c should close the permission dialog")
+}
+func TestPermissionFrameShowsScopeAndKeepsFocusVisible(t *testing.T) {
+	m, _ := newPermDialogModel(t)
+	m.width = 40
+	m.height = 12
+	m.permissionCurrent.Decision.RememberPatterns = []string{"Bash(go test*)", "Bash(go vet*)"}
+	m.permCursor = 2
+	rendered := plainTerminalText(m.renderPermDialog())
+	if !strings.Contains(rendered, "→ No") || !strings.Contains(rendered, "main: Bash requires approval") {
+		t.Fatalf("focus/title missing: %q", rendered)
+	}
+	if strings.Contains(rendered, "what to do differently") {
+		t.Fatal("obsolete feedback editor")
 	}
 }

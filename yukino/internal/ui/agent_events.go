@@ -9,6 +9,7 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/mcp"
 	"github.com/yukino-js/yukino/yukino/internal/permissions"
 	"github.com/yukino-js/yukino/yukino/internal/subagent"
+	"github.com/yukino-js/yukino/yukino/internal/tool_result"
 	"github.com/yukino-js/yukino/yukino/internal/tools"
 )
 
@@ -26,8 +27,6 @@ type agentErrMsg struct{ err error }
 type agentReadyMsg struct {
 	ch <-chan agent.AgentEvent
 }
-
-type mailboxPollMsg struct{}
 
 type mcpReadyMsg struct {
 	result mcp.ConnectResult
@@ -57,30 +56,76 @@ func (m *Model) drainSubAgentProgress() {
 	for {
 		select {
 		case p := <-m.subAgentProgressCh:
-			if p.Done {
-				if m.activeSubAgent != nil {
-					m.activeSubAgent.done = true
-					m.activeSubAgent.toolCount = p.ToolCount
-					m.activeSubAgent.totalTime = p.TotalTime
-				}
-			} else {
-				if m.activeSubAgent == nil || m.activeSubAgent.done {
-					m.activeSubAgent = &subAgentBlock{
-						desc:      p.AgentDesc,
-						agentType: p.AgentType,
-					}
-				}
-				m.activeSubAgent.toolUses = append(m.activeSubAgent.toolUses, toolBlockInfo{
-					toolName: p.ToolName,
-					args:     p.ToolArgs,
-					elapsed:  p.Elapsed,
-					isError:  p.IsError,
-				})
-			}
+			m.applySubagentProgress(p)
 		default:
 			return
 		}
 	}
+}
+
+type outputFlushMsg struct{ generation int }
+
+func (m *Model) scheduleOutputFlush() tea.Cmd {
+	if m.flushScheduled {
+		return nil
+	}
+	m.flushScheduled = true
+	generation := m.outputGeneration
+	return tea.Tick(50*time.Millisecond, func(time.Time) tea.Msg { return outputFlushMsg{generation} })
+}
+
+func (m *Model) prepareOutput() {
+	m.outputGeneration++
+	m.flushScheduled = false
+	m.streamBuf = ""
+	m.thinkingBuf = ""
+	m.thinkingTextStart = time.Time{}
+	m.thinkingDuration = 0
+	m.toolBlocks = nil
+	for id, progress := range m.subagents {
+		if progress.taskID == "" || progress.status != "running" {
+			delete(m.subagents, id)
+		}
+	}
+}
+
+func (m *Model) commitOutput() {
+	m.outputGeneration++
+	m.flushScheduled = false
+	if m.thinkingBuf != "" || m.thinkingDuration >= 1 {
+		m.chatMessages = append(m.chatMessages, chatMessage{role: "turn_summary", content: m.thinkingBuf, thinkingDuration: m.thinkingDuration})
+	}
+	if m.streamBuf != "" {
+		m.chatMessages = append(m.chatMessages, chatMessage{role: "assistant", content: m.streamBuf})
+	}
+	m.streamBuf = ""
+	m.thinkingBuf = ""
+	m.thinkingTextStart = time.Time{}
+	m.thinkingDuration = 0
+	var completed, pending []toolBlockInfo
+	for _, tb := range m.toolBlocks {
+		if tb.loading {
+			pending = append(pending, tb)
+		} else {
+			completed = append(completed, tb)
+		}
+	}
+	if len(completed) > 0 {
+		m.chatMessages = append(m.chatMessages, chatMessage{role: "turn_summary", toolGroup: completed})
+	}
+	m.toolBlocks = pending
+}
+
+func (m *Model) commitStaticOutput() tea.Cmd {
+	if m.committedUpTo >= len(m.chatMessages) {
+		return nil
+	}
+	text := m.renderMessagesRange(m.committedUpTo, len(m.chatMessages))
+	m.committedUpTo = len(m.chatMessages)
+	if text == "" {
+		return nil
+	}
+	return tea.Println(text)
 }
 
 func (m Model) listenForSubAgentProgress() tea.Cmd {
@@ -88,9 +133,14 @@ func (m Model) listenForSubAgentProgress() tea.Cmd {
 	if ch == nil {
 		return nil
 	}
+	life := m.lifeCtx
 	return func() tea.Msg {
-		p := <-ch
-		return subAgentProgressMsg{progress: p}
+		select {
+		case p := <-ch:
+			return subAgentProgressMsg{progress: p}
+		case <-life.Done():
+			return nil
+		}
 	}
 }
 
@@ -99,9 +149,14 @@ func (m Model) listenForAskUser() tea.Cmd {
 	if ch == nil {
 		return nil
 	}
+	life := m.lifeCtx
 	return func() tea.Msg {
-		req := <-ch
-		return askUserMsg{req: req}
+		select {
+		case req := <-ch:
+			return askUserMsg{req: req}
+		case <-life.Done():
+			return nil
+		}
 	}
 }
 
@@ -119,15 +174,6 @@ func (m Model) listenForAgentEvents() tea.Cmd {
 	}
 }
 
-func (m Model) pollMailbox() tea.Cmd {
-	if m.teamMgr == nil {
-		return nil
-	}
-	return tea.Tick(2*time.Second, func(time.Time) tea.Msg {
-		return mailboxPollMsg{}
-	})
-}
-
 func (m Model) handleAgentEvent(ev agent.AgentEvent) (tea.Model, tea.Cmd) {
 	switch ev.(type) {
 	case agent.RetryEvent, agent.UsageEvent, agent.PermissionRequestEvent:
@@ -137,174 +183,71 @@ func (m Model) handleAgentEvent(ev agent.AgentEvent) (tea.Model, tea.Cmd) {
 	switch e := ev.(type) {
 	case agent.StreamText:
 		m.streamBuf += e.Text
-		m.updateViewport()
+		return m, tea.Batch(m.scheduleOutputFlush(), m.listenForAgentEvents())
+
+	case agent.ThinkingText:
+		if m.thinkingTextStart.IsZero() {
+			m.thinkingTextStart = time.Now()
+		}
+		m.thinkingBuf += e.Text
+		return m, tea.Batch(m.scheduleOutputFlush(), m.listenForAgentEvents())
+
+	case agent.ThinkingComplete:
+		if !m.thinkingTextStart.IsZero() {
+			m.thinkingDuration = time.Since(m.thinkingTextStart).Seconds()
+		}
 
 	case agent.ToolUseEvent:
-		if e.Args != nil {
-			found := false
-			for i := range m.toolBlocks {
-				if m.toolBlocks[i].toolName == e.ToolName && m.toolBlocks[i].args == nil {
-					m.toolBlocks[i].args = e.Args
-					found = true
-					break
-				}
-			}
-			if !found {
-				m.toolBlocks = append(m.toolBlocks, toolBlockInfo{
-					toolName: e.ToolName,
-					args:     e.Args,
-					loading:  true,
-				})
-			}
-		} else {
-			m.toolBlocks = append(m.toolBlocks, toolBlockInfo{
-				toolName: e.ToolName,
-				loading:  true,
-			})
-		}
-		m.updateViewport()
+		m.toolBlocks = append(m.toolBlocks, toolBlockInfo{toolID: e.ToolID, toolName: e.ToolName, args: e.Args, loading: true})
 
 	case agent.ToolResultEvent:
 		if e.ToolName == "WriteFile" || e.ToolName == "EditFile" {
 			m.fileFactsVersion++
 		}
-		var emitted *toolBlockInfo
+		m.drainSubAgentProgress()
 		for i := range m.toolBlocks {
-			if m.toolBlocks[i].toolName == e.ToolName && m.toolBlocks[i].loading {
-				m.toolBlocks[i].output = e.Output
-				m.toolBlocks[i].isError = e.IsError
-				m.toolBlocks[i].elapsed = e.Elapsed.Seconds()
-				m.toolBlocks[i].loading = false
-				m.toolBlocks[i].collapsed = true
-				if m.toolBlocks[i].toolName != "Agent" {
-					tb := m.toolBlocks[i]
-					emitted = &tb
-					m.toolBlocks = append(m.toolBlocks[:i], m.toolBlocks[i+1:]...)
+			if m.toolBlocks[i].toolID == e.ToolID {
+				tb := &m.toolBlocks[i]
+				tb.output = tool_result.ToDisplayPreview(e.Output)
+				tb.isError = e.IsError
+				tb.elapsed = e.Elapsed.Seconds()
+				tb.loading = false
+				if p := m.subagents[e.ToolID]; p != nil && p.status != "running" {
+					tb.status = p.status
+					if e.IsError && tb.status != "stopped" {
+						tb.status = "failed"
+					}
+					tb.progress = fmt.Sprintf("%s subagent | %d turns", p.role, p.turns)
 				}
 				break
 			}
 		}
-		if emitted != nil {
-			if m.streamBuf != "" {
-				m.chatMessages = append(m.chatMessages, chatMessage{
-					role:    "assistant",
-					content: m.streamBuf,
-				})
-				m.streamBuf = ""
-			}
-			m.chatMessages = append(m.chatMessages, chatMessage{
-				role:      "tool_visible",
-				content:   renderToolBlockText(*emitted),
-				toolGroup: []toolBlockInfo{*emitted},
-			})
-			commitText := m.renderMessagesRange(m.committedUpTo, len(m.chatMessages))
-			m.committedUpTo = len(m.chatMessages)
-			m.updateViewport()
-			if commitText != "" {
-				return m, tea.Batch(tea.Println(commitText), m.listenForAgentEvents())
-			}
+		if e.ToolName == "AskUserQuestion" {
+			m.commitOutput()
+			cmd := m.commitStaticOutput()
+			return m, tea.Batch(cmd, m.listenForAgentEvents())
 		}
-		m.updateViewport()
 
 	case agent.TurnComplete:
-		if m.streamBuf != "" {
-			m.chatMessages = append(m.chatMessages, chatMessage{role: "assistant", content: m.streamBuf})
-			m.streamBuf = ""
-		}
-		m.drainSubAgentProgress()
-		if len(m.toolBlocks) > 0 {
-			var nonAgentTools []toolBlockInfo
-			for _, tb := range m.toolBlocks {
-				if tb.toolName == "Agent" && m.activeSubAgent != nil && len(m.activeSubAgent.toolUses) > 0 {
-					sab := *m.activeSubAgent
-					if !sab.done {
-						sab.done = true
-						sab.toolCount = len(sab.toolUses)
-						var total float64
-						for _, tu := range sab.toolUses {
-							total += tu.elapsed
-						}
-						sab.totalTime = total
-					}
-					m.chatMessages = append(m.chatMessages, chatMessage{
-						role:          "sub_agent",
-						subAgentBlock: &sab,
-						expanded:      false,
-					})
-					m.activeSubAgent = nil
-				} else if tb.toolName == "Agent" {
-					desc := ""
-					if d, ok := tb.args["description"].(string); ok {
-						desc = d
-					}
-					agentType := "general-purpose"
-					if at, ok := tb.args["subagent_type"].(string); ok {
-						agentType = at
-					}
-					sab := &subAgentBlock{
-						desc:      desc,
-						agentType: agentType,
-						done:      true,
-						totalTime: tb.elapsed,
-						toolCount: 0,
-					}
-					m.chatMessages = append(m.chatMessages, chatMessage{
-						role:          "sub_agent",
-						subAgentBlock: sab,
-						expanded:      false,
-					})
-					m.activeSubAgent = nil
-				} else {
-					nonAgentTools = append(nonAgentTools, tb)
-				}
-			}
-			var visibleTools, collapsedTools []toolBlockInfo
-			for _, tb := range nonAgentTools {
-				if isCollapsibleTool(tb.toolName) {
-					collapsedTools = append(collapsedTools, tb)
-				} else {
-					visibleTools = append(visibleTools, tb)
-				}
-			}
-			for _, tb := range visibleTools {
-				m.chatMessages = append(m.chatMessages, chatMessage{
-					role:      "tool_visible",
-					content:   renderToolBlockText(tb),
-					toolGroup: []toolBlockInfo{tb},
-				})
-			}
-			if len(collapsedTools) > 0 {
-				m.chatMessages = append(m.chatMessages, chatMessage{
-					role:      "tool_collapsed",
-					toolGroup: collapsedTools,
-					expanded:  false,
-				})
-			}
-		}
+		m.commitOutput()
 		m.toolBlocks = nil
-		m.activeSubAgent = nil
-		m.updateViewport()
+		cmd := m.commitStaticOutput()
+		return m, tea.Batch(cmd, m.listenForAgentEvents())
 
 	case agent.UsageEvent:
 		m.totalInput += e.InputTokens
 		m.totalOutput += e.OutputTokens
+		m.totalCacheRead += e.CacheReadTokens
+		m.totalCacheCreation += e.CacheCreationTokens
 
 	case agent.PermissionRequestEvent:
-		m.permDialog = true
-		m.permCursor = 0
-		m.permFeedback = ""
-		m.permToolName = e.ToolName
-		m.permDesc = e.Desc
-		m.permRespCh = e.ResponseCh
-		m.updateViewport()
-		return m, nil
+		m.enqueuePermission(e)
 
 	case agent.CompactEvent:
 		m.chatMessages = append(m.chatMessages, chatMessage{
 			role:    "system",
-			content: "⟳ " + e.Message,
+			content: "⊙ " + e.Message,
 		})
-		m.updateViewport()
 
 	case agent.RetryEvent:
 		m.retryStatus = "Retrying"
@@ -312,63 +255,36 @@ func (m Model) handleAgentEvent(ev agent.AgentEvent) (tea.Model, tea.Cmd) {
 			m.retryStatus += fmt.Sprintf(" (%.0fs delay)", e.Wait.Seconds())
 		}
 		m.retryStatus += ": " + e.Reason
-		msg := "↻ Retrying: " + e.Reason
+		msg := "↻ " + e.Reason
 		if e.Wait > 0 {
-			msg += fmt.Sprintf(" (waiting %s)", e.Wait)
+			msg += fmt.Sprintf(" (waiting %.0fs)", e.Wait.Seconds())
 		}
 		m.chatMessages = append(m.chatMessages, chatMessage{
 			role:    "system",
 			content: msg,
 		})
-		m.updateViewport()
 
 	case agent.ErrorEvent:
 		m.activityError = e.Message
-		if m.streamBuf != "" {
-			m.chatMessages = append(m.chatMessages, chatMessage{role: "assistant", content: m.streamBuf})
-			m.streamBuf = ""
-		}
-		m.chatMessages = append(m.chatMessages, chatMessage{
-			role:    "error",
-			content: e.Message,
-		})
-		commitText := m.renderMessagesRange(m.committedUpTo, len(m.chatMessages))
-		m.committedUpTo = len(m.chatMessages)
+		m.commitOutput()
+		m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: "Error: " + e.Message})
+		cmd := m.commitStaticOutput()
+		m.toolBlocks = nil
 		m.finishStreaming()
-		if commitText != "" {
-			return m, tea.Println(commitText)
-		}
-		return m, nil
+		return m, cmd
 
 	case agent.LoopComplete:
-		totalTime := time.Since(m.thinkingStart).Seconds()
-		if m.streamBuf != "" {
-			m.chatMessages = append(m.chatMessages, chatMessage{role: "assistant", content: m.streamBuf})
-			m.streamBuf = ""
-		}
-		m.chatMessages = append(m.chatMessages, chatMessage{
-			role:    "thinking",
-			content: fmt.Sprintf("Thinking %.1fs", totalTime),
-		})
-		commitText := m.renderMessagesRange(m.committedUpTo, len(m.chatMessages))
-		m.committedUpTo = len(m.chatMessages)
-		m.thinkingDone = 0
+		m.commitOutput()
+		m.toolBlocks = nil
+		commitCmd := m.commitStaticOutput()
 		m.finishStreaming()
 		if e.PlanReady && m.ag != nil && m.ag.Checker != nil && m.ag.Checker.Mode() == permissions.ModePlan {
 			m.planApprovalDialog = true
 			m.planApprovalCursor = 0
 			m.planApprovalInput = ""
 			m.planFeedbackRequired = false
-			m.updateViewport()
 		}
-		pollCmd := m.pollMailbox()
-		if commitText != "" {
-			return m, tea.Batch(tea.Println(commitText), pollCmd)
-		}
-		if pollCmd != nil {
-			return m, pollCmd
-		}
-		return m, nil
+		return m, commitCmd
 	}
 
 	return m, m.listenForAgentEvents()

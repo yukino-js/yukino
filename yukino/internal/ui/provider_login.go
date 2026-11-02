@@ -203,7 +203,6 @@ func (m *Model) handleLoginDiscoveryTick(msg loginDiscoveryTickMsg) (tea.Model, 
 		return m, nil
 	}
 	m.loginDiscovery = loginDiscoveryState{status: "loading"}
-	m.updateViewport()
 	return m, m.startLoginDiscovery(msg.gen)
 }
 
@@ -218,7 +217,6 @@ func (m *Model) handleLoginDiscoveryDone(msg loginDiscoveryDoneMsg) (tea.Model, 
 	}
 	if msg.err != nil {
 		m.loginDiscovery = loginDiscoveryState{status: "error"}
-		m.updateViewport()
 		return m, nil
 	}
 	status := "empty"
@@ -233,7 +231,6 @@ func (m *Model) handleLoginDiscoveryDone(msg loginDiscoveryDoneMsg) (tea.Model, 
 			m.loginFieldCursor = len([]rune(first[0].ID))
 		}
 	}
-	m.updateViewport()
 	return m, nil
 }
 
@@ -257,14 +254,12 @@ func (m Model) openLoginDialog() (tea.Model, tea.Cmd) {
 	m.loginCompletedConn = nil
 	m.loginDiscovery = loginDiscoveryState{status: "idle"}
 	m.loginDiscoveryGen++
-	m.updateViewport()
 	return m, m.loginRefreshDiscovery()
 }
 
 func (m Model) closeLoginDialog() (tea.Model, tea.Cmd) {
 	m.loginDialog = false
 	m.loginDiscoveryGen++
-	m.updateViewport()
 	return m, nil
 }
 
@@ -332,7 +327,6 @@ func (m Model) submitLogin() (tea.Model, tea.Cmd) {
 			m.loginFieldErrors = map[string]string{}
 			m.loginFormError = err.Error()
 		}
-		m.updateViewport()
 		return m, nil
 	}
 	m.loginFieldErrors = map[string]string{}
@@ -344,13 +338,11 @@ func (m Model) submitLogin() (tea.Model, tea.Cmd) {
 	client, err := llm.NewClient(&provider, m.loadSkillsAndBuildPrompt(wd))
 	if err != nil {
 		m.loginFormError = err.Error()
-		m.updateViewport()
 		return m, nil
 	}
 	result, err := config.SaveProvider(input, m.providers)
 	if err != nil {
 		m.loginFormError = err.Error()
-		m.updateViewport()
 		return m, nil
 	}
 	m.providers = append(m.providers[:0], result.Providers...)
@@ -389,7 +381,6 @@ func (m Model) submitLogin() (tea.Model, tea.Cmd) {
 		role:    "system",
 		content: fmt.Sprintf("Provider %s activated. %s ~/.yukino/config.yaml.", result.Provider.Name, verb),
 	})
-	m.updateViewport()
 	return m, nil
 }
 
@@ -407,19 +398,15 @@ func (m Model) handleLoginDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.closeLoginDialog()
 	case "tab":
 		m.loginMoveField(1)
-		m.updateViewport()
 		return m, nil
 	case "shift+tab":
 		m.loginMoveField(-1)
-		m.updateViewport()
 		return m, nil
 	case "up":
 		m.loginMoveField(-1)
-		m.updateViewport()
 		return m, nil
 	case "down":
 		m.loginMoveField(1)
-		m.updateViewport()
 		return m, nil
 	case "enter":
 		return m.submitLogin()
@@ -443,7 +430,6 @@ func (m Model) handleLoginDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			delete(m.loginFieldErrors, "protocol")
 			m.loginFormError = ""
 			cmd := m.loginRefreshDiscovery()
-			m.updateViewport()
 			return m, cmd
 		}
 		return m, nil
@@ -466,7 +452,6 @@ func (m Model) handleLoginDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.loginForm.thinking = levels[idx]
 			delete(m.loginFieldErrors, "thinking")
 			m.loginFormError = ""
-			m.updateViewport()
 		}
 		return m, nil
 	}
@@ -493,7 +478,6 @@ func (m Model) handleLoginDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 			cmd := m.loginUpdateText(m.loginDiscovery.models[next].ID, len([]rune(m.loginDiscovery.models[next].ID)))
-			m.updateViewport()
 			return m, cmd
 		}
 		bounds := graphemeBounds(value)
@@ -505,7 +489,6 @@ func (m Model) handleLoginDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "ctrl+u":
 		cmd := m.loginUpdateText("", 0)
-		m.updateViewport()
 		return m, cmd
 	case "home", "ctrl+a":
 		m.loginFieldCursor = 0
@@ -526,7 +509,6 @@ func (m Model) handleLoginDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			bounds := graphemeBounds(value)
 			previous := previousGraphemeBoundary(bounds, position)
 			cmd := m.loginUpdateText(string(runes[:previous])+string(runes[position:]), previous)
-			m.updateViewport()
 			return m, cmd
 		}
 		return m, nil
@@ -535,14 +517,12 @@ func (m Model) handleLoginDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			bounds := graphemeBounds(value)
 			next := nextGraphemeBoundary(bounds, position)
 			cmd := m.loginUpdateText(string(runes[:position])+string(runes[next:]), position)
-			m.updateViewport()
 			return m, cmd
 		}
 		return m, nil
 	default:
 		if len(msg.Runes) > 0 {
 			cmd := m.loginInsertText(string(msg.Runes))
-			m.updateViewport()
 			return m, cmd
 		}
 		return m, nil

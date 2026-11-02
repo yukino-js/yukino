@@ -3,113 +3,104 @@ package ui
 import (
 	"fmt"
 	"strings"
-	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/yukino-js/yukino/yukino/internal/agent"
 	"github.com/yukino-js/yukino/yukino/internal/permissions"
+	"github.com/yukino-js/yukino/yukino/internal/utils"
 )
 
-var permOptions = []struct {
-	label    string
-	response agent.PermissionResponse
-}{
-	{PermissionOptions[0].Label, agent.PermAllow},
-	{PermissionOptions[1].Label, agent.PermAllowAlways},
-	{PermissionOptions[2].Label, agent.PermDeny},
+func (m Model) permissionOptions() []PermissionOption {
+	var options []PermissionOption
+	for _, option := range PermissionOptions {
+		if option.Action == "allowAlways" && (m.permissionCurrent == nil || len(m.permissionCurrent.Decision.RememberPatterns) == 0) {
+			continue
+		}
+		options = append(options, option)
+	}
+	return options
 }
 
-var permDenyIdx = len(permOptions) - 1
-
 func (m Model) handlePermDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	options := m.permissionOptions()
 	switch msg.String() {
 	case "up":
-		if m.permCursor > 0 {
-			m.permCursor--
-		}
-		return m, nil
+		m.permCursor = (m.permCursor + len(options) - 1) % len(options)
 	case "down":
-		if m.permCursor < len(permOptions)-1 {
-			m.permCursor++
-		}
-		return m, nil
+		m.permCursor = (m.permCursor + 1) % len(options)
 	case "enter":
-		reply := agent.PermissionReply{Response: permOptions[m.permCursor].response}
-		if m.permCursor == permDenyIdx {
-			reply.Feedback = m.permFeedback
+		response := agent.PermDeny
+		switch options[m.permCursor].Action {
+		case "allow":
+			response = agent.PermAllow
+		case "allowAlways":
+			response = agent.PermAllowAlways
 		}
-		return m.replyPermission(reply)
+		return m.replyPermission(agent.PermissionReply{Response: response})
 	case "esc":
 		return m.replyPermission(agent.PermissionReply{Response: agent.PermDeny})
-	case "backspace":
-		if m.permCursor == permDenyIdx && len(m.permFeedback) > 0 {
-			_, size := utf8.DecodeLastRuneInString(m.permFeedback)
-			m.permFeedback = m.permFeedback[:len(m.permFeedback)-size]
-		}
-		return m, nil
-	default:
-		if m.permCursor == permDenyIdx && len(msg.Runes) > 0 {
-			m.permFeedback += string(msg.Runes)
-		}
-		return m, nil
 	}
+	return m, nil
 }
 
 func (m Model) replyPermission(reply agent.PermissionReply) (tea.Model, tea.Cmd) {
-	m.permRespCh <- reply
+	if m.permRespCh != nil {
+		select {
+		case m.permRespCh <- reply:
+		default:
+		}
+	}
 	m.closePermDialog()
-	m.updateViewport()
-	return m, m.listenForAgentEvents()
+	m.presentNextPermission()
+	return m, nil
 }
-
 func (m *Model) closePermDialog() {
 	m.permDialog = false
 	m.permCursor = 0
-	m.permFeedback = ""
 	m.permRespCh = nil
+	m.permissionCurrent = nil
 }
-
 func (m Model) renderPermDialog() string {
-	var sb strings.Builder
-
-	sb.WriteString(permBorderStyle.Render(fmt.Sprintf("  %s command", m.permToolName)))
-	sb.WriteString("\n\n")
-
-	desc := m.permDesc
-	if desc != "" {
-		sb.WriteString(lipgloss.NewStyle().Foreground(normalText).PaddingLeft(4).Render(desc))
-		sb.WriteString("\n\n")
+	width := max(1, m.width-boolColumn(m.width > 2)*2)
+	agentName := "main"
+	cwd, summary, reason := "", "", m.permDesc
+	var patterns []string
+	if request := m.permissionCurrent; request != nil {
+		if request.AgentName != "" {
+			agentName = request.AgentName
+		}
+		cwd = request.Cwd
+		summary = utils.FormatToolArgs(request.Args)
+		if request.Decision.Reason != "" {
+			reason = request.Decision.Reason
+		}
+		patterns = request.Decision.RememberPatterns
 	}
-
-	sb.WriteString(permDimStyle.Render("  This command requires approval"))
-	sb.WriteString("\n\n")
-	sb.WriteString(lipgloss.NewStyle().Foreground(normalText).PaddingLeft(2).Render("Do you want to proceed?"))
-	sb.WriteString("\n")
-
-	for i, opt := range permOptions {
-		prefix := "   "
-		style := lipgloss.NewStyle().Foreground(dimText)
+	detail := strings.Join(nonEmpty(cwd, summary, reason), " · ")
+	var lines []string
+	for _, pattern := range patterns {
+		lines = append(lines, wrapTerminalTextOptions("Remember scope: "+plainTerminalText(pattern), width, true, false)...)
+	}
+	focus := len(lines) + m.permCursor
+	if width <= 2 {
+		focus = max(0, len(lines)-1)
+	}
+	for i, option := range m.permissionOptions() {
+		if width <= 2 {
+			continue
+		}
+		prefix, color := "  ", Theme.Muted
 		if i == m.permCursor {
-			prefix = " ❯ "
-			style = lipgloss.NewStyle().Foreground(cyanText)
+			prefix, color = Icons.Arrow+" ", Theme.Accent
 		}
-		label := fmt.Sprintf("%d. %s", i+1, opt.label)
-		line := style.Render(prefix + label)
-		if i == permDenyIdx && i == m.permCursor {
-			if m.permFeedback == "" {
-				line += style.Render(", ") + lipgloss.NewStyle().Foreground(dimText).Render("and tell Yukino what to do differently█")
-			} else {
-				line += style.Render(", " + m.permFeedback + "█")
-			}
+		line := " " + paint(truncateToWidth(prefix+option.Label, max(0, width-2), "…"), color)
+		if i == m.permCursor {
+			line = lipgloss.NewStyle().Background(lipgloss.Color(Theme.SelectedBg)).Width(width).Render(line)
 		}
-		sb.WriteString(line + "\n")
+		lines = append(lines, line)
 	}
-	sb.WriteString(permDimStyle.Render("  Esc to cancel"))
-	sb.WriteString("\n")
-
-	sb.WriteString("\n")
-	return sb.String()
+	return renderSelectorFrame(selectorFrameParams{title: fmt.Sprintf("%s: %s requires approval", agentName, m.permToolName), subtitle: truncateToWidth(detail, 160, "…"), hint: "↑↓ navigate · Enter select · Escape deny", content: strings.Join(lines, "\n"), width: m.width, rows: m.dialogAvailableRows(), focusRow: focus})
 }
 
 func nextPermissionMode(current permissions.PermissionMode) permissions.PermissionMode {

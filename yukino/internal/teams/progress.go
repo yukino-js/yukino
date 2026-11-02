@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"sync"
 	"time"
+	"unicode/utf16"
+
+	"github.com/yukino-js/yukino/yukino/internal/utils"
 )
 
 type ToolActivity struct {
@@ -21,29 +24,27 @@ func NewToolActivity(toolName string, input map[string]interface{}) ToolActivity
 }
 
 func describeActivity(toolName string, input map[string]interface{}) string {
-	getStr := func(key string) string {
-		if v, ok := input[key]; ok {
-			return fmt.Sprintf("%v", v)
-		}
-		return ""
-	}
+	getStr := func(key, fallback string) string { return utils.StrArg(input, key, fallback) }
+
 	switch toolName {
 	case "ReadFile":
-		return "Reading " + getStr("file_path")
+		return "Reading " + getStr("file_path", "file")
 	case "EditFile":
-		return "Editing " + getStr("file_path")
+		return "Editing " + getStr("file_path", "file")
 	case "WriteFile":
-		return "Writing " + getStr("file_path")
+		return "Writing " + getStr("file_path", "file")
 	case "Bash", "PowerShell":
-		cmd := getStr("command")
-		if len(cmd) > 40 {
-			cmd = cmd[:40] + "..."
+		cmd := getStr("command", "")
+		if units := utf16.Encode([]rune(cmd)); len(units) > 40 {
+			cmd = string(utf16.Decode(units[:40])) + "..."
 		}
 		return "Running " + cmd
 	case "Glob":
-		return "Searching " + getStr("pattern")
+		return "Searching " + getStr("pattern", "files")
 	case "Grep":
-		return "Grepping " + getStr("pattern")
+		return "Grepping " + getStr("pattern", "pattern")
+	case "WebFetch":
+		return "Fetching " + getStr("url", "page")
 	default:
 		return toolName
 	}
@@ -51,11 +52,12 @@ func describeActivity(toolName string, input map[string]interface{}) string {
 
 type TeammateProgress struct {
 	mu               sync.Mutex
+	OriginToolCallID string
 	Name             string
 	TeamName         string
 	Status           string
 	TurnCount        int
-	ActiveTools      map[string]string
+	ActiveTools      []ActiveTool
 	ToolUseCount     int
 	TokenCount       int64
 	LastActivity     *ToolActivity
@@ -143,15 +145,22 @@ func (p *TeammateProgress) RecordToolStart(id, name string, input map[string]any
 	p.RecordToolUse(name, input)
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.ActiveTools == nil {
-		p.ActiveTools = map[string]string{}
+	for i := len(p.ActiveTools) - 1; i >= 0; i-- {
+		if p.ActiveTools[i].ToolID == id {
+			p.ActiveTools = append(p.ActiveTools[:i], p.ActiveTools[i+1:]...)
+		}
 	}
-	p.ActiveTools[id] = name
+	p.ActiveTools = append(p.ActiveTools, ActiveTool{ToolID: id, ToolName: name})
 }
 func (p *TeammateProgress) RecordToolResult(id string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	delete(p.ActiveTools, id)
+	for i, tool := range p.ActiveTools {
+		if tool.ToolID == id {
+			p.ActiveTools = append(p.ActiveTools[:i], p.ActiveTools[i+1:]...)
+			break
+		}
+	}
 }
 func (p *TeammateProgress) RecordTurnComplete() {
 	p.mu.Lock()
@@ -168,4 +177,75 @@ func (p *TeammateProgress) SetLastMessage(message string) {
 		message = string(r[:200]) + "..."
 	}
 	p.LastMessage = message
+}
+
+type ActiveTool struct{ ToolID, ToolName string }
+type AgentProgress struct {
+	ToolUseCount, TurnCount int
+	TokenCount              int64
+	ActiveTools             []ActiveTool
+	LastActivity            *ToolActivity
+	RecentActivities        []ToolActivity
+}
+type TeammateUIState struct {
+	Name, TeamName, Status, OriginToolCallID string
+	StartTime                                int64
+	SpinnerVerb, LastMessage                 string
+	Progress                                 AgentProgress
+}
+
+func (p *TeammateProgress) SetOriginToolCallID(id string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.OriginToolCallID = id
+}
+func (p *TeammateProgress) Snapshot() TeammateUIState {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	result := TeammateUIState{Name: p.Name, TeamName: p.TeamName, Status: p.Status, OriginToolCallID: p.OriginToolCallID, StartTime: p.StartTime, SpinnerVerb: p.SpinnerVerb, LastMessage: p.LastMessage,
+		Progress: AgentProgress{ToolUseCount: p.ToolUseCount, TurnCount: p.TurnCount, TokenCount: p.TokenCount, ActiveTools: append([]ActiveTool(nil), p.ActiveTools...)}}
+	clone := func(a ToolActivity) ToolActivity {
+		input := make(map[string]any, len(a.Input))
+		for k, v := range a.Input {
+			input[k] = v
+		}
+		a.Input = input
+		return a
+	}
+	if p.LastActivity != nil {
+		a := clone(*p.LastActivity)
+		result.Progress.LastActivity = &a
+	}
+	for _, a := range p.RecentActivities {
+		result.Progress.RecentActivities = append(result.Progress.RecentActivities, clone(a))
+	}
+	return result
+}
+func (tm *TeamManager) GetAllTeammateStates() []TeammateUIState {
+	var result []TeammateUIState
+	for _, name := range tm.ListTeams() {
+		team := tm.GetTeam(name)
+		if team == nil {
+			continue
+		}
+		team.mu.Lock()
+		var progress []*TeammateProgress
+		for _, memberName := range team.memberOrder {
+			if member := team.Members[memberName]; member != nil && member.Progress != nil {
+				progress = append(progress, member.Progress)
+			}
+		}
+		team.mu.Unlock()
+		for _, p := range progress {
+			result = append(result, p.Snapshot())
+		}
+	}
+	return result
+}
+func (t *Team) SetMemberOriginToolCallID(name, id string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if member := t.Members[name]; member != nil && member.Progress != nil {
+		member.Progress.SetOriginToolCallID(id)
+	}
 }

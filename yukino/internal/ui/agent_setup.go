@@ -19,7 +19,6 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/memory/background"
 	"github.com/yukino-js/yukino/yukino/internal/permissions"
 	"github.com/yukino-js/yukino/yukino/internal/prompt"
-	"github.com/yukino-js/yukino/yukino/internal/session"
 	"github.com/yukino-js/yukino/yukino/internal/skills"
 	"github.com/yukino-js/yukino/yukino/internal/subagent"
 	"github.com/yukino-js/yukino/yukino/internal/teams"
@@ -114,6 +113,7 @@ func (m *Model) registerAgentTools(client llm.Client, providerCfg *config.Provid
 	m.registry.Register(&teams.SendMessageTool{TeamMgr: teamMgr, SenderName: "leader"})
 	m.registry.Register(&teams.TaskStopTool{TeamMgr: teamMgr, TaskManager: m.taskMgr})
 	m.registry.Register(&tools.SyntheticOutputTool{})
+	progressCh, life := m.subAgentProgressCh, m.lifeCtx
 	m.registry.Register(&subagent.AgentTool{
 		Client:        client,
 		Provider:      providerCfg,
@@ -121,10 +121,15 @@ func (m *Model) registerAgentTools(client llm.Client, providerCfg *config.Provid
 		Registry:      m.registry,
 		Protocol:      protocol,
 		TaskMgr:       m.taskMgr,
-		ProgressCh:    m.subAgentProgressCh,
-		Loader:        loader,
-		Conversation:  m.conversation,
-		TeamMgr:       teamMgr,
+		OnProgress: func(p subagent.SubAgentProgress) {
+			select {
+			case progressCh <- p:
+			case <-life.Done():
+			}
+		},
+		Loader:       loader,
+		Conversation: m.conversation,
+		TeamMgr:      teamMgr,
 	})
 
 }
@@ -385,52 +390,20 @@ func (m *Model) prefetchRelevantMemories(query string) <-chan agent.RecallResult
 }
 
 func (m *Model) savePartialResponse() {
-	if m.streamBuf != "" {
-		m.chatMessages = append(m.chatMessages, chatMessage{
-			role:    "assistant",
-			content: m.streamBuf,
-		})
-		m.conversation.AddAssistantMessage(m.streamBuf)
-		wd, _ := os.Getwd()
-		session.SaveMessage(wd, m.sessionID, session.Message{
-			Role: "assistant", Content: m.streamBuf, Timestamp: time.Now().Unix(),
-		})
-		m.streamBuf = ""
-	}
+	m.commitOutput()
 	m.toolBlocks = nil
-
-	msgs := m.conversation.GetMessages()
-	if len(msgs) > 0 {
-		last := msgs[len(msgs)-1]
-		if last.Role == "assistant" && len(last.ToolUses) > 0 {
-			var results []conversation.ToolResultBlock
-			for _, tu := range last.ToolUses {
-				results = append(results, conversation.ToolResultBlock{
-					ToolUseID: tu.ToolUseID,
-					Content:   "Tool execution was interrupted by user.",
-					IsError:   true,
-				})
-			}
-			m.conversation.AddToolResultsMessage(results)
-		}
-	}
 
 	m.chatMessages = append(m.chatMessages, chatMessage{
 		role:    "system",
 		content: "(response interrupted)",
 	})
-	m.updateViewport()
 }
 
 func (m *Model) finishStreaming() {
 	m.retryStatus = ""
 	m.fileFactsVersion++
-	if m.thinking {
-		m.thinkingDone = time.Since(m.thinkingStart).Seconds()
-		m.thinking = false
-	}
+
 	m.streaming = false
 	m.cancelStream = nil
 	m.agentCh = nil
-	m.updateViewport()
 }

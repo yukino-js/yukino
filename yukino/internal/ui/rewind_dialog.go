@@ -148,7 +148,6 @@ func (m Model) handleRewind() (tea.Model, tea.Cmd) {
 		m.chatMessages = append(m.chatMessages, chatMessage{
 			role: "system", content: "No checkpoints to rewind to.",
 		})
-		m.updateViewport()
 		return m, nil
 	}
 	m.rewindSnapshots = m.fileHistory.GetSnapshots()
@@ -156,7 +155,6 @@ func (m Model) handleRewind() (tea.Model, tea.Cmd) {
 	m.rewindPhase = 0
 	m.rewindOptionCursor = 0
 	m.rewindDialog = true
-	m.updateViewport()
 	return m, nil
 }
 
@@ -172,7 +170,6 @@ func (m Model) handleRewindPhase0(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.rewindDialog = false
-		m.updateViewport()
 		return m, nil
 	case "up":
 		if count > 0 {
@@ -181,7 +178,6 @@ func (m Model) handleRewindPhase0(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else {
 				m.rewindCursor = count - 1
 			}
-			m.updateViewport()
 		}
 		return m, nil
 	case "down":
@@ -191,14 +187,12 @@ func (m Model) handleRewindPhase0(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else {
 				m.rewindCursor = 0
 			}
-			m.updateViewport()
 		}
 		return m, nil
 	case "enter":
 		if count > 0 {
 			m.rewindPhase = 1
 			m.rewindOptionCursor = 0
-			m.updateViewport()
 		}
 		return m, nil
 	}
@@ -209,7 +203,6 @@ func (m Model) handleRewindPhase1(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.rewindPhase = 0
-		m.updateViewport()
 		return m, nil
 	case "up":
 		if m.rewindOptionCursor > 0 {
@@ -217,7 +210,6 @@ func (m Model) handleRewindPhase1(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else {
 			m.rewindOptionCursor = len(RestoreOptions) - 1
 		}
-		m.updateViewport()
 		return m, nil
 	case "down":
 		if m.rewindOptionCursor < len(RestoreOptions)-1 {
@@ -225,7 +217,6 @@ func (m Model) handleRewindPhase1(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else {
 			m.rewindOptionCursor = 0
 		}
-		m.updateViewport()
 		return m, nil
 	case "enter":
 		return m.executeRewindOption()
@@ -310,7 +301,6 @@ func (m Model) executeRewindOption() (tea.Model, tea.Cmd) {
 	case 3:
 		m.rewindDialog = false
 		m.rewindPhase = 0
-		m.updateViewport()
 		return m, nil
 	}
 
@@ -329,7 +319,6 @@ func (m Model) executeRewindOption() (tea.Model, tea.Cmd) {
 	m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: summary})
 	m.rewindDialog = false
 	m.rewindPhase = 0
-	m.updateViewport()
 
 	if rebuilt {
 		// The reference remounts the Static transcript after a conversation
@@ -357,6 +346,5 @@ func (m Model) finishRewindError(err error) (tea.Model, tea.Cmd) {
 	})
 	m.rewindDialog = false
 	m.rewindPhase = 0
-	m.updateViewport()
 	return m, nil
 }

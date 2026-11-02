@@ -205,14 +205,12 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 		defer mcpMgr.DisconnectAll()
 	}
 
-	subProgressCh := make(chan subagent.SubAgentProgress, 32)
 	registry.Register(&subagent.AgentTool{
 		Client:       client,
 		Provider:     p,
 		Registry:     registry,
 		Protocol:     p.Protocol,
 		TaskMgr:      taskMgr,
-		ProgressCh:   subProgressCh,
 		Loader:       loader,
 		Conversation: conv,
 		TeamMgr:      teamMgr,

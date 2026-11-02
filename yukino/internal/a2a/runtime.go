@@ -183,7 +183,6 @@ func CreateA2aRuntime(cwd string, sessionID string) (Runtime, error) {
 	r.registry.Register(&teams.TaskStopTool{TeamMgr: r.teamMgr, TaskManager: r.taskMgr})
 	loader := subagent.NewAgentLoader()
 	loader.LoadAll()
-	subProgressCh := make(chan subagent.SubAgentProgress, 32)
 	r.registry.Register(&subagent.AgentTool{
 		Client:        r.client,
 		Provider:      provider,
@@ -191,7 +190,6 @@ func CreateA2aRuntime(cwd string, sessionID string) (Runtime, error) {
 		Registry:      r.registry,
 		Protocol:      provider.Protocol,
 		TaskMgr:       r.taskMgr,
-		ProgressCh:    subProgressCh,
 		Loader:        loader,
 		Conversation:  r.conv,
 		TeamMgr:       r.teamMgr,

@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/yukino-js/yukino/yukino/internal/agent"
 	"github.com/yukino-js/yukino/yukino/internal/commands"
+	"github.com/yukino-js/yukino/yukino/internal/conversation/userbash"
 	"github.com/yukino-js/yukino/yukino/internal/tools"
 )
 
@@ -18,18 +19,26 @@ type foregroundSettledMsg struct{ ch <-chan agent.AgentEvent }
 type ctrlCExpiredMsg struct{ generation int }
 
 func (m Model) modalActive() bool {
-	return m.loginDialog || m.providerDialog || m.modelDialog || m.planApprovalDialog || m.rewindDialog || m.resumeDialog || m.permDialog || m.askUserDialog || m.sandboxDialog
+	return m.loginDialog || m.providerDialog || m.modelDialog || m.planApprovalDialog || m.rewindDialog || m.resumeDialog || m.permDialog || m.askUserDialog || m.sandboxDialog || m.thinkingDialog || m.agentsDialog || m.workflowsDialog
 }
 
 func (m Model) foregroundBusy() bool {
-	return m.streaming || m.compacting || m.startingAgent || m.settlingCh != nil || m.activeSubAgent != nil && !m.activeSubAgent.done
+	if m.userBash != nil {
+		return true
+	}
+	for _, p := range m.subagents {
+		if p.status == "running" && p.taskID == "" {
+			return true
+		}
+	}
+	return m.streaming || m.compacting || m.startingAgent || m.settlingCh != nil
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if key, ok := msg.(tea.KeyMsg); ok {
 		if key.String() == "ctrl+c" {
 			if m.foregroundBusy() {
-				m.interruptForeground()
+				m.interruptUserWork()
 				m.ctrlCDeadline = time.Time{}
 				m.ctrlCGeneration++
 				cmd := m.waitForForegroundCleanup()
@@ -52,10 +61,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if key.String() == "ctrl+o" {
 			m.toolsExpanded = !m.toolsExpanded
-			for i := range m.chatMessages {
-				m.chatMessages[i].expanded = m.toolsExpanded
-			}
-			m.updateViewport()
 			text := m.renderTranscriptHeader() + "\n" + m.renderMessagesRange(0, m.committedUpTo)
 			return m, tea.Sequence(tea.ClearScreen, tea.Println(text))
 		}
@@ -96,6 +101,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			next.settlingCh = event.ch
 		}
 	}
+	if next.workflowClients != nil {
+		next.workflowClients.set(next.client, next.selectedProvider)
+	}
+	next.flushUserBashRecords(true)
 	cleanupCmd := next.waitForForegroundCleanup()
 	cmd = tea.Batch(cmd, cleanupCmd)
 
@@ -123,6 +132,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) backgroundShells() tea.Cmd {
+	if m.userBash != nil && m.userBash.excluded {
+		return nil
+	}
 	if !m.modalActive() && tools.HasAnyForegroundTasks(m.registry) {
 		tools.BackgroundAllForegroundTasks(m.registry)
 	}
@@ -130,11 +142,18 @@ func (m Model) backgroundShells() tea.Cmd {
 }
 
 func (m Model) submitInput(text string) (tea.Model, tea.Cmd) {
+	if _, _, ok := userbash.ParseCommand(text); ok {
+		next, cmd, accepted := m.submitUserBash(text)
+		if accepted {
+			next.clearDraft()
+		}
+		return next, cmd
+	}
+	m.updateDismissed = true
 	if m.foregroundBusy() && goalControl.FindStringSubmatch(text) == nil {
 		m.pendingMessages = append(m.pendingMessages, text)
 		m.queuePaused = false
 		m.clearDraft()
-		m.updateViewport()
 		return m, nil
 	}
 	var updated tea.Model

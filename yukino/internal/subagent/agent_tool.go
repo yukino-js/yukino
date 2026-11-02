@@ -35,15 +35,11 @@ func sanitizeSlugSegment(s string) string {
 }
 
 type SubAgentProgress struct {
-	AgentDesc string
-	AgentType string
-	ToolName  string
-	ToolArgs  map[string]any
-	Elapsed   float64
-	IsError   bool
-	Done      bool
-	ToolCount int
-	TotalTime float64
+	ToolCallID string
+	Role       string
+	Event      agent.AgentEvent
+	Status     string
+	Output     string
 }
 
 const GeneralPurposeAgentType = "general-purpose"
@@ -55,7 +51,7 @@ type AgentTool struct {
 	Registry      *tools.Registry
 	Protocol      string
 	TaskMgr       *TaskManager
-	ProgressCh    chan<- SubAgentProgress
+	OnProgress    func(SubAgentProgress)
 	Loader        *AgentLoader
 	Conversation  *conversation.Manager
 	TeamMgr       *teams.TeamManager
@@ -340,14 +336,14 @@ func (t *AgentTool) runChild(ctx context.Context, spec SubAgentSpec, description
 	for _, message := range conv.GetMessages() {
 		session.SaveTranscriptMessage(transcriptPath, session.FromConversation(message))
 	}
-	start := time.Now()
 	var output strings.Builder
 	submitted := ""
-	count := 0
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var runError string
+	t.reportProgress(SubAgentProgress{ToolCallID: originToolCallID(ctx), Role: spec.Name, Status: "running"})
 	for event := range child.Run(runCtx, conv) {
+		t.reportProgress(SubAgentProgress{ToolCallID: originToolCallID(ctx), Role: spec.Name, Event: event})
 		switch e := event.(type) {
 		case agent.StreamText:
 			output.WriteString(e.Text)
@@ -359,17 +355,26 @@ func (t *AgentTool) runChild(ctx context.Context, spec SubAgentSpec, description
 			}
 			e.ResponseCh <- reply
 		case agent.ToolResultEvent:
-			count++
 			if e.ToolName == "ExitPlanMode" && !e.IsError {
 				submitted = e.Output
 			}
-			emitProgress(t.ProgressCh, ctx, SubAgentProgress{AgentDesc: description, AgentType: spec.Name, ToolName: e.ToolName, Elapsed: e.Elapsed.Seconds(), IsError: e.IsError})
 		case agent.ErrorEvent:
 			runError = e.Message
 			cancel()
 		}
 	}
-	emitProgress(t.ProgressCh, ctx, SubAgentProgress{AgentDesc: description, AgentType: spec.Name, Done: true, ToolCount: count, TotalTime: time.Since(start).Seconds()})
+	status := "completed"
+	if runError != "" {
+		status = "failed"
+	}
+	if ctx.Err() != nil {
+		status = "stopped"
+	}
+	finalOutput := output.String()
+	if runError != "" {
+		finalOutput = "Agent error: " + runError
+	}
+	t.reportProgress(SubAgentProgress{ToolCallID: originToolCallID(ctx), Role: spec.Name, Status: status, Output: finalOutput})
 	result := output.String()
 	if runError != "" {
 		session.SaveTranscriptMessage(transcriptPath, session.Message{Role: "system", Type: "subagent_error", Content: runError, Timestamp: time.Now().Unix()})
@@ -402,14 +407,9 @@ func deriveSubAgentChecker(parent *permissions.Checker, mode string) *permission
 	return parent.ForSubagent(parent.Cwd(), permissions.PermissionMode(mode))
 }
 
-func emitProgress(ch chan<- SubAgentProgress, ctx context.Context, p SubAgentProgress) {
-	if ch == nil {
-		return
-	}
-	select {
-	case ch <- p:
-	case <-ctx.Done():
-	default:
+func (t *AgentTool) reportProgress(p SubAgentProgress) {
+	if t.OnProgress != nil {
+		t.OnProgress(p)
 	}
 }
 
@@ -496,35 +496,14 @@ func (t *AgentTool) runAsTeammate(ctx context.Context, targetTeam, description, 
 		return tools.ToolResult{Output: "Error spawning teammate: " + err.Error(), IsError: true}
 	}
 	team.SetMemberMeta(memberName, spec.Name, model, cwd)
+	team.SetMemberOriginToolCallID(memberName, originToolCallID(ctx))
 	if result.EventCh != nil {
-		go drainTeammateEvents(memberName, result.EventCh, t.ProgressCh)
+		go func() {
+			for range result.EventCh {
+			}
+		}()
 	}
 	return tools.ToolResult{Output: fmt.Sprintf("Teammate '%s' spawned in team '%s' (in-process)", memberName, team.Name)}
-}
-
-func drainTeammateEvents(name string, ch <-chan agent.AgentEvent, progressCh chan<- SubAgentProgress) {
-	for ev := range ch {
-		if progressCh == nil {
-			continue
-		}
-		switch e := ev.(type) {
-		case agent.ToolResultEvent:
-			emitProgress(progressCh, context.Background(), SubAgentProgress{
-				AgentDesc: name,
-				AgentType: "teammate",
-				ToolName:  e.ToolName,
-				Elapsed:   e.Elapsed.Seconds(),
-				IsError:   e.IsError,
-			})
-		case agent.ErrorEvent:
-			emitProgress(progressCh, context.Background(), SubAgentProgress{
-				AgentDesc: name,
-				AgentType: "teammate",
-				ToolName:  "error",
-				IsError:   true,
-			})
-		}
-	}
 }
 
 func generateAgentSlug(description string) string {

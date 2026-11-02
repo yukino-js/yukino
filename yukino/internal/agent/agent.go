@@ -282,7 +282,7 @@ func (a *Agent) executeSingleTool(ctx context.Context, eventCh chan AgentEvent, 
 			patterns := append([]string{}, a.Checker.RememberPatterns(tc.toolName, tc.arguments)...)
 			decision.RememberPatterns = patterns
 			response := make(chan PermissionReply, 1)
-			request := PermissionRequestEvent{ToolName: tc.toolName, ToolID: tc.toolID, Args: tc.arguments, Decision: decision, Desc: permissions.DescribeToolAction(tc.toolName, tc.arguments), ResponseCh: response}
+			request := PermissionRequestEvent{Context: ctx, Cwd: a.CurrentCwd(), ToolName: tc.toolName, ToolID: tc.toolID, Args: tc.arguments, Decision: decision, Desc: permissions.DescribeToolAction(tc.toolName, tc.arguments), ResponseCh: response}
 			select {
 			case eventCh <- request:
 			case <-ctx.Done():
@@ -323,7 +323,7 @@ func (a *Agent) executeSingleTool(ctx context.Context, eventCh chan AgentEvent, 
 	ctx = tools.WithExecutionContext(ctx, tools.ExecutionContext{Worktrees: worktrees, Plan: planning, RequestPermission: func(requestCtx context.Context, name, desc string) (int, string) {
 		response := make(chan PermissionReply, 1)
 		select {
-		case eventCh <- PermissionRequestEvent{ToolName: name, Desc: desc, ResponseCh: response}:
+		case eventCh <- PermissionRequestEvent{Context: requestCtx, Cwd: a.CurrentCwd(), ToolName: name, Desc: desc, ResponseCh: response}:
 		case <-requestCtx.Done():
 			return int(PermDeny), ""
 		}

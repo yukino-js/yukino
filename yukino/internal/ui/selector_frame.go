@@ -76,13 +76,14 @@ func fitHint(hint string, width int) string {
 }
 
 type selectorFrameParams struct {
-	title    string
-	subtitle string
-	hint     string
-	content  string
-	width    int
-	rows     int
-	focusRow int
+	title       string
+	subtitle    string
+	hint        string
+	content     string
+	width       int
+	rows        int
+	focusRow    int
+	focusHeight int
 }
 
 // renderSelectorFrame mirrors SelectorFrame in src/ui/selector-frame.tsx.
@@ -126,8 +127,12 @@ func renderSelectorFrame(p selectorFrameParams) string {
 		sb.WriteString("\n")
 	}
 	lines := strings.Split(p.content, "\n")
+	if p.content == "" {
+		lines = nil
+	}
 	limit := max(0, p.rows-chrome.height)
-	start := min(max(0, p.focusRow-limit+1), max(0, len(lines)-limit))
+	focusHeight := max(1, p.focusHeight)
+	start := min(max(0, p.focusRow+min(focusHeight, limit)-limit), max(0, len(lines)-limit))
 	for _, line := range lines[start:min(len(lines), start+limit)] {
 		sb.WriteString(pad(truncateToWidth(line, contentWidth, "…")))
 		sb.WriteString("\n")

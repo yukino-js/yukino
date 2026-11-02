@@ -462,7 +462,6 @@ func (s *Server) registerTools(client llm.Client, p *config.ProviderConfig, wd s
 	s.registry.Register(&teams.SendMessageTool{TeamMgr: s.teamMgr, SenderName: "leader"})
 	s.registry.Register(&teams.TaskStopTool{TeamMgr: s.teamMgr, TaskManager: s.taskMgr})
 	s.registry.Register(&tools.SyntheticOutputTool{})
-	subProgressCh := make(chan subagent.SubAgentProgress, 32)
 	s.registry.Register(&subagent.AgentTool{
 		Client:        client,
 		Provider:      p,
@@ -470,7 +469,6 @@ func (s *Server) registerTools(client llm.Client, p *config.ProviderConfig, wd s
 		Registry:      s.registry,
 		Protocol:      p.Protocol,
 		TaskMgr:       s.taskMgr,
-		ProgressCh:    subProgressCh,
 		Loader:        loader,
 		Conversation:  s.conv,
 		TeamMgr:       s.teamMgr,

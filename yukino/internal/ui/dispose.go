@@ -1,8 +1,33 @@
 package ui
 
-import "errors"
+import (
+	"errors"
+	"github.com/yukino-js/yukino/yukino/internal/session"
+)
 
 func (m Model) Dispose() error {
+	var failures []error
+	if m.lifeCancel != nil {
+		m.lifeCancel()
+	}
+	m.denyAllInteractions()
+	if run := m.userBash; run != nil {
+		run.cancel()
+		<-run.done
+		run.mu.Lock()
+		if !run.handled && run.result != nil {
+			if err := session.SaveMessage(run.cwd, run.sessionID, userBashRecord(run, *run.result)); err != nil {
+				failures = append(failures, err)
+			}
+			run.handled = true
+		}
+		run.mu.Unlock()
+	}
+	for _, record := range m.pendingBashRecords {
+		if err := session.SaveMessage(m.getWorkDir(), m.sessionID, record); err != nil {
+			failures = append(failures, err)
+		}
+	}
 	if m.cancelStream != nil {
 		m.cancelStream()
 	}
@@ -18,7 +43,6 @@ func (m Model) Dispose() error {
 	if m.teamMgr != nil {
 		m.teamMgr.CloseAll()
 	}
-	var failures []error
 	if m.memoryTasks != nil {
 		m.memoryTasks.Dispose()
 	}

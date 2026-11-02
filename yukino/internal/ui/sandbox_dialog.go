@@ -18,13 +18,11 @@ func (m Model) handleSandboxDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.sandboxCursor > 0 {
 			m.sandboxCursor--
 		}
-		m.updateViewport()
 		return m, nil
 	case "down", "j":
 		if m.sandboxCursor < len(labels)-1 {
 			m.sandboxCursor++
 		}
-		m.updateViewport()
 		return m, nil
 	case "enter":
 		m.sandboxDialog = false
@@ -32,7 +30,6 @@ func (m Model) handleSandboxDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.applySandboxMode(mode)
 	case "esc":
 		m.sandboxDialog = false
-		m.updateViewport()
 		return m, nil
 	}
 	return m, nil
@@ -92,7 +89,6 @@ func (m Model) applySandboxMode(mode commands.SandboxMode) (tea.Model, tea.Cmd) 
 
 	msg := fmt.Sprintf("Sandbox mode switched: %s\n%s", labels[mode], descriptions[mode])
 	m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: msg})
-	m.updateViewport()
 	return m, nil
 }
 
@@ -102,7 +98,7 @@ func (m Model) renderSandboxDialog() string {
 	}
 	var sb strings.Builder
 
-	header := lipgloss.NewStyle().Foreground(brandPurple).Bold(true).Render(
+	header := lipgloss.NewStyle().Foreground(accentColor).Bold(true).Render(
 		" Select sandbox mode",
 	)
 	sb.WriteString(header)
@@ -114,7 +110,7 @@ func (m Model) renderSandboxDialog() string {
 	for i, label := range labels {
 		prefix := "   "
 		if i == m.sandboxCursor {
-			prefix = lipgloss.NewStyle().Foreground(brandPurple).Render(" ❯ ")
+			prefix = lipgloss.NewStyle().Foreground(accentColor).Render(" ❯ ")
 		}
 		displayLabel := label
 		if i == m.sandboxCursor {

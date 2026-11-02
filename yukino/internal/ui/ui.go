@@ -28,7 +28,6 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/vscode"
 
 	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -41,12 +40,40 @@ const (
 )
 
 type Model struct {
-	providers        []config.ProviderConfig
-	selectedProvider *config.ProviderConfig
-	defaultProvider  int
-	client           llm.Client
-	registry         *tools.Registry
-	ag               *agent.Agent
+	userBash                               *userBashRun
+	userBashTool                           *toolBlockInfo
+	userBashOutputCh                       chan userBashOutputMsg
+	pendingBashRecords                     []session.Message
+	lifeCtx                                context.Context
+	lifeCancel                             context.CancelFunc
+	hostPermissionCh                       chan agent.PermissionRequestEvent
+	permissionQueue                        []agent.PermissionRequestEvent
+	permissionCurrent                      *agent.PermissionRequestEvent
+	askQueue                               []tools.AskUserRequest
+	thinkingDialog                         bool
+	thinkingLevels                         []string
+	thinkingCursor                         int
+	agentsDialog                           bool
+	agentsCursor                           int
+	agentDetailID                          string
+	workflowsDialog                        bool
+	workflowRunCursor, workflowAgentCursor int
+	workflowConfirm                        *workflowConfirm
+	workflowError                          string
+	workflowResuming                       bool
+	workflowClients                        *workflowClients
+	latestVersion                          string
+	updateDismissed                        bool
+	todoTeams                              []*teams.Team
+	todoBoardGeneration                    int
+	todoCompletionKey                      string
+	todoCompletionAt                       time.Time
+	providers                              []config.ProviderConfig
+	selectedProvider                       *config.ProviderConfig
+	defaultProvider                        int
+	client                                 llm.Client
+	registry                               *tools.Registry
+	ag                                     *agent.Agent
 
 	state         appState
 	streaming     bool
@@ -54,21 +81,27 @@ type Model struct {
 	settlingCh    <-chan agent.AgentEvent
 	settleWaiting bool
 
-	editor   inputEditor
-	viewport viewport.Model
-	width    int
-	height   int
-	ready    bool
+	editor inputEditor
+	width  int
+	height int
+	ready  bool
 
 	providerCursor int
 
 	conversation *conversation.Manager
 
-	chatMessages []chatMessage
-	toolBlocks   []toolBlockInfo
-	streamBuf    string
-	agentCh      <-chan agent.AgentEvent
-	cancelStream context.CancelFunc
+	chatMessages                       []chatMessage
+	toolBlocks                         []toolBlockInfo
+	streamBuf                          string
+	thinkingBuf                        string
+	thinkingTextStart                  time.Time
+	thinkingDuration                   float64
+	outputGeneration                   int
+	flushScheduled                     bool
+	totalCacheRead, totalCacheCreation int
+	subagents                          map[string]*subagentProgress
+	agentCh                            <-chan agent.AgentEvent
+	cancelStream                       context.CancelFunc
 
 	totalInput  int
 	totalOutput int
@@ -78,14 +111,12 @@ type Model struct {
 	permDesc     string
 	permRespCh   chan<- agent.PermissionReply
 	permCursor   int
-	permFeedback string
 
 	cmdRegistry   *commands.Registry
 	slashMenuOpen bool
 	slashMatches  []*commands.Command
 	slashCursor   int
 
-	userScrolled  bool
 	committedUpTo int
 
 	atMenuOpen         bool
@@ -111,10 +142,7 @@ type Model struct {
 	activityError      string
 	compacting         bool
 
-	spinner       spinner.Model
-	thinking      bool
-	thinkingStart time.Time
-	thinkingDone  float64
+	spinner spinner.Model
 
 	instructionsContent string
 	memoryContent       string
@@ -150,26 +178,28 @@ type Model struct {
 	rewindPhase        int
 	rewindOptionCursor int
 
-	askUserCh          chan tools.AskUserRequest
-	subAgentProgressCh chan subagent.SubAgentProgress
-	activeSubAgent     *subAgentBlock
-	askUserDialog      bool
-	askUserQuestions   []tools.Question
-	askUserCursors     []int
-	askUserSelected    []map[int]bool
-	askUserOther       []string
-	askUserQIdx        int
-	askUserRespCh      chan tools.QuestionResponse
-	askUserAnswered    map[int]string
-	askUserOnSubmit    bool
-	askUserSubmitIdx   int
-	skillCatalog       *skills.Catalog
-	announcedSkills    map[string]bool
-	taskMgr            *subagent.TaskManager
-	todoList           *todo.TaskList
-	memoryMgr          *memory.Manager
-	memoryTasks        *background.Tasks
-	teamMgr            *teams.TeamManager
+	askUserCh             chan tools.AskUserRequest
+	subAgentProgressCh    chan subagent.SubAgentProgress
+	askUserDialog         bool
+	askUserQuestions      []tools.Question
+	askUserCursors        []int
+	askUserSelected       []map[int]bool
+	askUserOther          []string
+	askUserOtherMode      []bool
+	askUserSelectionOrder [][]int
+	askUserTextEditor     inputEditor
+	askUserQIdx           int
+	askUserRespCh         chan tools.QuestionResponse
+	askUserAnswered       map[int]string
+	askUserOnSubmit       bool
+	askUserSubmitIdx      int
+	skillCatalog          *skills.Catalog
+	announcedSkills       map[string]bool
+	taskMgr               *subagent.TaskManager
+	todoList              *todo.TaskList
+	memoryMgr             *memory.Manager
+	memoryTasks           *background.Tasks
+	teamMgr               *teams.TeamManager
 
 	sandboxDialog         bool
 	sandboxCursor         int
@@ -248,7 +278,7 @@ func New(providers []config.ProviderConfig, mcpConfigs []config.MCPServerConfig,
 		Frames: SpinnerFrames,
 		FPS:    80 * time.Millisecond,
 	}
-	sp.Style = lipgloss.NewStyle().Foreground(brandPurple)
+	sp.Style = lipgloss.NewStyle().Foreground(accentColor)
 
 	askCh := make(chan tools.AskUserRequest, 1)
 	subProgressCh := make(chan subagent.SubAgentProgress, 32)
@@ -261,7 +291,9 @@ func New(providers []config.ProviderConfig, mcpConfigs []config.MCPServerConfig,
 	sCfg := sandboxCfg
 	initialTodos, _ := todo.NewTaskList(nil)
 
+	lifeCtx, lifeCancel := context.WithCancel(context.Background())
 	m := Model{
+		lifeCtx: lifeCtx, lifeCancel: lifeCancel, hostPermissionCh: make(chan agent.PermissionRequestEvent, 32), userBashOutputCh: make(chan userBashOutputMsg, 16),
 		providers:          providers,
 		todoList:           initialTodos,
 		mcpConfigs:         mcpConfigs,
@@ -300,7 +332,7 @@ func New(providers []config.ProviderConfig, mcpConfigs []config.MCPServerConfig,
 }
 
 func (m Model) Init() tea.Cmd {
-	cmds := []tea.Cmd{m.connectIde()}
+	cmds := []tea.Cmd{m.connectIde(), m.listenForAskUser(), m.listenForSubAgentProgress(), m.listenForHostPermission(), m.pollUIStatus(), m.checkUpdate(), m.listenUserBashOutput()}
 	if len(m.providers) > 0 {
 		cmds = append(cmds, func() tea.Msg { return initSingleProviderMsg{} })
 	}
@@ -314,25 +346,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.editor.SetWidth(msg.Width - boolColumn(msg.Width > 2)*2)
 
-		statusHeight := 1
-		sepHeight := 2
-		inputHeight := m.editor.Height() + 1
-		vpHeight := msg.Height - statusHeight - sepHeight - inputHeight - 1
-		if vpHeight < 1 {
-			vpHeight = 1
-		}
-
 		if !m.ready {
-			m.viewport = viewport.New(msg.Width, vpHeight)
-			m.viewport.MouseWheelEnabled = false
 			m.ready = true
-			m.updateViewport()
 			return m, tea.Println(m.renderTranscriptHeader())
-		} else {
-			m.viewport.Width = msg.Width
-			m.viewport.Height = vpHeight
 		}
-		m.updateViewport()
 		return m, nil
 
 	case ideConnectedMsg:
@@ -354,52 +371,77 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.listenForIdeMentions()
 
 	case subAgentProgressMsg:
-		p := msg.progress
-		if p.Done {
-			if m.activeSubAgent != nil {
-				m.activeSubAgent.done = true
-				m.activeSubAgent.toolCount = p.ToolCount
-				m.activeSubAgent.totalTime = p.TotalTime
-			}
-		} else {
-			if m.activeSubAgent == nil || m.activeSubAgent.done {
-				m.activeSubAgent = &subAgentBlock{
-					desc:      p.AgentDesc,
-					agentType: p.AgentType,
-				}
-			}
-			m.activeSubAgent.toolUses = append(m.activeSubAgent.toolUses, toolBlockInfo{
-				toolName: p.ToolName,
-				args:     p.ToolArgs,
-				elapsed:  p.Elapsed,
-				isError:  p.IsError,
-			})
-		}
-		m.updateViewport()
+		m.applySubagentProgress(msg.progress)
 		return m, m.listenForSubAgentProgress()
 
 	case askUserMsg:
-		m.askUserDialog = true
-		m.askUserQuestions = msg.req.Questions
-		m.askUserRespCh = msg.req.ResponseCh
-		m.askUserQIdx = 0
-		m.askUserCursors = make([]int, len(msg.req.Questions))
-		m.askUserSelected = make([]map[int]bool, len(msg.req.Questions))
-		m.askUserOther = make([]string, len(msg.req.Questions))
-		m.askUserAnswered = make(map[int]string)
-		m.askUserOnSubmit = false
-		m.askUserSubmitIdx = 0
-		for i := range msg.req.Questions {
-			m.askUserSelected[i] = make(map[int]bool)
+		m.enqueueAsk(msg.req)
+		return m, m.listenForAskUser()
+
+	case hostPermissionMsg:
+		m.enqueuePermission(msg.request)
+		return m, m.listenForHostPermission()
+
+	case userBashOutputMsg:
+		if m.userBash == msg.run && m.userBashTool != nil {
+			m.userBashTool.output = plainTerminalText(msg.output)
 		}
-		m.updateViewport()
+		return m, m.listenUserBashOutput()
+	case userBashDoneMsg:
+		if m.userBash != msg.run {
+			return m, nil
+		}
+		msg.run.mu.Lock()
+		result := *msg.run.result
+		msg.run.handled = true
+		msg.run.mu.Unlock()
+		m.chatMessages = append(m.chatMessages, userBashCard(result))
+		m.pendingBashRecords = append(m.pendingBashRecords, userBashRecord(msg.run, result))
+		m.userBash = nil
+		m.userBashTool = nil
+		m.fileFactsVersion++
+		m.flushUserBashRecords(true)
+		return m, m.commitStaticOutput()
+
+	case updateNoticeMsg:
+		m.latestVersion = msg.version
+		return m, nil
+
+	case uiStatusTickMsg:
+		m.pruneInteractions()
+		m.updateTodoCompletion()
+		if m.taskMgr != nil {
+			for id, p := range m.subagents {
+				if p.taskID != "" {
+					task := m.taskMgr.Get(p.taskID)
+					if task == nil || task.Status != "running" {
+						delete(m.subagents, id)
+					}
+				}
+			}
+		}
+		if m.agentsDialog && len(m.agentEntries()) == 0 {
+			m.agentsDialog = false
+		}
+		wake := m.wakeNotifications()
+		return m, tea.Batch(m.pollUIStatus(), wake)
+
+	case backgroundActionDoneMsg:
+		if msg.err != nil {
+			m.activityError = msg.err.Error()
+		}
+		return m, nil
+
+	case workflowActionDoneMsg:
+		m.workflowResuming = false
+		if msg.err != nil {
+			m.workflowError = msg.err.Error()
+		} else if msg.output != "" {
+			m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: msg.output})
+		}
 		return m, nil
 
 	case tea.KeyMsg:
-
-		if m.permDialog {
-			return m.handlePermDialog(msg)
-		}
 
 		switch m.state {
 		case stateProviderSelect:
@@ -434,7 +476,6 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			commit = m.renderMessagesRange(len(m.chatMessages)-1, len(m.chatMessages))
 		}
 		m.committedUpTo = len(m.chatMessages)
-		m.updateViewport()
 		if commit != "" {
 			return m, tea.Println(commit)
 		}
@@ -454,7 +495,6 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		default:
 			m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: "Compact: " + msg.message})
 		}
-		m.updateViewport()
 		return m, nil
 
 	case modelDiscoveryDoneMsg:
@@ -465,7 +505,6 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.modelState = modelPickerState{status: ModelPickerReady, models: msg.models}
 		}
-		m.updateViewport()
 		return m, nil
 
 	case mcpReadyMsg:
@@ -491,17 +530,36 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		mcp.SyncMcpInstructions(m.conversation, m.mcpAnnounced, m.mcpMgr)
 		m.committedUpTo = len(m.chatMessages)
-		m.updateViewport()
 		if len(mcpPrintLines) > 0 {
 			return m, tea.Println(strings.Join(mcpPrintLines, "\n"))
 		}
 		return m, nil
 
+	case outputFlushMsg:
+		if msg.generation != m.outputGeneration {
+			return m, nil
+		}
+		m.flushScheduled = false
+		if len(m.toolBlocks) == 0 {
+			prefix := stableStreamingPrefix(m.streamBuf)
+			if prefix != "" {
+				if m.thinkingBuf != "" || m.thinkingDuration >= 1 {
+					m.chatMessages = append(m.chatMessages, chatMessage{role: "turn_summary", content: m.thinkingBuf, thinkingDuration: m.thinkingDuration})
+					m.thinkingBuf = ""
+					m.thinkingTextStart = time.Time{}
+					m.thinkingDuration = 0
+				}
+				m.chatMessages = append(m.chatMessages, chatMessage{role: "assistant", content: prefix})
+				m.streamBuf = strings.TrimPrefix(m.streamBuf, prefix)
+			}
+		}
+		cmd := m.commitStaticOutput()
+		return m, cmd
+
 	case spinner.TickMsg:
 		if m.streaming {
 			var cmd tea.Cmd
 			m.spinner, cmd = m.spinner.Update(msg)
-			m.updateViewport()
 			return m, cmd
 		}
 
@@ -531,34 +589,6 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.finishStreaming()
 		return m, nil
 
-	case mailboxPollMsg:
-		if m.streaming {
-			return m, nil
-		}
-		notifications := teams.DrainLeadMailbox(m.teamMgr)
-		if len(notifications) == 0 {
-			return m, m.pollMailbox()
-		}
-		for _, note := range notifications {
-			m.conversation.AddSystemReminder(note)
-		}
-		m.streaming = true
-		m.thinking = true
-		m.thinkingStart = time.Now()
-		m.thinkingDone = 0
-		m.streamBuf = ""
-		m.toolBlocks = nil
-		m.userScrolled = false
-		ctx, cancel := context.WithCancel(context.Background())
-		m.cancelStream = cancel
-		m.agentCh = m.ag.Run(ctx, m.conversation)
-		m.updateViewport()
-		return m, tea.Batch(
-			m.listenForAgentEvents(),
-			m.listenForAskUser(),
-			m.listenForSubAgentProgress(),
-			m.spinner.Tick,
-		)
 	}
 
 	return m, nil
@@ -591,6 +621,9 @@ func (m Model) handleChat(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleResumeDialog(msg)
 	}
 
+	if m.permDialog {
+		return m.handlePermDialog(msg)
+	}
 	if m.askUserDialog {
 		return m.handleAskUserDialog(msg)
 	}
@@ -599,5 +632,14 @@ func (m Model) handleChat(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleSandboxDialog(msg)
 	}
 
+	if m.agentsDialog {
+		return m.handleAgentsDialog(msg)
+	}
+	if m.workflowsDialog {
+		return m.handleWorkflowsDialog(msg)
+	}
+	if m.thinkingDialog {
+		return m.handleThinkingDialog(msg)
+	}
 	return m.handleComposerKey(msg)
 }

@@ -42,11 +42,11 @@ func updateSelectorQuery(query string, msg tea.KeyMsg) string {
 		return ""
 	case tea.KeyBackspace, tea.KeyDelete:
 		return dropLastGrapheme(query)
-	case tea.KeyRunes:
-		if len(msg.Runes) == 0 {
+	case tea.KeyRunes, tea.KeySpace:
+		raw, _ := textForKey(msg)
+		if raw == "" {
 			return query
 		}
-		raw := string(msg.Runes)
 		if strings.Contains(raw, "\x1b") || regexp.MustCompile(`\[<\d+;\d+;\d+[Mm]`).MatchString(raw) {
 			return query
 		}

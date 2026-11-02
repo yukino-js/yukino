@@ -89,14 +89,8 @@ func TestEscCancelsAskUserDialog(t *testing.T) {
 	for _, onSubmit := range []bool{false, true} {
 		m := newChatModel(t)
 		ch := make(chan tools.QuestionResponse, 1)
-		m.askUserDialog = true
-		m.askUserQuestions = []tools.Question{{Text: "q?", Options: []tools.QuestionOption{{Label: "a"}}}}
-		m.askUserCursors = []int{0}
-		m.askUserSelected = []map[int]bool{{}}
-		m.askUserOther = []string{""}
-		m.askUserAnswered = map[int]string{}
+		m.enqueueAsk(tools.AskUserRequest{Questions: []tools.Question{{Text: "q?", Options: []tools.QuestionOption{{Label: "a"}, {Label: "b"}}}}, ResponseCh: ch})
 		m.askUserOnSubmit = onSubmit
-		m.askUserRespCh = ch
 		m = pressEsc(t, m)
 		if m.askUserDialog {
 			t.Errorf("esc should close the ask-user dialog (onSubmit=%v)", onSubmit)

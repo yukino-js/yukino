@@ -18,13 +18,11 @@ func (m Model) handlePlanApproval(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.planApprovalCursor > 0 {
 			m.planApprovalCursor--
 		}
-		m.updateViewport()
 		return m, nil
 	case "down", "j":
 		if m.planApprovalCursor < 2 {
 			m.planApprovalCursor++
 		}
-		m.updateViewport()
 		return m, nil
 	case "enter":
 		if m.planApprovalCursor == 2 {
@@ -43,13 +41,11 @@ func (m Model) handlePlanApproval(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.planApprovalCursor == 2 && len(m.planApprovalInput) > 0 {
 			_, size := utf8.DecodeLastRuneInString(m.planApprovalInput)
 			m.planApprovalInput = m.planApprovalInput[:len(m.planApprovalInput)-size]
-			m.updateViewport()
 		}
 		return m, nil
 	default:
 		if m.planApprovalCursor == 2 && len(msg.Runes) > 0 {
 			m.planApprovalInput += string(msg.Runes)
-			m.updateViewport()
 		}
 		return m, nil
 	}
@@ -58,7 +54,6 @@ func (m Model) handlePlanApproval(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) executePlanApproval() (tea.Model, tea.Cmd) {
 	m.planApprovalDialog = false
 	if m.ag == nil || m.ag.Checker == nil {
-		m.updateViewport()
 		return m, nil
 	}
 	checker := m.ag.Checker
@@ -72,7 +67,6 @@ func (m Model) executePlanApproval() (tea.Model, tea.Cmd) {
 	checker.ExitPlanMode(mode)
 	m.conversation.AddSystemReminder(prompt.BuildPlanModeExitReminder(planPath, planExists))
 	m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: message})
-	m.updateViewport()
 	if strings.TrimSpace(planContent) == "" {
 		return m, nil
 	}
@@ -83,20 +77,18 @@ func (m Model) sendPlanFeedback(feedback string) (tea.Model, tea.Cmd) {
 	feedback = strings.TrimSpace(feedback)
 	if feedback == "" {
 		m.planFeedbackRequired = true
-		m.updateViewport()
 		return m, nil
 	}
 	m.planApprovalDialog = false
 	m.planApprovalInput = ""
 	m.planFeedbackRequired = false
-	m.updateViewport()
 	return m.sendMessage(feedback)
 }
 
 func (m Model) renderPlanApprovalDialog() string {
 	var sb strings.Builder
 
-	header := lipgloss.NewStyle().Foreground(brandPurple).Bold(true).Render(
+	header := lipgloss.NewStyle().Foreground(accentColor).Bold(true).Render(
 		" Yukino has written up a plan and is ready to execute. Would you like to proceed?",
 	)
 	sb.WriteString(header)
@@ -111,7 +103,7 @@ func (m Model) renderPlanApprovalDialog() string {
 	for i, opt := range options {
 		prefix := "   "
 		if i == m.planApprovalCursor {
-			prefix = lipgloss.NewStyle().Foreground(brandPurple).Render(" ❯ ")
+			prefix = lipgloss.NewStyle().Foreground(accentColor).Render(" ❯ ")
 		}
 		label := opt
 		if i == m.planApprovalCursor {

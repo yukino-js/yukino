@@ -30,6 +30,7 @@ type AskUserQuestionTool struct {
 }
 
 type AskUserRequest struct {
+	Context    context.Context
 	Questions  []Question
 	ResponseCh chan QuestionResponse
 }
@@ -164,11 +165,15 @@ func (t *AskUserQuestionTool) Execute(ctx context.Context, args map[string]any) 
 	}
 
 	responseCh := make(chan QuestionResponse, 1)
-	t.RequestCh <- AskUserRequest{Questions: questions, ResponseCh: responseCh}
+	select {
+	case t.RequestCh <- AskUserRequest{Context: ctx, Questions: questions, ResponseCh: responseCh}:
+	case <-ctx.Done():
+		return ToolResult{Output: OperationInterruptedError, IsError: true}
+	}
 
 	select {
 	case response := <-responseCh:
-		if len(response.Answers) == 0 {
+		if len(response.Answers) == 0 || response.Answers["_declined"] == "true" {
 			return ToolResult{Output: "User cancelled or did not answer the questions.", IsError: true}
 		}
 		var parts []string

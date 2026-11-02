@@ -1,0 +1,3249 @@
+{
+  "reference": {
+    "commit": "1847a71e03f90d0e5fc60a2a797c60af327b7750",
+    "files": {
+      "src/ui/marked-terminal.ts": "be0be4031f80144c9a3495524c06180e5b81e521da00c12b7667e67a3d5f30c6",
+      "src/ui/syntax-highlight.ts": "69d6facf74857550f834c2f4b8fe3189fe7161728092fa1842469d5369a4c6d7",
+      "src/theme/syntax.ts": "3c9f87e462dd788810c93630177db6a64a0459a49bc7acca0722fcbd0d267c66",
+      "src/ui/markdown.ts": "f94c88a321f961b575c738bbbeff8830132f1c29a4ad3b826d26cf72b22e845a",
+      "src/ui/tool-preview.ts": "4fe558b4639ba4b72fbd7eb52f113c9b6a3bc81de0ae7caa68aa64e2dcc76547",
+      "src/ui/table-layout.ts": "b567104266018c82b112a952123a9decca4bfbbab5879c97a275b1fa81db9384",
+      "src/ui/terminal-text.ts": "349937f09f857b24fa72f1b7388719b57e5477fce66a98517a6eb3a8e6783035",
+      "src/ui/streaming-markdown.ts": "90041162a1dda37c2f0852d6fe1885931bf85c803a388e4454366659bbd1826e"
+    }
+  },
+  "markdown": [
+    {
+      "text": "hello world",
+      "width": 1,
+      "kind": "assistant",
+      "expected": "h\ne\nl\nl\no\n \nw\no\nr\nl\nd"
+    },
+    {
+      "text": "hello world",
+      "width": 1,
+      "kind": "user",
+      "expected": "h\ne\nl\nl\no\n \nw\no\nr\nl\nd"
+    },
+    {
+      "text": "hello world",
+      "width": 1,
+      "kind": "thinking",
+      "expected": "h\ne\nl\nl\no\n \nw\no\nr\nl\nd"
+    },
+    {
+      "text": "hello world",
+      "width": 2,
+      "kind": "assistant",
+      "expected": "he\nll\no \nwo\nrl\nd"
+    },
+    {
+      "text": "hello world",
+      "width": 2,
+      "kind": "user",
+      "expected": "he\nll\no \nwo\nrl\nd"
+    },
+    {
+      "text": "hello world",
+      "width": 2,
+      "kind": "thinking",
+      "expected": "he\nll\no \nwo\nrl\nd"
+    },
+    {
+      "text": "hello world",
+      "width": 5,
+      "kind": "assistant",
+      "expected": "hello\nworld"
+    },
+    {
+      "text": "hello world",
+      "width": 5,
+      "kind": "user",
+      "expected": "hello\nworld"
+    },
+    {
+      "text": "hello world",
+      "width": 5,
+      "kind": "thinking",
+      "expected": "hello\nworld"
+    },
+    {
+      "text": "hello world",
+      "width": 12,
+      "kind": "assistant",
+      "expected": "hello world"
+    },
+    {
+      "text": "hello world",
+      "width": 12,
+      "kind": "user",
+      "expected": "hello world"
+    },
+    {
+      "text": "hello world",
+      "width": 12,
+      "kind": "thinking",
+      "expected": "hello world"
+    },
+    {
+      "text": "hello world",
+      "width": 24,
+      "kind": "assistant",
+      "expected": "hello world"
+    },
+    {
+      "text": "hello world",
+      "width": 24,
+      "kind": "user",
+      "expected": "hello world"
+    },
+    {
+      "text": "hello world",
+      "width": 24,
+      "kind": "thinking",
+      "expected": "hello world"
+    },
+    {
+      "text": "hello world",
+      "width": 80,
+      "kind": "assistant",
+      "expected": "hello world"
+    },
+    {
+      "text": "hello world",
+      "width": 80,
+      "kind": "user",
+      "expected": "hello world"
+    },
+    {
+      "text": "hello world",
+      "width": 80,
+      "kind": "thinking",
+      "expected": "hello world"
+    },
+    {
+      "text": "# Heading\n\n## Second\n\n### Third\n\n#### Fourth",
+      "width": 1,
+      "kind": "assistant",
+      "expected": "H\ne\na\nd\ni\nn\ng\nS\ne\nc\no\nn\nd\nT\nh\ni\nr\nd\nF\no\nu\nr\nt\nh"
+    },
+    {
+      "text": "# Heading\n\n## Second\n\n### Third\n\n#### Fourth",
+      "width": 1,
+      "kind": "user",
+      "expected": "H\ne\na\nd\ni\nn\ng\nS\ne\nc\no\nn\nd\nT\nh\ni\nr\nd\nF\no\nu\nr\nt\nh"
+    },
+    {
+      "text": "# Heading\n\n## Second\n\n### Third\n\n#### Fourth",
+      "width": 1,
+      "kind": "thinking",
+      "expected": "H\ne\na\nd\ni\nn\ng\nS\ne\nc\no\nn\nd\nT\nh\ni\nr\nd\nF\no\nu\nr\nt\nh"
+    },
+    {
+      "text": "# Heading\n\n## Second\n\n### Third\n\n#### Fourth",
+      "width": 2,
+      "kind": "assistant",
+      "expected": "He\nad\nin\ng\nSe\nco\nnd\nTh\nir\nd\nFo\nur\nth"
+    },
+    {
+      "text": "# Heading\n\n## Second\n\n### Third\n\n#### Fourth",
+      "width": 2,
+      "kind": "user",
+      "expected": "He\nad\nin\ng\nSe\nco\nnd\nTh\nir\nd\nFo\nur\nth"
+    },
+    {
+      "text": "# Heading\n\n## Second\n\n### Third\n\n#### Fourth",
+      "width": 2,
+      "kind": "thinking",
+      "expected": "He\nad\nin\ng\nSe\nco\nnd\nTh\nir\nd\nFo\nur\nth"
+    },
+    {
+      "text": "# Heading\n\n## Second\n\n### Third\n\n#### Fourth",
+      "width": 5,
+      "kind": "assistant",
+      "expected": "Headi\nng\nSecon\nd\nThird\nFourt\nh"
+    },
+    {
+      "text": "# Heading\n\n## Second\n\n### Third\n\n#### Fourth",
+      "width": 5,
+      "kind": "user",
+      "expected": "Headi\nng\nSecon\nd\nThird\nFourt\nh"
+    },
+    {
+      "text": "# Heading\n\n## Second\n\n### Third\n\n#### Fourth",
+      "width": 5,
+      "kind": "thinking",
+      "expected": "Headi\nng\nSecon\nd\nThird\nFourt\nh"
+    },
+    {
+      "text": "# Heading\n\n## Second\n\n### Third\n\n#### Fourth",
+      "width": 12,
+      "kind": "assistant",
+      "expected": "Heading\nSecond\nThird\nFourth"
+    },
+    {
+      "text": "# Heading\n\n## Second\n\n### Third\n\n#### Fourth",
+      "width": 12,
+      "kind": "user",
+      "expected": "Heading\nSecond\nThird\nFourth"
+    },
+    {
+      "text": "# Heading\n\n## Second\n\n### Third\n\n#### Fourth",
+      "width": 12,
+      "kind": "thinking",
+      "expected": "Heading\nSecond\nThird\nFourth"
+    },
+    {
+      "text": "# Heading\n\n## Second\n\n### Third\n\n#### Fourth",
+      "width": 24,
+      "kind": "assistant",
+      "expected": "Heading\nSecond\nThird\nFourth"
+    },
+    {
+      "text": "# Heading\n\n## Second\n\n### Third\n\n#### Fourth",
+      "width": 24,
+      "kind": "user",
+      "expected": "Heading\nSecond\nThird\nFourth"
+    },
+    {
+      "text": "# Heading\n\n## Second\n\n### Third\n\n#### Fourth",
+      "width": 24,
+      "kind": "thinking",
+      "expected": "Heading\nSecond\nThird\nFourth"
+    },
+    {
+      "text": "# Heading\n\n## Second\n\n### Third\n\n#### Fourth",
+      "width": 80,
+      "kind": "assistant",
+      "expected": "Heading\nSecond\nThird\nFourth"
+    },
+    {
+      "text": "# Heading\n\n## Second\n\n### Third\n\n#### Fourth",
+      "width": 80,
+      "kind": "user",
+      "expected": "Heading\nSecond\nThird\nFourth"
+    },
+    {
+      "text": "# Heading\n\n## Second\n\n### Third\n\n#### Fourth",
+      "width": 80,
+      "kind": "thinking",
+      "expected": "Heading\nSecond\nThird\nFourth"
+    },
+    {
+      "text": "one **bold** and *italic* and ~~deleted~~ and `code`.",
+      "width": 1,
+      "kind": "assistant",
+      "expected": "o\nn\ne\nb\no\nl\nd\n \na\nn\nd\ni\nt\na\nl\ni\nc\n \na\nn\nd\nd\ne\nl\ne\nt\ne\nd\n \na\nn\nd\nc\no\nd\ne\n."
+    },
+    {
+      "text": "one **bold** and *italic* and ~~deleted~~ and `code`.",
+      "width": 1,
+      "kind": "user",
+      "expected": "o\nn\ne\nb\no\nl\nd\n \na\nn\nd\ni\nt\na\nl\ni\nc\n \na\nn\nd\nd\ne\nl\ne\nt\ne\nd\n \na\nn\nd\nc\no\nd\ne\n."
+    },
+    {
+      "text": "one **bold** and *italic* and ~~deleted~~ and `code`.",
+      "width": 1,
+      "kind": "thinking",
+      "expected": "o\nn\ne\nb\no\nl\nd\n \na\nn\nd\ni\nt\na\nl\ni\nc\n \na\nn\nd\nd\ne\nl\ne\nt\ne\nd\n \na\nn\nd\nc\no\nd\ne\n."
+    },
+    {
+      "text": "one **bold** and *italic* and ~~deleted~~ and `code`.",
+      "width": 2,
+      "kind": "assistant",
+      "expected": "on\ne \nbo\nld\n \nan\nd \nit\nal\nic\n \nan\nd \nde\nle\nte\nd \nan\nd \nco\nde\n."
+    },
+    {
+      "text": "one **bold** and *italic* and ~~deleted~~ and `code`.",
+      "width": 2,
+      "kind": "user",
+      "expected": "on\ne \nbo\nld\n \nan\nd \nit\nal\nic\n \nan\nd \nde\nle\nte\nd \nan\nd \nco\nde\n."
+    },
+    {
+      "text": "one **bold** and *italic* and ~~deleted~~ and `code`.",
+      "width": 2,
+      "kind": "thinking",
+      "expected": "on\ne \nbo\nld\n \nan\nd \nit\nal\nic\n \nan\nd \nde\nle\nte\nd \nan\nd \nco\nde\n."
+    },
+    {
+      "text": "one **bold** and *italic* and ~~deleted~~ and `code`.",
+      "width": 5,
+      "kind": "assistant",
+      "expected": "one \nbold\nand i\ntalic\nand d\nelete\nd and\ncode."
+    },
+    {
+      "text": "one **bold** and *italic* and ~~deleted~~ and `code`.",
+      "width": 5,
+      "kind": "user",
+      "expected": "one \nbold\nand i\ntalic\nand d\nelete\nd and\ncode."
+    },
+    {
+      "text": "one **bold** and *italic* and ~~deleted~~ and `code`.",
+      "width": 5,
+      "kind": "thinking",
+      "expected": "one \nbold\nand i\ntalic\nand d\nelete\nd and\ncode."
+    },
+    {
+      "text": "one **bold** and *italic* and ~~deleted~~ and `code`.",
+      "width": 12,
+      "kind": "assistant",
+      "expected": "one bold and\nitalic and \ndeleted and \ncode."
+    },
+    {
+      "text": "one **bold** and *italic* and ~~deleted~~ and `code`.",
+      "width": 12,
+      "kind": "user",
+      "expected": "one bold and\nitalic and \ndeleted and \ncode."
+    },
+    {
+      "text": "one **bold** and *italic* and ~~deleted~~ and `code`.",
+      "width": 12,
+      "kind": "thinking",
+      "expected": "one bold and\nitalic and \ndeleted and \ncode."
+    },
+    {
+      "text": "one **bold** and *italic* and ~~deleted~~ and `code`.",
+      "width": 24,
+      "kind": "assistant",
+      "expected": "one bold and italic and \ndeleted and code."
+    },
+    {
+      "text": "one **bold** and *italic* and ~~deleted~~ and `code`.",
+      "width": 24,
+      "kind": "user",
+      "expected": "one bold and italic and \ndeleted and code."
+    },
+    {
+      "text": "one **bold** and *italic* and ~~deleted~~ and `code`.",
+      "width": 24,
+      "kind": "thinking",
+      "expected": "one bold and italic and \ndeleted and code."
+    },
+    {
+      "text": "one **bold** and *italic* and ~~deleted~~ and `code`.",
+      "width": 80,
+      "kind": "assistant",
+      "expected": "one bold and italic and deleted and code."
+    },
+    {
+      "text": "one **bold** and *italic* and ~~deleted~~ and `code`.",
+      "width": 80,
+      "kind": "user",
+      "expected": "one bold and italic and deleted and code."
+    },
+    {
+      "text": "one **bold** and *italic* and ~~deleted~~ and `code`.",
+      "width": 80,
+      "kind": "thinking",
+      "expected": "one bold and italic and deleted and code."
+    },
+    {
+      "text": "First line\nsecond line\n\nnext paragraph.",
+      "width": 1,
+      "kind": "assistant",
+      "expected": "F\ni\nr\ns\nt\n \nl\ni\nn\ne\n\ns\ne\nc\no\nn\nd\n \nl\ni\nn\ne\n\nn\ne\nx\nt\n \np\na\nr\na\ng\nr\na\np\nh\n."
+    },
+    {
+      "text": "First line\nsecond line\n\nnext paragraph.",
+      "width": 1,
+      "kind": "user",
+      "expected": "F\ni\nr\ns\nt\n \nl\ni\nn\ne\n\ns\ne\nc\no\nn\nd\n \nl\ni\nn\ne\n\nn\ne\nx\nt\n \np\na\nr\na\ng\nr\na\np\nh\n."
+    },
+    {
+      "text": "First line\nsecond line\n\nnext paragraph.",
+      "width": 1,
+      "kind": "thinking",
+      "expected": "F\ni\nr\ns\nt\n \nl\ni\nn\ne\n\ns\ne\nc\no\nn\nd\n \nl\ni\nn\ne\n\nn\ne\nx\nt\n \np\na\nr\na\ng\nr\na\np\nh\n."
+    },
+    {
+      "text": "First line\nsecond line\n\nnext paragraph.",
+      "width": 2,
+      "kind": "assistant",
+      "expected": "Fi\nrs\nt \nli\nne\n\nse\nco\nnd\n \nli\nne\n\nne\nxt\n \npa\nra\ngr\nap\nh."
+    },
+    {
+      "text": "First line\nsecond line\n\nnext paragraph.",
+      "width": 2,
+      "kind": "user",
+      "expected": "Fi\nrs\nt \nli\nne\n\nse\nco\nnd\n \nli\nne\n\nne\nxt\n \npa\nra\ngr\nap\nh."
+    },
+    {
+      "text": "First line\nsecond line\n\nnext paragraph.",
+      "width": 2,
+      "kind": "thinking",
+      "expected": "Fi\nrs\nt \nli\nne\n\nse\nco\nnd\n \nli\nne\n\nne\nxt\n \npa\nra\ngr\nap\nh."
+    },
+    {
+      "text": "First line\nsecond line\n\nnext paragraph.",
+      "width": 5,
+      "kind": "assistant",
+      "expected": "First\nline\ns\necond\nline\n\nnext \nparag\nraph."
+    },
+    {
+      "text": "First line\nsecond line\n\nnext paragraph.",
+      "width": 5,
+      "kind": "user",
+      "expected": "First\nline\ns\necond\nline\n\nnext \nparag\nraph."
+    },
+    {
+      "text": "First line\nsecond line\n\nnext paragraph.",
+      "width": 5,
+      "kind": "thinking",
+      "expected": "First\nline\ns\necond\nline\n\nnext \nparag\nraph."
+    },
+    {
+      "text": "First line\nsecond line\n\nnext paragraph.",
+      "width": 12,
+      "kind": "assistant",
+      "expected": "First line\n\nsecond line\n\nnext\nparagraph."
+    },
+    {
+      "text": "First line\nsecond line\n\nnext paragraph.",
+      "width": 12,
+      "kind": "user",
+      "expected": "First line\n\nsecond line\n\nnext\nparagraph."
+    },
+    {
+      "text": "First line\nsecond line\n\nnext paragraph.",
+      "width": 12,
+      "kind": "thinking",
+      "expected": "First line\n\nsecond line\n\nnext\nparagraph."
+    },
+    {
+      "text": "First line\nsecond line\n\nnext paragraph.",
+      "width": 24,
+      "kind": "assistant",
+      "expected": "First line\nsecond line\n\nnext paragraph."
+    },
+    {
+      "text": "First line\nsecond line\n\nnext paragraph.",
+      "width": 24,
+      "kind": "user",
+      "expected": "First line\nsecond line\n\nnext paragraph."
+    },
+    {
+      "text": "First line\nsecond line\n\nnext paragraph.",
+      "width": 24,
+      "kind": "thinking",
+      "expected": "First line\nsecond line\n\nnext paragraph."
+    },
+    {
+      "text": "First line\nsecond line\n\nnext paragraph.",
+      "width": 80,
+      "kind": "assistant",
+      "expected": "First line\nsecond line\n\nnext paragraph."
+    },
+    {
+      "text": "First line\nsecond line\n\nnext paragraph.",
+      "width": 80,
+      "kind": "user",
+      "expected": "First line\nsecond line\n\nnext paragraph."
+    },
+    {
+      "text": "First line\nsecond line\n\nnext paragraph.",
+      "width": 80,
+      "kind": "thinking",
+      "expected": "First line\nsecond line\n\nnext paragraph."
+    },
+    {
+      "text": "> A quote that wraps over several words and 中文.\n>\n> next line",
+      "width": 1,
+      "kind": "assistant",
+      "expected": "│\n \nA\n│\n \nq\n│\n \nu\n│\n \no\n│\n \nt\n│\n \ne\n│\n \nt\n│\n \nh\n│\n \na\n│\n \nt\n│\n \nw\n│\n \nr\n│\n \na\n│\n \np\n│\n \ns\n│\n \no\n│\n \nv\n│\n \ne\n│\n \nr\n│\n \ns\n│\n \ne\n│\n \nv\n│\n \ne\n│\n \nr\n│\n \na\n│\n \nl\n│\n \nw\n│\n \no\n│\n \nr\n│\n \nd\n│\n \ns\n│\n \na\n│\n \nn\n│\n \nd\n│\n \n中\n│\n \n文\n│\n \n.\n│\n \n│\n \nn\n│\n \ne\n│\n \nx\n│\n \nt\n│\n \nl\n│\n \ni\n│\n \nn\n│\n \ne"
+    },
+    {
+      "text": "> A quote that wraps over several words and 中文.\n>\n> next line",
+      "width": 1,
+      "kind": "user",
+      "expected": "│\n \nA\n│\n \nq\n│\n \nu\n│\n \no\n│\n \nt\n│\n \ne\n│\n \nt\n│\n \nh\n│\n \na\n│\n \nt\n│\n \nw\n│\n \nr\n│\n \na\n│\n \np\n│\n \ns\n│\n \no\n│\n \nv\n│\n \ne\n│\n \nr\n│\n \ns\n│\n \ne\n│\n \nv\n│\n \ne\n│\n \nr\n│\n \na\n│\n \nl\n│\n \nw\n│\n \no\n│\n \nr\n│\n \nd\n│\n \ns\n│\n \na\n│\n \nn\n│\n \nd\n│\n \n中\n│\n \n文\n│\n \n.\n│\n \n│\n \nn\n│\n \ne\n│\n \nx\n│\n \nt\n│\n \nl\n│\n \ni\n│\n \nn\n│\n \ne"
+    },
+    {
+      "text": "> A quote that wraps over several words and 中文.\n>\n> next line",
+      "width": 1,
+      "kind": "thinking",
+      "expected": "│\n \nA\n│\n \nq\n│\n \nu\n│\n \no\n│\n \nt\n│\n \ne\n│\n \nt\n│\n \nh\n│\n \na\n│\n \nt\n│\n \nw\n│\n \nr\n│\n \na\n│\n \np\n│\n \ns\n│\n \no\n│\n \nv\n│\n \ne\n│\n \nr\n│\n \ns\n│\n \ne\n│\n \nv\n│\n \ne\n│\n \nr\n│\n \na\n│\n \nl\n│\n \nw\n│\n \no\n│\n \nr\n│\n \nd\n│\n \ns\n│\n \na\n│\n \nn\n│\n \nd\n│\n \n中\n│\n \n文\n│\n \n.\n│\n \n│\n \nn\n│\n \ne\n│\n \nx\n│\n \nt\n│\n \nl\n│\n \ni\n│\n \nn\n│\n \ne"
+    },
+    {
+      "text": "> A quote that wraps over several words and 中文.\n>\n> next line",
+      "width": 2,
+      "kind": "assistant",
+      "expected": "│ \nA\n│ \nq\n│ \nu\n│ \no\n│ \nt\n│ \ne\n│ \nt\n│ \nh\n│ \na\n│ \nt\n│ \nw\n│ \nr\n│ \na\n│ \np\n│ \ns\n│ \no\n│ \nv\n│ \ne\n│ \nr\n│ \ns\n│ \ne\n│ \nv\n│ \ne\n│ \nr\n│ \na\n│ \nl\n│ \nw\n│ \no\n│ \nr\n│ \nd\n│ \ns\n│ \na\n│ \nn\n│ \nd\n│ \n中\n│ \n文\n│ \n.\n│ \n│ \nn\n│ \ne\n│ \nx\n│ \nt\n│ \nl\n│ \ni\n│ \nn\n│ \ne"
+    },
+    {
+      "text": "> A quote that wraps over several words and 中文.\n>\n> next line",
+      "width": 2,
+      "kind": "user",
+      "expected": "│ \nA\n│ \nq\n│ \nu\n│ \no\n│ \nt\n│ \ne\n│ \nt\n│ \nh\n│ \na\n│ \nt\n│ \nw\n│ \nr\n│ \na\n│ \np\n│ \ns\n│ \no\n│ \nv\n│ \ne\n│ \nr\n│ \ns\n│ \ne\n│ \nv\n│ \ne\n│ \nr\n│ \na\n│ \nl\n│ \nw\n│ \no\n│ \nr\n│ \nd\n│ \ns\n│ \na\n│ \nn\n│ \nd\n│ \n中\n│ \n文\n│ \n.\n│ \n│ \nn\n│ \ne\n│ \nx\n│ \nt\n│ \nl\n│ \ni\n│ \nn\n│ \ne"
+    },
+    {
+      "text": "> A quote that wraps over several words and 中文.\n>\n> next line",
+      "width": 2,
+      "kind": "thinking",
+      "expected": "│ \nA\n│ \nq\n│ \nu\n│ \no\n│ \nt\n│ \ne\n│ \nt\n│ \nh\n│ \na\n│ \nt\n│ \nw\n│ \nr\n│ \na\n│ \np\n│ \ns\n│ \no\n│ \nv\n│ \ne\n│ \nr\n│ \ns\n│ \ne\n│ \nv\n│ \ne\n│ \nr\n│ \na\n│ \nl\n│ \nw\n│ \no\n│ \nr\n│ \nd\n│ \ns\n│ \na\n│ \nn\n│ \nd\n│ \n中\n│ \n文\n│ \n.\n│ \n│ \nn\n│ \ne\n│ \nx\n│ \nt\n│ \nl\n│ \ni\n│ \nn\n│ \ne"
+    },
+    {
+      "text": "> A quote that wraps over several words and 中文.\n>\n> next line",
+      "width": 5,
+      "kind": "assistant",
+      "expected": "│ A\n│ quo\n│ te\n│ tha\n│ t\n│ wra\n│ ps\n│ ove\n│ r\n│ sev\n│ er\n│ al\n│ wor\n│ ds\n│ and\n│ 中\n│ 文.\n│ \n│ nex\n│ t\n│ lin\n│ e"
+    },
+    {
+      "text": "> A quote that wraps over several words and 中文.\n>\n> next line",
+      "width": 5,
+      "kind": "user",
+      "expected": "│ A\n│ quo\n│ te\n│ tha\n│ t\n│ wra\n│ ps\n│ ove\n│ r\n│ sev\n│ er\n│ al\n│ wor\n│ ds\n│ and\n│ 中\n│ 文.\n│ \n│ nex\n│ t\n│ lin\n│ e"
+    },
+    {
+      "text": "> A quote that wraps over several words and 中文.\n>\n> next line",
+      "width": 5,
+      "kind": "thinking",
+      "expected": "│ A\n│ quo\n│ te\n│ tha\n│ t\n│ wra\n│ ps\n│ ove\n│ r\n│ sev\n│ er\n│ al\n│ wor\n│ ds\n│ and\n│ 中\n│ 文.\n│ \n│ nex\n│ t\n│ lin\n│ e"
+    },
+    {
+      "text": "> A quote that wraps over several words and 中文.\n>\n> next line",
+      "width": 12,
+      "kind": "assistant",
+      "expected": "│ A quote\n│ that\n│ wraps over\n│ several\n│ words and\n│ 中文.\n│ \n│ next line"
+    },
+    {
+      "text": "> A quote that wraps over several words and 中文.\n>\n> next line",
+      "width": 12,
+      "kind": "user",
+      "expected": "│ A quote\n│ that\n│ wraps over\n│ several\n│ words and\n│ 中文.\n│ \n│ next line"
+    },
+    {
+      "text": "> A quote that wraps over several words and 中文.\n>\n> next line",
+      "width": 12,
+      "kind": "thinking",
+      "expected": "│ A quote\n│ that\n│ wraps over\n│ several\n│ words and\n│ 中文.\n│ \n│ next line"
+    },
+    {
+      "text": "> A quote that wraps over several words and 中文.\n>\n> next line",
+      "width": 24,
+      "kind": "assistant",
+      "expected": "│ A quote that wraps\n│ over\n│ several words and\n│ 中文.\n│ \n│ next line"
+    },
+    {
+      "text": "> A quote that wraps over several words and 中文.\n>\n> next line",
+      "width": 24,
+      "kind": "user",
+      "expected": "│ A quote that wraps\n│ over\n│ several words and\n│ 中文.\n│ \n│ next line"
+    },
+    {
+      "text": "> A quote that wraps over several words and 中文.\n>\n> next line",
+      "width": 24,
+      "kind": "thinking",
+      "expected": "│ A quote that wraps\n│ over\n│ several words and\n│ 中文.\n│ \n│ next line"
+    },
+    {
+      "text": "> A quote that wraps over several words and 中文.\n>\n> next line",
+      "width": 80,
+      "kind": "assistant",
+      "expected": "│ A quote that wraps over several words and 中文.\n│ \n│ next line"
+    },
+    {
+      "text": "> A quote that wraps over several words and 中文.\n>\n> next line",
+      "width": 80,
+      "kind": "user",
+      "expected": "│ A quote that wraps over several words and 中文.\n│ \n│ next line"
+    },
+    {
+      "text": "> A quote that wraps over several words and 中文.\n>\n> next line",
+      "width": 80,
+      "kind": "thinking",
+      "expected": "│ A quote that wraps over several words and 中文.\n│ \n│ next line"
+    },
+    {
+      "text": "- First item wraps with more words\n- Second\n  - Nested",
+      "width": 1,
+      "kind": "assistant",
+      "expected": "•\n \nF\n \n \ni\n \n \nr\n \n \ns\n \n \nt\n \n \ni\n \n \nt\n \n \ne\n \n \nm\n \n \nw\n \n \nr\n \n \na\n \n \np\n \n \ns\n \n \nw\n \n \ni\n \n \nt\n \n \nh\n \n \nm\n \n \no\n \n \nr\n \n \ne\n \n \nw\n \n \no\n \n \nr\n \n \nd\n \n \ns\n•\n \nS\n \n \ne\n \n \nc\n \n \no\n \n \nn\n \n \nd\n \n \n•\n \n \nN\n \n \ne\n \n \ns\n \n \nt\n \n \ne\n \n \nd"
+    },
+    {
+      "text": "- First item wraps with more words\n- Second\n  - Nested",
+      "width": 1,
+      "kind": "user",
+      "expected": "•\n \nF\n \n \ni\n \n \nr\n \n \ns\n \n \nt\n \n \ni\n \n \nt\n \n \ne\n \n \nm\n \n \nw\n \n \nr\n \n \na\n \n \np\n \n \ns\n \n \nw\n \n \ni\n \n \nt\n \n \nh\n \n \nm\n \n \no\n \n \nr\n \n \ne\n \n \nw\n \n \no\n \n \nr\n \n \nd\n \n \ns\n•\n \nS\n \n \ne\n \n \nc\n \n \no\n \n \nn\n \n \nd\n \n \n•\n \n \nN\n \n \ne\n \n \ns\n \n \nt\n \n \ne\n \n \nd"
+    },
+    {
+      "text": "- First item wraps with more words\n- Second\n  - Nested",
+      "width": 1,
+      "kind": "thinking",
+      "expected": "•\n \nF\n \n \ni\n \n \nr\n \n \ns\n \n \nt\n \n \ni\n \n \nt\n \n \ne\n \n \nm\n \n \nw\n \n \nr\n \n \na\n \n \np\n \n \ns\n \n \nw\n \n \ni\n \n \nt\n \n \nh\n \n \nm\n \n \no\n \n \nr\n \n \ne\n \n \nw\n \n \no\n \n \nr\n \n \nd\n \n \ns\n•\n \nS\n \n \ne\n \n \nc\n \n \no\n \n \nn\n \n \nd\n \n \n•\n \n \nN\n \n \ne\n \n \ns\n \n \nt\n \n \ne\n \n \nd"
+    },
+    {
+      "text": "- First item wraps with more words\n- Second\n  - Nested",
+      "width": 2,
+      "kind": "assistant",
+      "expected": "• \nF\n  \ni\n  \nr\n  \ns\n  \nt\n  \ni\n  \nt\n  \ne\n  \nm\n  \nw\n  \nr\n  \na\n  \np\n  \ns\n  \nw\n  \ni\n  \nt\n  \nh\n  \nm\n  \no\n  \nr\n  \ne\n  \nw\n  \no\n  \nr\n  \nd\n  \ns\n• \nS\n  \ne\n  \nc\n  \no\n  \nn\n  \nd\n  \n•\n  \nN\n  \ne\n  \ns\n  \nt\n  \ne\n  \nd"
+    },
+    {
+      "text": "- First item wraps with more words\n- Second\n  - Nested",
+      "width": 2,
+      "kind": "user",
+      "expected": "• \nF\n  \ni\n  \nr\n  \ns\n  \nt\n  \ni\n  \nt\n  \ne\n  \nm\n  \nw\n  \nr\n  \na\n  \np\n  \ns\n  \nw\n  \ni\n  \nt\n  \nh\n  \nm\n  \no\n  \nr\n  \ne\n  \nw\n  \no\n  \nr\n  \nd\n  \ns\n• \nS\n  \ne\n  \nc\n  \no\n  \nn\n  \nd\n  \n•\n  \nN\n  \ne\n  \ns\n  \nt\n  \ne\n  \nd"
+    },
+    {
+      "text": "- First item wraps with more words\n- Second\n  - Nested",
+      "width": 2,
+      "kind": "thinking",
+      "expected": "• \nF\n  \ni\n  \nr\n  \ns\n  \nt\n  \ni\n  \nt\n  \ne\n  \nm\n  \nw\n  \nr\n  \na\n  \np\n  \ns\n  \nw\n  \ni\n  \nt\n  \nh\n  \nm\n  \no\n  \nr\n  \ne\n  \nw\n  \no\n  \nr\n  \nd\n  \ns\n• \nS\n  \ne\n  \nc\n  \no\n  \nn\n  \nd\n  \n•\n  \nN\n  \ne\n  \ns\n  \nt\n  \ne\n  \nd"
+    },
+    {
+      "text": "- First item wraps with more words\n- Second\n  - Nested",
+      "width": 5,
+      "kind": "assistant",
+      "expected": "• Fir\n  st\n  ite\n  m\n  wra\n  ps\n  wit\n  h m\n  ore\n  wor\n  ds\n• Sec\n  ond\n  •\n  Nes\n  ted"
+    },
+    {
+      "text": "- First item wraps with more words\n- Second\n  - Nested",
+      "width": 5,
+      "kind": "user",
+      "expected": "• Fir\n  st\n  ite\n  m\n  wra\n  ps\n  wit\n  h m\n  ore\n  wor\n  ds\n• Sec\n  ond\n  •\n  Nes\n  ted"
+    },
+    {
+      "text": "- First item wraps with more words\n- Second\n  - Nested",
+      "width": 5,
+      "kind": "thinking",
+      "expected": "• Fir\n  st\n  ite\n  m\n  wra\n  ps\n  wit\n  h m\n  ore\n  wor\n  ds\n• Sec\n  ond\n  •\n  Nes\n  ted"
+    },
+    {
+      "text": "- First item wraps with more words\n- Second\n  - Nested",
+      "width": 12,
+      "kind": "assistant",
+      "expected": "• First item\n  wraps with\n  more words\n• Second•\n  Nested"
+    },
+    {
+      "text": "- First item wraps with more words\n- Second\n  - Nested",
+      "width": 12,
+      "kind": "user",
+      "expected": "• First item\n  wraps with\n  more words\n• Second•\n  Nested"
+    },
+    {
+      "text": "- First item wraps with more words\n- Second\n  - Nested",
+      "width": 12,
+      "kind": "thinking",
+      "expected": "• First item\n  wraps with\n  more words\n• Second•\n  Nested"
+    },
+    {
+      "text": "- First item wraps with more words\n- Second\n  - Nested",
+      "width": 24,
+      "kind": "assistant",
+      "expected": "• First item wraps with\n  more words\n• Second• Nested"
+    },
+    {
+      "text": "- First item wraps with more words\n- Second\n  - Nested",
+      "width": 24,
+      "kind": "user",
+      "expected": "• First item wraps with\n  more words\n• Second• Nested"
+    },
+    {
+      "text": "- First item wraps with more words\n- Second\n  - Nested",
+      "width": 24,
+      "kind": "thinking",
+      "expected": "• First item wraps with\n  more words\n• Second• Nested"
+    },
+    {
+      "text": "- First item wraps with more words\n- Second\n  - Nested",
+      "width": 80,
+      "kind": "assistant",
+      "expected": "• First item wraps with more words\n• Second• Nested"
+    },
+    {
+      "text": "- First item wraps with more words\n- Second\n  - Nested",
+      "width": 80,
+      "kind": "user",
+      "expected": "• First item wraps with more words\n• Second• Nested"
+    },
+    {
+      "text": "- First item wraps with more words\n- Second\n  - Nested",
+      "width": 80,
+      "kind": "thinking",
+      "expected": "• First item wraps with more words\n• Second• Nested"
+    },
+    {
+      "text": "3. Third\n4. Fourth",
+      "width": 1,
+      "kind": "assistant",
+      "expected": "3\n.\n \nT\n \n \n \nh\n \n \n \ni\n \n \n \nr\n \n \n \nd\n4\n.\n \nF\n \n \n \no\n \n \n \nu\n \n \n \nr\n \n \n \nt\n \n \n \nh"
+    },
+    {
+      "text": "3. Third\n4. Fourth",
+      "width": 1,
+      "kind": "user",
+      "expected": "3\n.\n \nT\n \n \n \nh\n \n \n \ni\n \n \n \nr\n \n \n \nd\n4\n.\n \nF\n \n \n \no\n \n \n \nu\n \n \n \nr\n \n \n \nt\n \n \n \nh"
+    },
+    {
+      "text": "3. Third\n4. Fourth",
+      "width": 1,
+      "kind": "thinking",
+      "expected": "3\n.\n \nT\n \n \n \nh\n \n \n \ni\n \n \n \nr\n \n \n \nd\n4\n.\n \nF\n \n \n \no\n \n \n \nu\n \n \n \nr\n \n \n \nt\n \n \n \nh"
+    },
+    {
+      "text": "3. Third\n4. Fourth",
+      "width": 2,
+      "kind": "assistant",
+      "expected": "3.\n T\n  \n h\n  \n i\n  \n r\n  \n d\n4.\n F\n  \n o\n  \n u\n  \n r\n  \n t\n  \n h"
+    },
+    {
+      "text": "3. Third\n4. Fourth",
+      "width": 2,
+      "kind": "user",
+      "expected": "3.\n T\n  \n h\n  \n i\n  \n r\n  \n d\n4.\n F\n  \n o\n  \n u\n  \n r\n  \n t\n  \n h"
+    },
+    {
+      "text": "3. Third\n4. Fourth",
+      "width": 2,
+      "kind": "thinking",
+      "expected": "3.\n T\n  \n h\n  \n i\n  \n r\n  \n d\n4.\n F\n  \n o\n  \n u\n  \n r\n  \n t\n  \n h"
+    },
+    {
+      "text": "3. Third\n4. Fourth",
+      "width": 5,
+      "kind": "assistant",
+      "expected": "3. Th\n   ir\n   d\n4. Fo\n   ur\n   th"
+    },
+    {
+      "text": "3. Third\n4. Fourth",
+      "width": 5,
+      "kind": "user",
+      "expected": "3. Th\n   ir\n   d\n4. Fo\n   ur\n   th"
+    },
+    {
+      "text": "3. Third\n4. Fourth",
+      "width": 5,
+      "kind": "thinking",
+      "expected": "3. Th\n   ir\n   d\n4. Fo\n   ur\n   th"
+    },
+    {
+      "text": "3. Third\n4. Fourth",
+      "width": 12,
+      "kind": "assistant",
+      "expected": "3. Third\n4. Fourth"
+    },
+    {
+      "text": "3. Third\n4. Fourth",
+      "width": 12,
+      "kind": "user",
+      "expected": "3. Third\n4. Fourth"
+    },
+    {
+      "text": "3. Third\n4. Fourth",
+      "width": 12,
+      "kind": "thinking",
+      "expected": "3. Third\n4. Fourth"
+    },
+    {
+      "text": "3. Third\n4. Fourth",
+      "width": 24,
+      "kind": "assistant",
+      "expected": "3. Third\n4. Fourth"
+    },
+    {
+      "text": "3. Third\n4. Fourth",
+      "width": 24,
+      "kind": "user",
+      "expected": "3. Third\n4. Fourth"
+    },
+    {
+      "text": "3. Third\n4. Fourth",
+      "width": 24,
+      "kind": "thinking",
+      "expected": "3. Third\n4. Fourth"
+    },
+    {
+      "text": "3. Third\n4. Fourth",
+      "width": 80,
+      "kind": "assistant",
+      "expected": "3. Third\n4. Fourth"
+    },
+    {
+      "text": "3. Third\n4. Fourth",
+      "width": 80,
+      "kind": "user",
+      "expected": "3. Third\n4. Fourth"
+    },
+    {
+      "text": "3. Third\n4. Fourth",
+      "width": 80,
+      "kind": "thinking",
+      "expected": "3. Third\n4. Fourth"
+    },
+    {
+      "text": "1) first\n2) second",
+      "width": 1,
+      "kind": "assistant",
+      "expected": "1\n.\n \nf\n \n \n \ni\n \n \n \nr\n \n \n \ns\n \n \n \nt\n2\n.\n \ns\n \n \n \ne\n \n \n \nc\n \n \n \no\n \n \n \nn\n \n \n \nd"
+    },
+    {
+      "text": "1) first\n2) second",
+      "width": 1,
+      "kind": "user",
+      "expected": "1\n)\n \nf\n \n \n \ni\n \n \n \nr\n \n \n \ns\n \n \n \nt\n2\n)\n \ns\n \n \n \ne\n \n \n \nc\n \n \n \no\n \n \n \nn\n \n \n \nd"
+    },
+    {
+      "text": "1) first\n2) second",
+      "width": 1,
+      "kind": "thinking",
+      "expected": "1\n.\n \nf\n \n \n \ni\n \n \n \nr\n \n \n \ns\n \n \n \nt\n2\n.\n \ns\n \n \n \ne\n \n \n \nc\n \n \n \no\n \n \n \nn\n \n \n \nd"
+    },
+    {
+      "text": "1) first\n2) second",
+      "width": 2,
+      "kind": "assistant",
+      "expected": "1.\n f\n  \n i\n  \n r\n  \n s\n  \n t\n2.\n s\n  \n e\n  \n c\n  \n o\n  \n n\n  \n d"
+    },
+    {
+      "text": "1) first\n2) second",
+      "width": 2,
+      "kind": "user",
+      "expected": "1)\n f\n  \n i\n  \n r\n  \n s\n  \n t\n2)\n s\n  \n e\n  \n c\n  \n o\n  \n n\n  \n d"
+    },
+    {
+      "text": "1) first\n2) second",
+      "width": 2,
+      "kind": "thinking",
+      "expected": "1.\n f\n  \n i\n  \n r\n  \n s\n  \n t\n2.\n s\n  \n e\n  \n c\n  \n o\n  \n n\n  \n d"
+    },
+    {
+      "text": "1) first\n2) second",
+      "width": 5,
+      "kind": "assistant",
+      "expected": "1. fi\n   rs\n   t\n2. se\n   co\n   nd"
+    },
+    {
+      "text": "1) first\n2) second",
+      "width": 5,
+      "kind": "user",
+      "expected": "1) fi\n   rs\n   t\n2) se\n   co\n   nd"
+    },
+    {
+      "text": "1) first\n2) second",
+      "width": 5,
+      "kind": "thinking",
+      "expected": "1. fi\n   rs\n   t\n2. se\n   co\n   nd"
+    },
+    {
+      "text": "1) first\n2) second",
+      "width": 12,
+      "kind": "assistant",
+      "expected": "1. first\n2. second"
+    },
+    {
+      "text": "1) first\n2) second",
+      "width": 12,
+      "kind": "user",
+      "expected": "1) first\n2) second"
+    },
+    {
+      "text": "1) first\n2) second",
+      "width": 12,
+      "kind": "thinking",
+      "expected": "1. first\n2. second"
+    },
+    {
+      "text": "1) first\n2) second",
+      "width": 24,
+      "kind": "assistant",
+      "expected": "1. first\n2. second"
+    },
+    {
+      "text": "1) first\n2) second",
+      "width": 24,
+      "kind": "user",
+      "expected": "1) first\n2) second"
+    },
+    {
+      "text": "1) first\n2) second",
+      "width": 24,
+      "kind": "thinking",
+      "expected": "1. first\n2. second"
+    },
+    {
+      "text": "1) first\n2) second",
+      "width": 80,
+      "kind": "assistant",
+      "expected": "1. first\n2. second"
+    },
+    {
+      "text": "1) first\n2) second",
+      "width": 80,
+      "kind": "user",
+      "expected": "1) first\n2) second"
+    },
+    {
+      "text": "1) first\n2) second",
+      "width": 80,
+      "kind": "thinking",
+      "expected": "1. first\n2. second"
+    },
+    {
+      "text": "- [x] Done\n- [ ] Pending",
+      "width": 1,
+      "kind": "assistant",
+      "expected": "•\n \n[\n \n \nx\n \n \n]\n \n \n[\n \n \nX\n \n \n]\n \n \nD\n \n \no\n \n \nn\n \n \ne\n•\n \n[\n \n \n]\n \n \n[\n \n \n]\n \n \nP\n \n \ne\n \n \nn\n \n \nd\n \n \ni\n \n \nn\n \n \ng"
+    },
+    {
+      "text": "- [x] Done\n- [ ] Pending",
+      "width": 1,
+      "kind": "user",
+      "expected": "•\n \n[\n \n \nx\n \n \n]\n \n \n[\n \n \nX\n \n \n]\n \n \nD\n \n \no\n \n \nn\n \n \ne\n•\n \n[\n \n \n]\n \n \n[\n \n \n]\n \n \nP\n \n \ne\n \n \nn\n \n \nd\n \n \ni\n \n \nn\n \n \ng"
+    },
+    {
+      "text": "- [x] Done\n- [ ] Pending",
+      "width": 1,
+      "kind": "thinking",
+      "expected": "•\n \n[\n \n \nx\n \n \n]\n \n \n[\n \n \nX\n \n \n]\n \n \nD\n \n \no\n \n \nn\n \n \ne\n•\n \n[\n \n \n]\n \n \n[\n \n \n]\n \n \nP\n \n \ne\n \n \nn\n \n \nd\n \n \ni\n \n \nn\n \n \ng"
+    },
+    {
+      "text": "- [x] Done\n- [ ] Pending",
+      "width": 2,
+      "kind": "assistant",
+      "expected": "• \n[\n  \nx\n  \n]\n  \n[\n  \nX\n  \n]\n  \nD\n  \no\n  \nn\n  \ne\n• \n[\n  \n]\n  \n[\n  \n]\n  \nP\n  \ne\n  \nn\n  \nd\n  \ni\n  \nn\n  \ng"
+    },
+    {
+      "text": "- [x] Done\n- [ ] Pending",
+      "width": 2,
+      "kind": "user",
+      "expected": "• \n[\n  \nx\n  \n]\n  \n[\n  \nX\n  \n]\n  \nD\n  \no\n  \nn\n  \ne\n• \n[\n  \n]\n  \n[\n  \n]\n  \nP\n  \ne\n  \nn\n  \nd\n  \ni\n  \nn\n  \ng"
+    },
+    {
+      "text": "- [x] Done\n- [ ] Pending",
+      "width": 2,
+      "kind": "thinking",
+      "expected": "• \n[\n  \nx\n  \n]\n  \n[\n  \nX\n  \n]\n  \nD\n  \no\n  \nn\n  \ne\n• \n[\n  \n]\n  \n[\n  \n]\n  \nP\n  \ne\n  \nn\n  \nd\n  \ni\n  \nn\n  \ng"
+    },
+    {
+      "text": "- [x] Done\n- [ ] Pending",
+      "width": 5,
+      "kind": "assistant",
+      "expected": "• [x]\n  [X]\n  Don\n  e\n• [ ]\n  [ ]\n  Pen\n  din\n  g"
+    },
+    {
+      "text": "- [x] Done\n- [ ] Pending",
+      "width": 5,
+      "kind": "user",
+      "expected": "• [x]\n  [X]\n  Don\n  e\n• [ ]\n  [ ]\n  Pen\n  din\n  g"
+    },
+    {
+      "text": "- [x] Done\n- [ ] Pending",
+      "width": 5,
+      "kind": "thinking",
+      "expected": "• [x]\n  [X]\n  Don\n  e\n• [ ]\n  [ ]\n  Pen\n  din\n  g"
+    },
+    {
+      "text": "- [x] Done\n- [ ] Pending",
+      "width": 12,
+      "kind": "assistant",
+      "expected": "• [x] [X]\n  Done\n• [ ] [ ]\n  Pending"
+    },
+    {
+      "text": "- [x] Done\n- [ ] Pending",
+      "width": 12,
+      "kind": "user",
+      "expected": "• [x] [X]\n  Done\n• [ ] [ ]\n  Pending"
+    },
+    {
+      "text": "- [x] Done\n- [ ] Pending",
+      "width": 12,
+      "kind": "thinking",
+      "expected": "• [x] [X]\n  Done\n• [ ] [ ]\n  Pending"
+    },
+    {
+      "text": "- [x] Done\n- [ ] Pending",
+      "width": 24,
+      "kind": "assistant",
+      "expected": "• [x] [X] Done\n• [ ] [ ] Pending"
+    },
+    {
+      "text": "- [x] Done\n- [ ] Pending",
+      "width": 24,
+      "kind": "user",
+      "expected": "• [x] [X] Done\n• [ ] [ ] Pending"
+    },
+    {
+      "text": "- [x] Done\n- [ ] Pending",
+      "width": 24,
+      "kind": "thinking",
+      "expected": "• [x] [X] Done\n• [ ] [ ] Pending"
+    },
+    {
+      "text": "- [x] Done\n- [ ] Pending",
+      "width": 80,
+      "kind": "assistant",
+      "expected": "• [x] [X] Done\n• [ ] [ ] Pending"
+    },
+    {
+      "text": "- [x] Done\n- [ ] Pending",
+      "width": 80,
+      "kind": "user",
+      "expected": "• [x] [X] Done\n• [ ] [ ] Pending"
+    },
+    {
+      "text": "- [x] Done\n- [ ] Pending",
+      "width": 80,
+      "kind": "thinking",
+      "expected": "• [x] [X] Done\n• [ ] [ ] Pending"
+    },
+    {
+      "text": "~~~unknown\none\ttwo\n中文👩‍💻\n~~~",
+      "width": 1,
+      "kind": "assistant",
+      "expected": "`\n`\n`\nu\nn\nk\nn\no\nw\nn\n \n \no\nn\ne\n \nt\nw\no\n \n \n中\n文\n👩‍💻\n`\n`\n`"
+    },
+    {
+      "text": "~~~unknown\none\ttwo\n中文👩‍💻\n~~~",
+      "width": 1,
+      "kind": "user",
+      "expected": "`\n`\n`\nu\nn\nk\nn\no\nw\nn\n \n \no\nn\ne\n \nt\nw\no\n \n \n中\n文\n👩‍💻\n`\n`\n`"
+    },
+    {
+      "text": "~~~unknown\none\ttwo\n中文👩‍💻\n~~~",
+      "width": 1,
+      "kind": "thinking",
+      "expected": "`\n`\n`\nu\nn\nk\nn\no\nw\nn\n \n \no\nn\ne\n \nt\nw\no\n \n \n中\n文\n👩‍💻\n`\n`\n`"
+    },
+    {
+      "text": "~~~unknown\none\ttwo\n中文👩‍💻\n~~~",
+      "width": 2,
+      "kind": "assistant",
+      "expected": "``\n`u\nnk\nno\nwn\n  \non\ne \ntw\no\n  \n中\n文\n👩‍💻\n``\n`"
+    },
+    {
+      "text": "~~~unknown\none\ttwo\n中文👩‍💻\n~~~",
+      "width": 2,
+      "kind": "user",
+      "expected": "``\n`u\nnk\nno\nwn\n  \non\ne \ntw\no\n  \n中\n文\n👩‍💻\n``\n`"
+    },
+    {
+      "text": "~~~unknown\none\ttwo\n中文👩‍💻\n~~~",
+      "width": 2,
+      "kind": "thinking",
+      "expected": "``\n`u\nnk\nno\nwn\n  \non\ne \ntw\no\n  \n中\n文\n👩‍💻\n``\n`"
+    },
+    {
+      "text": "~~~unknown\none\ttwo\n中文👩‍💻\n~~~",
+      "width": 5,
+      "kind": "assistant",
+      "expected": "```un\nknown\n  one\n two\n  中\n文👩‍💻\n```"
+    },
+    {
+      "text": "~~~unknown\none\ttwo\n中文👩‍💻\n~~~",
+      "width": 5,
+      "kind": "user",
+      "expected": "```un\nknown\n  one\n two\n  中\n文👩‍💻\n```"
+    },
+    {
+      "text": "~~~unknown\none\ttwo\n中文👩‍💻\n~~~",
+      "width": 5,
+      "kind": "thinking",
+      "expected": "```un\nknown\n  one\n two\n  中\n文👩‍💻\n```"
+    },
+    {
+      "text": "~~~unknown\none\ttwo\n中文👩‍💻\n~~~",
+      "width": 12,
+      "kind": "assistant",
+      "expected": "```unknown\n  one two\n  中文👩‍💻\n```"
+    },
+    {
+      "text": "~~~unknown\none\ttwo\n中文👩‍💻\n~~~",
+      "width": 12,
+      "kind": "user",
+      "expected": "```unknown\n  one two\n  中文👩‍💻\n```"
+    },
+    {
+      "text": "~~~unknown\none\ttwo\n中文👩‍💻\n~~~",
+      "width": 12,
+      "kind": "thinking",
+      "expected": "```unknown\n  one two\n  中文👩‍💻\n```"
+    },
+    {
+      "text": "~~~unknown\none\ttwo\n中文👩‍💻\n~~~",
+      "width": 24,
+      "kind": "assistant",
+      "expected": "```unknown\n  one two\n  中文👩‍💻\n```"
+    },
+    {
+      "text": "~~~unknown\none\ttwo\n中文👩‍💻\n~~~",
+      "width": 24,
+      "kind": "user",
+      "expected": "```unknown\n  one two\n  中文👩‍💻\n```"
+    },
+    {
+      "text": "~~~unknown\none\ttwo\n中文👩‍💻\n~~~",
+      "width": 24,
+      "kind": "thinking",
+      "expected": "```unknown\n  one two\n  中文👩‍💻\n```"
+    },
+    {
+      "text": "~~~unknown\none\ttwo\n中文👩‍💻\n~~~",
+      "width": 80,
+      "kind": "assistant",
+      "expected": "```unknown\n  one two\n  中文👩‍💻\n```"
+    },
+    {
+      "text": "~~~unknown\none\ttwo\n中文👩‍💻\n~~~",
+      "width": 80,
+      "kind": "user",
+      "expected": "```unknown\n  one two\n  中文👩‍💻\n```"
+    },
+    {
+      "text": "~~~unknown\none\ttwo\n中文👩‍💻\n~~~",
+      "width": 80,
+      "kind": "thinking",
+      "expected": "```unknown\n  one two\n  中文👩‍💻\n```"
+    },
+    {
+      "text": "```js\nconst value = 1;\n```",
+      "width": 1,
+      "kind": "assistant",
+      "expected": "`\n`\n`\nj\ns\n \n \nc\no\nn\ns\nt\n \nv\na\nl\nu\ne\n \n=\n \n1\n;\n`\n`\n`"
+    },
+    {
+      "text": "```js\nconst value = 1;\n```",
+      "width": 1,
+      "kind": "user",
+      "expected": "`\n`\n`\nj\ns\n \n \nc\no\nn\ns\nt\n \nv\na\nl\nu\ne\n \n=\n \n1\n;\n`\n`\n`"
+    },
+    {
+      "text": "```js\nconst value = 1;\n```",
+      "width": 1,
+      "kind": "thinking",
+      "expected": "`\n`\n`\nj\ns\n \n \nc\no\nn\ns\nt\n \nv\na\nl\nu\ne\n \n=\n \n1\n;\n`\n`\n`"
+    },
+    {
+      "text": "```js\nconst value = 1;\n```",
+      "width": 2,
+      "kind": "assistant",
+      "expected": "``\n`j\ns\n  \nco\nns\nt \nva\nlu\ne \n= \n1;\n``\n`"
+    },
+    {
+      "text": "```js\nconst value = 1;\n```",
+      "width": 2,
+      "kind": "user",
+      "expected": "``\n`j\ns\n  \nco\nns\nt \nva\nlu\ne \n= \n1;\n``\n`"
+    },
+    {
+      "text": "```js\nconst value = 1;\n```",
+      "width": 2,
+      "kind": "thinking",
+      "expected": "``\n`j\ns\n  \nco\nns\nt \nva\nlu\ne \n= \n1;\n``\n`"
+    },
+    {
+      "text": "```js\nconst value = 1;\n```",
+      "width": 5,
+      "kind": "assistant",
+      "expected": "```js\n  con\nst va\nlue =\n 1;\n```"
+    },
+    {
+      "text": "```js\nconst value = 1;\n```",
+      "width": 5,
+      "kind": "user",
+      "expected": "```js\n  con\nst va\nlue =\n 1;\n```"
+    },
+    {
+      "text": "```js\nconst value = 1;\n```",
+      "width": 5,
+      "kind": "thinking",
+      "expected": "```js\n  con\nst va\nlue =\n 1;\n```"
+    },
+    {
+      "text": "```js\nconst value = 1;\n```",
+      "width": 12,
+      "kind": "assistant",
+      "expected": "```js\n  const valu\ne = 1;\n```"
+    },
+    {
+      "text": "```js\nconst value = 1;\n```",
+      "width": 12,
+      "kind": "user",
+      "expected": "```js\n  const valu\ne = 1;\n```"
+    },
+    {
+      "text": "```js\nconst value = 1;\n```",
+      "width": 12,
+      "kind": "thinking",
+      "expected": "```js\n  const valu\ne = 1;\n```"
+    },
+    {
+      "text": "```js\nconst value = 1;\n```",
+      "width": 24,
+      "kind": "assistant",
+      "expected": "```js\n  const value = 1;\n```"
+    },
+    {
+      "text": "```js\nconst value = 1;\n```",
+      "width": 24,
+      "kind": "user",
+      "expected": "```js\n  const value = 1;\n```"
+    },
+    {
+      "text": "```js\nconst value = 1;\n```",
+      "width": 24,
+      "kind": "thinking",
+      "expected": "```js\n  const value = 1;\n```"
+    },
+    {
+      "text": "```js\nconst value = 1;\n```",
+      "width": 80,
+      "kind": "assistant",
+      "expected": "```js\n  const value = 1;\n```"
+    },
+    {
+      "text": "```js\nconst value = 1;\n```",
+      "width": 80,
+      "kind": "user",
+      "expected": "```js\n  const value = 1;\n```"
+    },
+    {
+      "text": "```js\nconst value = 1;\n```",
+      "width": 80,
+      "kind": "thinking",
+      "expected": "```js\n  const value = 1;\n```"
+    },
+    {
+      "text": "before\n\n---\n\nafter",
+      "width": 1,
+      "kind": "assistant",
+      "expected": "b\ne\nf\no\nr\ne\n\n-\n\na\nf\nt\ne\nr"
+    },
+    {
+      "text": "before\n\n---\n\nafter",
+      "width": 1,
+      "kind": "user",
+      "expected": "b\ne\nf\no\nr\ne\n\n-\n\na\nf\nt\ne\nr"
+    },
+    {
+      "text": "before\n\n---\n\nafter",
+      "width": 1,
+      "kind": "thinking",
+      "expected": "b\ne\nf\no\nr\ne\n\n-\n\na\nf\nt\ne\nr"
+    },
+    {
+      "text": "before\n\n---\n\nafter",
+      "width": 2,
+      "kind": "assistant",
+      "expected": "be\nfo\nre\n\n--\n\naf\nte\nr"
+    },
+    {
+      "text": "before\n\n---\n\nafter",
+      "width": 2,
+      "kind": "user",
+      "expected": "be\nfo\nre\n\n--\n\naf\nte\nr"
+    },
+    {
+      "text": "before\n\n---\n\nafter",
+      "width": 2,
+      "kind": "thinking",
+      "expected": "be\nfo\nre\n\n--\n\naf\nte\nr"
+    },
+    {
+      "text": "before\n\n---\n\nafter",
+      "width": 5,
+      "kind": "assistant",
+      "expected": "befor\ne\n\n-----\n\nafter"
+    },
+    {
+      "text": "before\n\n---\n\nafter",
+      "width": 5,
+      "kind": "user",
+      "expected": "befor\ne\n\n-----\n\nafter"
+    },
+    {
+      "text": "before\n\n---\n\nafter",
+      "width": 5,
+      "kind": "thinking",
+      "expected": "befor\ne\n\n-----\n\nafter"
+    },
+    {
+      "text": "before\n\n---\n\nafter",
+      "width": 12,
+      "kind": "assistant",
+      "expected": "before\n\n------------\n\nafter"
+    },
+    {
+      "text": "before\n\n---\n\nafter",
+      "width": 12,
+      "kind": "user",
+      "expected": "before\n\n------------\n\nafter"
+    },
+    {
+      "text": "before\n\n---\n\nafter",
+      "width": 12,
+      "kind": "thinking",
+      "expected": "before\n\n------------\n\nafter"
+    },
+    {
+      "text": "before\n\n---\n\nafter",
+      "width": 24,
+      "kind": "assistant",
+      "expected": "before\n\n------------------------\n\nafter"
+    },
+    {
+      "text": "before\n\n---\n\nafter",
+      "width": 24,
+      "kind": "user",
+      "expected": "before\n\n------------------------\n\nafter"
+    },
+    {
+      "text": "before\n\n---\n\nafter",
+      "width": 24,
+      "kind": "thinking",
+      "expected": "before\n\n------------------------\n\nafter"
+    },
+    {
+      "text": "before\n\n---\n\nafter",
+      "width": 80,
+      "kind": "assistant",
+      "expected": "before\n\n--------------------------------------------------------------------------------\n\nafter"
+    },
+    {
+      "text": "before\n\n---\n\nafter",
+      "width": 80,
+      "kind": "user",
+      "expected": "before\n\n--------------------------------------------------------------------------------\n\nafter"
+    },
+    {
+      "text": "before\n\n---\n\nafter",
+      "width": 80,
+      "kind": "thinking",
+      "expected": "before\n\n--------------------------------------------------------------------------------\n\nafter"
+    },
+    {
+      "text": "| Name | Value |\n| --- | --- |\n| 中文 | longer words |\n| emoji | 👩‍💻 |",
+      "width": 1,
+      "kind": "assistant",
+      "expected": "|\n \nN\na\nm\ne\n \n|\n \nV\na\nl\nu\ne\n \n|\n|\n \n-\n-\n-\n \n|\n \n-\n-\n-\n \n|\n|\n \n中\n文\n \n|\n \nl\no\nn\ng\ne\nr\n \nw\no\nr\nd\ns\n \n|\n|\n \ne\nm\no\nj\ni\n \n|\n \n👩‍💻\n \n|"
+    },
+    {
+      "text": "| Name | Value |\n| --- | --- |\n| 中文 | longer words |\n| emoji | 👩‍💻 |",
+      "width": 1,
+      "kind": "user",
+      "expected": "|\n \nN\na\nm\ne\n \n|\n \nV\na\nl\nu\ne\n \n|\n|\n \n-\n-\n-\n \n|\n \n-\n-\n-\n \n|\n|\n \n中\n文\n \n|\n \nl\no\nn\ng\ne\nr\n \nw\no\nr\nd\ns\n \n|\n|\n \ne\nm\no\nj\ni\n \n|\n \n👩‍💻\n \n|"
+    },
+    {
+      "text": "| Name | Value |\n| --- | --- |\n| 中文 | longer words |\n| emoji | 👩‍💻 |",
+      "width": 1,
+      "kind": "thinking",
+      "expected": "|\n \nN\na\nm\ne\n \n|\n \nV\na\nl\nu\ne\n \n|\n|\n \n-\n-\n-\n \n|\n \n-\n-\n-\n \n|\n|\n \n中\n文\n \n|\n \nl\no\nn\ng\ne\nr\n \nw\no\nr\nd\ns\n \n|\n|\n \ne\nm\no\nj\ni\n \n|\n \n👩‍💻\n \n|"
+    },
+    {
+      "text": "| Name | Value |\n| --- | --- |\n| 中文 | longer words |\n| emoji | 👩‍💻 |",
+      "width": 2,
+      "kind": "assistant",
+      "expected": "| \nNa\nme\n |\n V\nal\nue\n |\n| \n--\n- \n| \n--\n- \n|\n| \n中\n文\n |\n l\non\nge\nr \nwo\nrd\ns \n|\n| \nem\noj\ni \n| \n👩‍💻\n |"
+    },
+    {
+      "text": "| Name | Value |\n| --- | --- |\n| 中文 | longer words |\n| emoji | 👩‍💻 |",
+      "width": 2,
+      "kind": "user",
+      "expected": "| \nNa\nme\n |\n V\nal\nue\n |\n| \n--\n- \n| \n--\n- \n|\n| \n中\n文\n |\n l\non\nge\nr \nwo\nrd\ns \n|\n| \nem\noj\ni \n| \n👩‍💻\n |"
+    },
+    {
+      "text": "| Name | Value |\n| --- | --- |\n| 中文 | longer words |\n| emoji | 👩‍💻 |",
+      "width": 2,
+      "kind": "thinking",
+      "expected": "| \nNa\nme\n |\n V\nal\nue\n |\n| \n--\n- \n| \n--\n- \n|\n| \n中\n文\n |\n l\non\nge\nr \nwo\nrd\ns \n|\n| \nem\noj\ni \n| \n👩‍💻\n |"
+    },
+    {
+      "text": "| Name | Value |\n| --- | --- |\n| 中文 | longer words |\n| emoji | 👩‍💻 |",
+      "width": 5,
+      "kind": "assistant",
+      "expected": "| Nam\ne | V\nalue \n|\n| ---\n | --\n- |\n| 中\n文 | \nlonge\nr wor\nds |\n| emo\nji | \n👩‍💻 |"
+    },
+    {
+      "text": "| Name | Value |\n| --- | --- |\n| 中文 | longer words |\n| emoji | 👩‍💻 |",
+      "width": 5,
+      "kind": "user",
+      "expected": "| Nam\ne | V\nalue \n|\n| ---\n | --\n- |\n| 中\n文 | \nlonge\nr wor\nds |\n| emo\nji | \n👩‍💻 |"
+    },
+    {
+      "text": "| Name | Value |\n| --- | --- |\n| 中文 | longer words |\n| emoji | 👩‍💻 |",
+      "width": 5,
+      "kind": "thinking",
+      "expected": "| Nam\ne | V\nalue \n|\n| ---\n | --\n- |\n| 中\n文 | \nlonge\nr wor\nds |\n| emo\nji | \n👩‍💻 |"
+    },
+    {
+      "text": "| Name | Value |\n| --- | --- |\n| 中文 | longer words |\n| emoji | 👩‍💻 |",
+      "width": 12,
+      "kind": "assistant",
+      "expected": "┌────┬─────┐\n│ Na │ Val │\n│ me │ ue  │\n├────┼─────┤\n│ 中 │ lon │\n│ 文 │ ger │\n│    │ wor │\n│    │ ds  │\n├────┼─────┤\n│ em │ 👩‍💻  │\n│ oj │     │\n│ i  │     │\n└────┴─────┘"
+    },
+    {
+      "text": "| Name | Value |\n| --- | --- |\n| 中文 | longer words |\n| emoji | 👩‍💻 |",
+      "width": 12,
+      "kind": "user",
+      "expected": "┌────┬─────┐\n│ Na │ Val │\n│ me │ ue  │\n├────┼─────┤\n│ 中 │ lon │\n│ 文 │ ger │\n│    │ wor │\n│    │ ds  │\n├────┼─────┤\n│ em │ 👩‍💻  │\n│ oj │     │\n│ i  │     │\n└────┴─────┘"
+    },
+    {
+      "text": "| Name | Value |\n| --- | --- |\n| 中文 | longer words |\n| emoji | 👩‍💻 |",
+      "width": 12,
+      "kind": "thinking",
+      "expected": "┌────┬─────┐\n│ Na │ Val │\n│ me │ ue  │\n├────┼─────┤\n│ 中 │ lon │\n│ 文 │ ger │\n│    │ wor │\n│    │ ds  │\n├────┼─────┤\n│ em │ 👩‍💻  │\n│ oj │     │\n│ i  │     │\n└────┴─────┘"
+    },
+    {
+      "text": "| Name | Value |\n| --- | --- |\n| 中文 | longer words |\n| emoji | 👩‍💻 |",
+      "width": 24,
+      "kind": "assistant",
+      "expected": "┌───────┬──────────────┐\n│ Name  │ Value        │\n├───────┼──────────────┤\n│ 中文  │ longer words │\n├───────┼──────────────┤\n│ emoji │ 👩‍💻           │\n└───────┴──────────────┘"
+    },
+    {
+      "text": "| Name | Value |\n| --- | --- |\n| 中文 | longer words |\n| emoji | 👩‍💻 |",
+      "width": 24,
+      "kind": "user",
+      "expected": "┌───────┬──────────────┐\n│ Name  │ Value        │\n├───────┼──────────────┤\n│ 中文  │ longer words │\n├───────┼──────────────┤\n│ emoji │ 👩‍💻           │\n└───────┴──────────────┘"
+    },
+    {
+      "text": "| Name | Value |\n| --- | --- |\n| 中文 | longer words |\n| emoji | 👩‍💻 |",
+      "width": 24,
+      "kind": "thinking",
+      "expected": "┌───────┬──────────────┐\n│ Name  │ Value        │\n├───────┼──────────────┤\n│ 中文  │ longer words │\n├───────┼──────────────┤\n│ emoji │ 👩‍💻           │\n└───────┴──────────────┘"
+    },
+    {
+      "text": "| Name | Value |\n| --- | --- |\n| 中文 | longer words |\n| emoji | 👩‍💻 |",
+      "width": 80,
+      "kind": "assistant",
+      "expected": "┌───────┬──────────────┐\n│ Name  │ Value        │\n├───────┼──────────────┤\n│ 中文  │ longer words │\n├───────┼──────────────┤\n│ emoji │ 👩‍💻           │\n└───────┴──────────────┘"
+    },
+    {
+      "text": "| Name | Value |\n| --- | --- |\n| 中文 | longer words |\n| emoji | 👩‍💻 |",
+      "width": 80,
+      "kind": "user",
+      "expected": "┌───────┬──────────────┐\n│ Name  │ Value        │\n├───────┼──────────────┤\n│ 中文  │ longer words │\n├───────┼──────────────┤\n│ emoji │ 👩‍💻           │\n└───────┴──────────────┘"
+    },
+    {
+      "text": "| Name | Value |\n| --- | --- |\n| 中文 | longer words |\n| emoji | 👩‍💻 |",
+      "width": 80,
+      "kind": "thinking",
+      "expected": "┌───────┬──────────────┐\n│ Name  │ Value        │\n├───────┼──────────────┤\n│ 中文  │ longer words │\n├───────┼──────────────┤\n│ emoji │ 👩‍💻           │\n└───────┴──────────────┘"
+    },
+    {
+      "text": "[label](https://example.com/a+b) and foo@example.com",
+      "width": 1,
+      "kind": "assistant",
+      "expected": "l\na\nb\ne\nl\n(\nh\nt\nt\np\ns\n:\n/\n/\ne\nx\na\nm\np\nl\ne\n.\nc\no\nm\n/\na\n+\nb\n)\n \na\nn\nd\nf\no\no\n@\ne\nx\na\nm\np\nl\ne\n.\nc\no\nm"
+    },
+    {
+      "text": "[label](https://example.com/a+b) and foo@example.com",
+      "width": 1,
+      "kind": "user",
+      "expected": "l\na\nb\ne\nl\n(\nh\nt\nt\np\ns\n:\n/\n/\ne\nx\na\nm\np\nl\ne\n.\nc\no\nm\n/\na\n+\nb\n)\n \na\nn\nd\nf\no\no\n@\ne\nx\na\nm\np\nl\ne\n.\nc\no\nm"
+    },
+    {
+      "text": "[label](https://example.com/a+b) and foo@example.com",
+      "width": 1,
+      "kind": "thinking",
+      "expected": "l\na\nb\ne\nl\n(\nh\nt\nt\np\ns\n:\n/\n/\ne\nx\na\nm\np\nl\ne\n.\nc\no\nm\n/\na\n+\nb\n)\n \na\nn\nd\nf\no\no\n@\ne\nx\na\nm\np\nl\ne\n.\nc\no\nm"
+    },
+    {
+      "text": "[label](https://example.com/a+b) and foo@example.com",
+      "width": 2,
+      "kind": "assistant",
+      "expected": "la\nbe\nl\n(h\ntt\nps\n:/\n/e\nxa\nmp\nle\n.c\nom\n/a\n+b\n) \nan\nd \nfo\no@\nex\nam\npl\ne.\nco\nm"
+    },
+    {
+      "text": "[label](https://example.com/a+b) and foo@example.com",
+      "width": 2,
+      "kind": "user",
+      "expected": "la\nbe\nl\n(h\ntt\nps\n:/\n/e\nxa\nmp\nle\n.c\nom\n/a\n+b\n) \nan\nd \nfo\no@\nex\nam\npl\ne.\nco\nm"
+    },
+    {
+      "text": "[label](https://example.com/a+b) and foo@example.com",
+      "width": 2,
+      "kind": "thinking",
+      "expected": "la\nbe\nl\n(h\ntt\nps\n:/\n/e\nxa\nmp\nle\n.c\nom\n/a\n+b\n) \nan\nd \nfo\no@\nex\nam\npl\ne.\nco\nm"
+    },
+    {
+      "text": "[label](https://example.com/a+b) and foo@example.com",
+      "width": 5,
+      "kind": "assistant",
+      "expected": "label\n(http\ns://e\nxampl\ne.com\n/a+b)\nand f\noo@ex\nample\n.com"
+    },
+    {
+      "text": "[label](https://example.com/a+b) and foo@example.com",
+      "width": 5,
+      "kind": "user",
+      "expected": "label\n(http\ns://e\nxampl\ne.com\n/a+b)\nand f\noo@ex\nample\n.com"
+    },
+    {
+      "text": "[label](https://example.com/a+b) and foo@example.com",
+      "width": 5,
+      "kind": "thinking",
+      "expected": "label\n(http\ns://e\nxampl\ne.com\n/a+b)\nand f\noo@ex\nample\n.com"
+    },
+    {
+      "text": "[label](https://example.com/a+b) and foo@example.com",
+      "width": 12,
+      "kind": "assistant",
+      "expected": "label (https\n://example.c\nom/a+b) and \nfoo@example.\ncom"
+    },
+    {
+      "text": "[label](https://example.com/a+b) and foo@example.com",
+      "width": 12,
+      "kind": "user",
+      "expected": "label (https\n://example.c\nom/a+b) and \nfoo@example.\ncom"
+    },
+    {
+      "text": "[label](https://example.com/a+b) and foo@example.com",
+      "width": 12,
+      "kind": "thinking",
+      "expected": "label (https\n://example.c\nom/a+b) and \nfoo@example.\ncom"
+    },
+    {
+      "text": "[label](https://example.com/a+b) and foo@example.com",
+      "width": 24,
+      "kind": "assistant",
+      "expected": "label (\nhttps://example.com/a+b)\nand foo@example.com"
+    },
+    {
+      "text": "[label](https://example.com/a+b) and foo@example.com",
+      "width": 24,
+      "kind": "user",
+      "expected": "label (\nhttps://example.com/a+b)\nand foo@example.com"
+    },
+    {
+      "text": "[label](https://example.com/a+b) and foo@example.com",
+      "width": 24,
+      "kind": "thinking",
+      "expected": "label (\nhttps://example.com/a+b)\nand foo@example.com"
+    },
+    {
+      "text": "[label](https://example.com/a+b) and foo@example.com",
+      "width": 80,
+      "kind": "assistant",
+      "expected": "label (https://example.com/a+b) and foo@example.com"
+    },
+    {
+      "text": "[label](https://example.com/a+b) and foo@example.com",
+      "width": 80,
+      "kind": "user",
+      "expected": "label (https://example.com/a+b) and foo@example.com"
+    },
+    {
+      "text": "[label](https://example.com/a+b) and foo@example.com",
+      "width": 80,
+      "kind": "thinking",
+      "expected": "label (https://example.com/a+b) and foo@example.com"
+    },
+    {
+      "text": "git clone git@github.com:owner/repo.git",
+      "width": 1,
+      "kind": "assistant",
+      "expected": "g\ni\nt\n \nc\nl\no\nn\ne\ng\ni\nt\n@\ng\ni\nt\nh\nu\nb\n.\nc\no\nm\n:\no\nw\nn\ne\nr\n/\nr\ne\np\no\n.\ng\ni\nt"
+    },
+    {
+      "text": "git clone git@github.com:owner/repo.git",
+      "width": 1,
+      "kind": "user",
+      "expected": "g\ni\nt\n \nc\nl\no\nn\ne\ng\ni\nt\n@\ng\ni\nt\nh\nu\nb\n.\nc\no\nm\n:\no\nw\nn\ne\nr\n/\nr\ne\np\no\n.\ng\ni\nt"
+    },
+    {
+      "text": "git clone git@github.com:owner/repo.git",
+      "width": 1,
+      "kind": "thinking",
+      "expected": "g\ni\nt\n \nc\nl\no\nn\ne\ng\ni\nt\n@\ng\ni\nt\nh\nu\nb\n.\nc\no\nm\n:\no\nw\nn\ne\nr\n/\nr\ne\np\no\n.\ng\ni\nt"
+    },
+    {
+      "text": "git clone git@github.com:owner/repo.git",
+      "width": 2,
+      "kind": "assistant",
+      "expected": "gi\nt \ncl\non\ne \ngi\nt@\ngi\nth\nub\n.c\nom\n:o\nwn\ner\n/r\nep\no.\ngi\nt"
+    },
+    {
+      "text": "git clone git@github.com:owner/repo.git",
+      "width": 2,
+      "kind": "user",
+      "expected": "gi\nt \ncl\non\ne \ngi\nt@\ngi\nth\nub\n.c\nom\n:o\nwn\ner\n/r\nep\no.\ngi\nt"
+    },
+    {
+      "text": "git clone git@github.com:owner/repo.git",
+      "width": 2,
+      "kind": "thinking",
+      "expected": "gi\nt \ncl\non\ne \ngi\nt@\ngi\nth\nub\n.c\nom\n:o\nwn\ner\n/r\nep\no.\ngi\nt"
+    },
+    {
+      "text": "git clone git@github.com:owner/repo.git",
+      "width": 5,
+      "kind": "assistant",
+      "expected": "git\nclone\ngit@g\nithub\n.com:\nowner\n/repo\n.git"
+    },
+    {
+      "text": "git clone git@github.com:owner/repo.git",
+      "width": 5,
+      "kind": "user",
+      "expected": "git\nclone\ngit@g\nithub\n.com:\nowner\n/repo\n.git"
+    },
+    {
+      "text": "git clone git@github.com:owner/repo.git",
+      "width": 5,
+      "kind": "thinking",
+      "expected": "git\nclone\ngit@g\nithub\n.com:\nowner\n/repo\n.git"
+    },
+    {
+      "text": "git clone git@github.com:owner/repo.git",
+      "width": 12,
+      "kind": "assistant",
+      "expected": "git clone gi\nt@github.com\n:owner/repo.\ngit"
+    },
+    {
+      "text": "git clone git@github.com:owner/repo.git",
+      "width": 12,
+      "kind": "user",
+      "expected": "git clone gi\nt@github.com\n:owner/repo.\ngit"
+    },
+    {
+      "text": "git clone git@github.com:owner/repo.git",
+      "width": 12,
+      "kind": "thinking",
+      "expected": "git clone gi\nt@github.com\n:owner/repo.\ngit"
+    },
+    {
+      "text": "git clone git@github.com:owner/repo.git",
+      "width": 24,
+      "kind": "assistant",
+      "expected": "git clone git@github.com\n:owner/repo.git"
+    },
+    {
+      "text": "git clone git@github.com:owner/repo.git",
+      "width": 24,
+      "kind": "user",
+      "expected": "git clone git@github.com\n:owner/repo.git"
+    },
+    {
+      "text": "git clone git@github.com:owner/repo.git",
+      "width": 24,
+      "kind": "thinking",
+      "expected": "git clone git@github.com\n:owner/repo.git"
+    },
+    {
+      "text": "git clone git@github.com:owner/repo.git",
+      "width": 80,
+      "kind": "assistant",
+      "expected": "git clone git@github.com:owner/repo.git"
+    },
+    {
+      "text": "git clone git@github.com:owner/repo.git",
+      "width": 80,
+      "kind": "user",
+      "expected": "git clone git@github.com:owner/repo.git"
+    },
+    {
+      "text": "git clone git@github.com:owner/repo.git",
+      "width": 80,
+      "kind": "thinking",
+      "expected": "git clone git@github.com:owner/repo.git"
+    },
+    {
+      "text": "escape \\*stars\\* and &amp; &lt;tag&gt;",
+      "width": 1,
+      "kind": "assistant",
+      "expected": "e\ns\nc\na\np\ne\n*\ns\nt\na\nr\ns\n*\n \na\nn\nd\n&\n \n<\nt\na\ng\n>"
+    },
+    {
+      "text": "escape \\*stars\\* and &amp; &lt;tag&gt;",
+      "width": 1,
+      "kind": "user",
+      "expected": "e\ns\nc\na\np\ne\n\\\n*\ns\nt\na\nr\ns\n\\\n*\n \na\nn\nd\n&\n \n<\nt\na\ng\n>"
+    },
+    {
+      "text": "escape \\*stars\\* and &amp; &lt;tag&gt;",
+      "width": 1,
+      "kind": "thinking",
+      "expected": "e\ns\nc\na\np\ne\n*\ns\nt\na\nr\ns\n*\n \na\nn\nd\n&\n \n<\nt\na\ng\n>"
+    },
+    {
+      "text": "escape \\*stars\\* and &amp; &lt;tag&gt;",
+      "width": 2,
+      "kind": "assistant",
+      "expected": "es\nca\npe\n*s\nta\nrs\n* \nan\nd\n& \n<t\nag\n>"
+    },
+    {
+      "text": "escape \\*stars\\* and &amp; &lt;tag&gt;",
+      "width": 2,
+      "kind": "user",
+      "expected": "es\nca\npe\n\\*\nst\nar\ns\n\\*\n \nan\nd\n& \n<t\nag\n>"
+    },
+    {
+      "text": "escape \\*stars\\* and &amp; &lt;tag&gt;",
+      "width": 2,
+      "kind": "thinking",
+      "expected": "es\nca\npe\n*s\nta\nrs\n* \nan\nd\n& \n<t\nag\n>"
+    },
+    {
+      "text": "escape \\*stars\\* and &amp; &lt;tag&gt;",
+      "width": 5,
+      "kind": "assistant",
+      "expected": "escap\ne *\nstars\n* and\n&\n<tag>"
+    },
+    {
+      "text": "escape \\*stars\\* and &amp; &lt;tag&gt;",
+      "width": 5,
+      "kind": "user",
+      "expected": "escap\ne \\*\nstars\n\\*\nand &\n<tag>"
+    },
+    {
+      "text": "escape \\*stars\\* and &amp; &lt;tag&gt;",
+      "width": 5,
+      "kind": "thinking",
+      "expected": "escap\ne *\nstars\n* and\n&\n<tag>"
+    },
+    {
+      "text": "escape \\*stars\\* and &amp; &lt;tag&gt;",
+      "width": 12,
+      "kind": "assistant",
+      "expected": "escape *\nstars* and &\n<tag>"
+    },
+    {
+      "text": "escape \\*stars\\* and &amp; &lt;tag&gt;",
+      "width": 12,
+      "kind": "user",
+      "expected": "escape \\*\nstars\\* and\n& <tag>"
+    },
+    {
+      "text": "escape \\*stars\\* and &amp; &lt;tag&gt;",
+      "width": 12,
+      "kind": "thinking",
+      "expected": "escape *\nstars* and &\n<tag>"
+    },
+    {
+      "text": "escape \\*stars\\* and &amp; &lt;tag&gt;",
+      "width": 24,
+      "kind": "assistant",
+      "expected": "escape *stars* and &\n<tag>"
+    },
+    {
+      "text": "escape \\*stars\\* and &amp; &lt;tag&gt;",
+      "width": 24,
+      "kind": "user",
+      "expected": "escape \\*stars\\* and &\n<tag>"
+    },
+    {
+      "text": "escape \\*stars\\* and &amp; &lt;tag&gt;",
+      "width": 24,
+      "kind": "thinking",
+      "expected": "escape *stars* and &\n<tag>"
+    },
+    {
+      "text": "escape \\*stars\\* and &amp; &lt;tag&gt;",
+      "width": 80,
+      "kind": "assistant",
+      "expected": "escape *stars* and & <tag>"
+    },
+    {
+      "text": "escape \\*stars\\* and &amp; &lt;tag&gt;",
+      "width": 80,
+      "kind": "user",
+      "expected": "escape \\*stars\\* and & <tag>"
+    },
+    {
+      "text": "escape \\*stars\\* and &amp; &lt;tag&gt;",
+      "width": 80,
+      "kind": "thinking",
+      "expected": "escape *stars* and & <tag>"
+    },
+    {
+      "text": "![alt](https://example.com/image.png \"title\")",
+      "width": 1,
+      "kind": "assistant",
+      "expected": "!\n[\na\nl\nt\n–\n \nt\ni\nt\nl\ne\n]\n(\nh\nt\nt\np\ns\n:\n/\n/\ne\nx\na\nm\np\nl\ne\n.\nc\no\nm\n/\ni\nm\na\ng\ne\n.\np\nn\ng\n)\n"
+    },
+    {
+      "text": "![alt](https://example.com/image.png \"title\")",
+      "width": 1,
+      "kind": "user",
+      "expected": "!\n[\na\nl\nt\n–\n \nt\ni\nt\nl\ne\n]\n(\nh\nt\nt\np\ns\n:\n/\n/\ne\nx\na\nm\np\nl\ne\n.\nc\no\nm\n/\ni\nm\na\ng\ne\n.\np\nn\ng\n)\n"
+    },
+    {
+      "text": "![alt](https://example.com/image.png \"title\")",
+      "width": 1,
+      "kind": "thinking",
+      "expected": "!\n[\na\nl\nt\n–\n \nt\ni\nt\nl\ne\n]\n(\nh\nt\nt\np\ns\n:\n/\n/\ne\nx\na\nm\np\nl\ne\n.\nc\no\nm\n/\ni\nm\na\ng\ne\n.\np\nn\ng\n)\n"
+    },
+    {
+      "text": "![alt](https://example.com/image.png \"title\")",
+      "width": 2,
+      "kind": "assistant",
+      "expected": "![\nal\nt\n– \nti\ntl\ne]\n(h\ntt\nps\n:/\n/e\nxa\nmp\nle\n.c\nom\n/i\nma\nge\n.p\nng\n)\n"
+    },
+    {
+      "text": "![alt](https://example.com/image.png \"title\")",
+      "width": 2,
+      "kind": "user",
+      "expected": "![\nal\nt\n– \nti\ntl\ne]\n(h\ntt\nps\n:/\n/e\nxa\nmp\nle\n.c\nom\n/i\nma\nge\n.p\nng\n)\n"
+    },
+    {
+      "text": "![alt](https://example.com/image.png \"title\")",
+      "width": 2,
+      "kind": "thinking",
+      "expected": "![\nal\nt\n– \nti\ntl\ne]\n(h\ntt\nps\n:/\n/e\nxa\nmp\nle\n.c\nom\n/i\nma\nge\n.p\nng\n)\n"
+    },
+    {
+      "text": "![alt](https://example.com/image.png \"title\")",
+      "width": 5,
+      "kind": "assistant",
+      "expected": "![alt\n– tit\nle](h\nttps:\n//exa\nmple.\ncom/i\nmage.\npng)\n"
+    },
+    {
+      "text": "![alt](https://example.com/image.png \"title\")",
+      "width": 5,
+      "kind": "user",
+      "expected": "![alt\n– tit\nle](h\nttps:\n//exa\nmple.\ncom/i\nmage.\npng)\n"
+    },
+    {
+      "text": "![alt](https://example.com/image.png \"title\")",
+      "width": 5,
+      "kind": "thinking",
+      "expected": "![alt\n– tit\nle](h\nttps:\n//exa\nmple.\ncom/i\nmage.\npng)\n"
+    },
+    {
+      "text": "![alt](https://example.com/image.png \"title\")",
+      "width": 12,
+      "kind": "assistant",
+      "expected": "![alt – titl\ne](https://e\nxample.com/i\nmage.png)\n"
+    },
+    {
+      "text": "![alt](https://example.com/image.png \"title\")",
+      "width": 12,
+      "kind": "user",
+      "expected": "![alt – titl\ne](https://e\nxample.com/i\nmage.png)\n"
+    },
+    {
+      "text": "![alt](https://example.com/image.png \"title\")",
+      "width": 12,
+      "kind": "thinking",
+      "expected": "![alt – titl\ne](https://e\nxample.com/i\nmage.png)\n"
+    },
+    {
+      "text": "![alt](https://example.com/image.png \"title\")",
+      "width": 24,
+      "kind": "assistant",
+      "expected": "![alt – title](https://e\nxample.com/image.png)\n"
+    },
+    {
+      "text": "![alt](https://example.com/image.png \"title\")",
+      "width": 24,
+      "kind": "user",
+      "expected": "![alt – title](https://e\nxample.com/image.png)\n"
+    },
+    {
+      "text": "![alt](https://example.com/image.png \"title\")",
+      "width": 24,
+      "kind": "thinking",
+      "expected": "![alt – title](https://e\nxample.com/image.png)\n"
+    },
+    {
+      "text": "![alt](https://example.com/image.png \"title\")",
+      "width": 80,
+      "kind": "assistant",
+      "expected": "![alt – title](https://example.com/image.png)\n"
+    },
+    {
+      "text": "![alt](https://example.com/image.png \"title\")",
+      "width": 80,
+      "kind": "user",
+      "expected": "![alt – title](https://example.com/image.png)\n"
+    },
+    {
+      "text": "![alt](https://example.com/image.png \"title\")",
+      "width": 80,
+      "kind": "thinking",
+      "expected": "![alt – title](https://example.com/image.png)\n"
+    },
+    {
+      "text": "one  \ntwo",
+      "width": 1,
+      "kind": "assistant",
+      "expected": "o\nn\ne\nt\nw\no"
+    },
+    {
+      "text": "one  \ntwo",
+      "width": 1,
+      "kind": "user",
+      "expected": "o\nn\ne\nt\nw\no"
+    },
+    {
+      "text": "one  \ntwo",
+      "width": 1,
+      "kind": "thinking",
+      "expected": "o\nn\ne\nt\nw\no"
+    },
+    {
+      "text": "one  \ntwo",
+      "width": 2,
+      "kind": "assistant",
+      "expected": "on\ne\ntw\no"
+    },
+    {
+      "text": "one  \ntwo",
+      "width": 2,
+      "kind": "user",
+      "expected": "on\ne\ntw\no"
+    },
+    {
+      "text": "one  \ntwo",
+      "width": 2,
+      "kind": "thinking",
+      "expected": "on\ne\ntw\no"
+    },
+    {
+      "text": "one  \ntwo",
+      "width": 5,
+      "kind": "assistant",
+      "expected": "one\ntwo"
+    },
+    {
+      "text": "one  \ntwo",
+      "width": 5,
+      "kind": "user",
+      "expected": "one\ntwo"
+    },
+    {
+      "text": "one  \ntwo",
+      "width": 5,
+      "kind": "thinking",
+      "expected": "one\ntwo"
+    },
+    {
+      "text": "one  \ntwo",
+      "width": 12,
+      "kind": "assistant",
+      "expected": "one\ntwo"
+    },
+    {
+      "text": "one  \ntwo",
+      "width": 12,
+      "kind": "user",
+      "expected": "one\ntwo"
+    },
+    {
+      "text": "one  \ntwo",
+      "width": 12,
+      "kind": "thinking",
+      "expected": "one\ntwo"
+    },
+    {
+      "text": "one  \ntwo",
+      "width": 24,
+      "kind": "assistant",
+      "expected": "one\ntwo"
+    },
+    {
+      "text": "one  \ntwo",
+      "width": 24,
+      "kind": "user",
+      "expected": "one\ntwo"
+    },
+    {
+      "text": "one  \ntwo",
+      "width": 24,
+      "kind": "thinking",
+      "expected": "one\ntwo"
+    },
+    {
+      "text": "one  \ntwo",
+      "width": 80,
+      "kind": "assistant",
+      "expected": "one\ntwo"
+    },
+    {
+      "text": "one  \ntwo",
+      "width": 80,
+      "kind": "user",
+      "expected": "one\ntwo"
+    },
+    {
+      "text": "one  \ntwo",
+      "width": 80,
+      "kind": "thinking",
+      "expected": "one\ntwo"
+    }
+  ],
+  "previews": [
+    {
+      "name": "Bash",
+      "width": 1,
+      "text": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 10\n  line 11\n+ line 12\n- line 13\n  line 14\n+ line 15\n- line 16\n  line 17\n+ line 18\n- line 19\n  line 20\n+ line 21\n- line 22\n  line 23\n+ line 24",
+      "expected": "n\ne\n \n2\n4\n… (210 more lines, Ctrl+O to expand)"
+    },
+    {
+      "name": "Bash",
+      "width": 8,
+      "text": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 10\n  line 11\n+ line 12\n- line 13\n  line 14\n+ line 15\n- line 16\n  line 17\n+ line 18\n- line 19\n  line 20\n+ line 21\n- line 22\n  line 23\n+ line 24",
+      "expected": "2\n  line 2\n3\n+ line 2\n4\n… (35 more lines, Ctrl+O to expand)"
+    },
+    {
+      "name": "Bash",
+      "width": 24,
+      "text": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 10\n  line 11\n+ line 12\n- line 13\n  line 14\n+ line 15\n- line 16\n  line 17\n+ line 18\n- line 19\n  line 20\n+ line 21\n- line 22\n  line 23\n+ line 24",
+      "expected": "  line 20\n+ line 21\n- line 22\n  line 23\n+ line 24\n… (20 more lines, Ctrl+O to expand)"
+    },
+    {
+      "name": "Bash",
+      "width": 80,
+      "text": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 10\n  line 11\n+ line 12\n- line 13\n  line 14\n+ line 15\n- line 16\n  line 17\n+ line 18\n- line 19\n  line 20\n+ line 21\n- line 22\n  line 23\n+ line 24",
+      "expected": "  line 20\n+ line 21\n- line 22\n  line 23\n+ line 24\n… (20 more lines, Ctrl+O to expand)"
+    },
+    {
+      "name": "PowerShell",
+      "width": 1,
+      "text": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 10\n  line 11\n+ line 12\n- line 13\n  line 14\n+ line 15\n- line 16\n  line 17\n+ line 18\n- line 19\n  line 20\n+ line 21\n- line 22\n  line 23\n+ line 24",
+      "expected": "n\ne\n \n2\n4\n… (210 more lines, Ctrl+O to expand)"
+    },
+    {
+      "name": "PowerShell",
+      "width": 8,
+      "text": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 10\n  line 11\n+ line 12\n- line 13\n  line 14\n+ line 15\n- line 16\n  line 17\n+ line 18\n- line 19\n  line 20\n+ line 21\n- line 22\n  line 23\n+ line 24",
+      "expected": "2\n  line 2\n3\n+ line 2\n4\n… (35 more lines, Ctrl+O to expand)"
+    },
+    {
+      "name": "PowerShell",
+      "width": 24,
+      "text": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 10\n  line 11\n+ line 12\n- line 13\n  line 14\n+ line 15\n- line 16\n  line 17\n+ line 18\n- line 19\n  line 20\n+ line 21\n- line 22\n  line 23\n+ line 24",
+      "expected": "  line 20\n+ line 21\n- line 22\n  line 23\n+ line 24\n… (20 more lines, Ctrl+O to expand)"
+    },
+    {
+      "name": "PowerShell",
+      "width": 80,
+      "text": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 10\n  line 11\n+ line 12\n- line 13\n  line 14\n+ line 15\n- line 16\n  line 17\n+ line 18\n- line 19\n  line 20\n+ line 21\n- line 22\n  line 23\n+ line 24",
+      "expected": "  line 20\n+ line 21\n- line 22\n  line 23\n+ line 24\n… (20 more lines, Ctrl+O to expand)"
+    },
+    {
+      "name": "Grep",
+      "width": 1,
+      "text": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 10\n  line 11\n+ line 12\n- line 13\n  line 14\n+ line 15\n- line 16\n  line 17\n+ line 18\n- line 19\n  line 20\n+ line 21\n- line 22\n  line 23\n+ line 24",
+      "expected": "+\n \nl\ni\nn\ne\n \n0\n-\n \nl\ni\nn\ne\n \n… (200 more lines, Ctrl+O to expand)"
+    },
+    {
+      "name": "Grep",
+      "width": 8,
+      "text": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 10\n  line 11\n+ line 12\n- line 13\n  line 14\n+ line 15\n- line 16\n  line 17\n+ line 18\n- line 19\n  line 20\n+ line 21\n- line 22\n  line 23\n+ line 24",
+      "expected": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 1\n0\n  line 1\n1\n+ line 1\n… (25 more lines, Ctrl+O to expand)"
+    },
+    {
+      "name": "Grep",
+      "width": 24,
+      "text": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 10\n  line 11\n+ line 12\n- line 13\n  line 14\n+ line 15\n- line 16\n  line 17\n+ line 18\n- line 19\n  line 20\n+ line 21\n- line 22\n  line 23\n+ line 24",
+      "expected": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 10\n  line 11\n+ line 12\n- line 13\n  line 14\n… (10 more lines, Ctrl+O to expand)"
+    },
+    {
+      "name": "Grep",
+      "width": 80,
+      "text": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 10\n  line 11\n+ line 12\n- line 13\n  line 14\n+ line 15\n- line 16\n  line 17\n+ line 18\n- line 19\n  line 20\n+ line 21\n- line 22\n  line 23\n+ line 24",
+      "expected": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 10\n  line 11\n+ line 12\n- line 13\n  line 14\n… (10 more lines, Ctrl+O to expand)"
+    },
+    {
+      "name": "Glob",
+      "width": 1,
+      "text": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 10\n  line 11\n+ line 12\n- line 13\n  line 14\n+ line 15\n- line 16\n  line 17\n+ line 18\n- line 19\n  line 20\n+ line 21\n- line 22\n  line 23\n+ line 24",
+      "expected": "+\n \nl\ni\nn\ne\n \n0\n-\n \nl\ni\nn\ne\n \n1\n \n \nl\ni\n… (195 more lines, Ctrl+O to expand)"
+    },
+    {
+      "name": "Glob",
+      "width": 8,
+      "text": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 10\n  line 11\n+ line 12\n- line 13\n  line 14\n+ line 15\n- line 16\n  line 17\n+ line 18\n- line 19\n  line 20\n+ line 21\n- line 22\n  line 23\n+ line 24",
+      "expected": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 1\n0\n  line 1\n1\n+ line 1\n2\n- line 1\n3\n  line 1\n4\n… (20 more lines, Ctrl+O to expand)"
+    },
+    {
+      "name": "Glob",
+      "width": 24,
+      "text": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 10\n  line 11\n+ line 12\n- line 13\n  line 14\n+ line 15\n- line 16\n  line 17\n+ line 18\n- line 19\n  line 20\n+ line 21\n- line 22\n  line 23\n+ line 24",
+      "expected": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 10\n  line 11\n+ line 12\n- line 13\n  line 14\n+ line 15\n- line 16\n  line 17\n+ line 18\n- line 19\n… (5 more lines, Ctrl+O to expand)"
+    },
+    {
+      "name": "Glob",
+      "width": 80,
+      "text": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 10\n  line 11\n+ line 12\n- line 13\n  line 14\n+ line 15\n- line 16\n  line 17\n+ line 18\n- line 19\n  line 20\n+ line 21\n- line 22\n  line 23\n+ line 24",
+      "expected": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 10\n  line 11\n+ line 12\n- line 13\n  line 14\n+ line 15\n- line 16\n  line 17\n+ line 18\n- line 19\n… (5 more lines, Ctrl+O to expand)"
+    },
+    {
+      "name": "ListTasks",
+      "width": 1,
+      "text": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 10\n  line 11\n+ line 12\n- line 13\n  line 14\n+ line 15\n- line 16\n  line 17\n+ line 18\n- line 19\n  line 20\n+ line 21\n- line 22\n  line 23\n+ line 24",
+      "expected": "+\n \nl\ni\nn\ne\n \n0\n-\n \nl\ni\nn\ne\n \n1\n \n \nl\ni\n… (195 more lines, Ctrl+O to expand)"
+    },
+    {
+      "name": "ListTasks",
+      "width": 8,
+      "text": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 10\n  line 11\n+ line 12\n- line 13\n  line 14\n+ line 15\n- line 16\n  line 17\n+ line 18\n- line 19\n  line 20\n+ line 21\n- line 22\n  line 23\n+ line 24",
+      "expected": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 1\n0\n  line 1\n1\n+ line 1\n2\n- line 1\n3\n  line 1\n4\n… (20 more lines, Ctrl+O to expand)"
+    },
+    {
+      "name": "ListTasks",
+      "width": 24,
+      "text": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 10\n  line 11\n+ line 12\n- line 13\n  line 14\n+ line 15\n- line 16\n  line 17\n+ line 18\n- line 19\n  line 20\n+ line 21\n- line 22\n  line 23\n+ line 24",
+      "expected": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 10\n  line 11\n+ line 12\n- line 13\n  line 14\n+ line 15\n- line 16\n  line 17\n+ line 18\n- line 19\n… (5 more lines, Ctrl+O to expand)"
+    },
+    {
+      "name": "ListTasks",
+      "width": 80,
+      "text": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 10\n  line 11\n+ line 12\n- line 13\n  line 14\n+ line 15\n- line 16\n  line 17\n+ line 18\n- line 19\n  line 20\n+ line 21\n- line 22\n  line 23\n+ line 24",
+      "expected": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 10\n  line 11\n+ line 12\n- line 13\n  line 14\n+ line 15\n- line 16\n  line 17\n+ line 18\n- line 19\n… (5 more lines, Ctrl+O to expand)"
+    },
+    {
+      "name": "ReadFile",
+      "width": 1,
+      "text": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 10\n  line 11\n+ line 12\n- line 13\n  line 14\n+ line 15\n- line 16\n  line 17\n+ line 18\n- line 19\n  line 20\n+ line 21\n- line 22\n  line 23\n+ line 24",
+      "expected": "+\n \nl\ni\nn\ne\n \n0\n-\n \n… (205 more lines, Ctrl+O to expand)"
+    },
+    {
+      "name": "ReadFile",
+      "width": 8,
+      "text": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 10\n  line 11\n+ line 12\n- line 13\n  line 14\n+ line 15\n- line 16\n  line 17\n+ line 18\n- line 19\n  line 20\n+ line 21\n- line 22\n  line 23\n+ line 24",
+      "expected": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n… (30 more lines, Ctrl+O to expand)"
+    },
+    {
+      "name": "ReadFile",
+      "width": 24,
+      "text": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 10\n  line 11\n+ line 12\n- line 13\n  line 14\n+ line 15\n- line 16\n  line 17\n+ line 18\n- line 19\n  line 20\n+ line 21\n- line 22\n  line 23\n+ line 24",
+      "expected": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n… (15 more lines, Ctrl+O to expand)"
+    },
+    {
+      "name": "ReadFile",
+      "width": 80,
+      "text": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 10\n  line 11\n+ line 12\n- line 13\n  line 14\n+ line 15\n- line 16\n  line 17\n+ line 18\n- line 19\n  line 20\n+ line 21\n- line 22\n  line 23\n+ line 24",
+      "expected": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n… (15 more lines, Ctrl+O to expand)"
+    },
+    {
+      "name": "AskUserQuestion",
+      "width": 1,
+      "text": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 10\n  line 11\n+ line 12\n- line 13\n  line 14\n+ line 15\n- line 16\n  line 17\n+ line 18\n- line 19\n  line 20\n+ line 21\n- line 22\n  line 23\n+ line 24",
+      "expected": "+\n \nl\ni\nn\ne\n \n0\n-\n \nl\ni\nn\ne\n \n1\n \n \nl\ni\nn\ne\n \n2\n+\n \nl\ni\nn\ne\n \n3\n-\n \nl\ni\nn\ne\n \n4\n \n \nl\ni\nn\ne\n \n5\n+\n \nl\ni\nn\ne\n \n6\n-\n \nl\ni\nn\ne\n \n7\n \n \nl\ni\nn\ne\n \n8\n+\n \nl\ni\nn\ne\n \n9\n-\n \nl\ni\nn\ne\n \n1\n0\n \n \nl\ni\nn\ne\n \n1\n1\n+\n \nl\ni\nn\ne\n \n1\n2\n-\n \nl\ni\nn\ne\n \n1\n3\n \n \nl\ni\nn\ne\n \n1\n4\n+\n \nl\ni\nn\ne\n \n1\n5\n-\n \nl\ni\nn\ne\n \n1\n6\n \n \nl\ni\nn\ne\n \n1\n7\n+\n \nl\ni\nn\ne\n \n1\n8\n-\n \nl\ni\nn\ne\n \n1\n9\n \n \nl\ni\nn\ne\n \n2\n0\n+\n \nl\ni\nn\ne\n \n2\n1\n-\n \nl\ni\nn\ne\n \n2\n2\n \n \nl\ni\nn\ne\n \n2\n3\n+\n \nl\ni\nn\ne\n \n2\n4"
+    },
+    {
+      "name": "AskUserQuestion",
+      "width": 8,
+      "text": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 10\n  line 11\n+ line 12\n- line 13\n  line 14\n+ line 15\n- line 16\n  line 17\n+ line 18\n- line 19\n  line 20\n+ line 21\n- line 22\n  line 23\n+ line 24",
+      "expected": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 1\n0\n  line 1\n1\n+ line 1\n2\n- line 1\n3\n  line 1\n4\n+ line 1\n5\n- line 1\n6\n  line 1\n7\n+ line 1\n8\n- line 1\n9\n  line 2\n0\n+ line 2\n1\n- line 2\n2\n  line 2\n3\n+ line 2\n4"
+    },
+    {
+      "name": "AskUserQuestion",
+      "width": 24,
+      "text": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 10\n  line 11\n+ line 12\n- line 13\n  line 14\n+ line 15\n- line 16\n  line 17\n+ line 18\n- line 19\n  line 20\n+ line 21\n- line 22\n  line 23\n+ line 24",
+      "expected": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 10\n  line 11\n+ line 12\n- line 13\n  line 14\n+ line 15\n- line 16\n  line 17\n+ line 18\n- line 19\n  line 20\n+ line 21\n- line 22\n  line 23\n+ line 24"
+    },
+    {
+      "name": "AskUserQuestion",
+      "width": 80,
+      "text": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 10\n  line 11\n+ line 12\n- line 13\n  line 14\n+ line 15\n- line 16\n  line 17\n+ line 18\n- line 19\n  line 20\n+ line 21\n- line 22\n  line 23\n+ line 24",
+      "expected": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 10\n  line 11\n+ line 12\n- line 13\n  line 14\n+ line 15\n- line 16\n  line 17\n+ line 18\n- line 19\n  line 20\n+ line 21\n- line 22\n  line 23\n+ line 24"
+    },
+    {
+      "name": "EditFile",
+      "width": 1,
+      "text": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 10\n  line 11\n+ line 12\n- line 13\n  line 14\n+ line 15\n- line 16\n  line 17\n+ line 18\n- line 19\n  line 20\n+ line 21\n- line 22\n  line 23\n+ line 24",
+      "expected": "+\n \nl\ni\nn\ne\n \n0\n-\n \n… (205 more lines, Ctrl+O to expand)"
+    },
+    {
+      "name": "EditFile",
+      "width": 8,
+      "text": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 10\n  line 11\n+ line 12\n- line 13\n  line 14\n+ line 15\n- line 16\n  line 17\n+ line 18\n- line 19\n  line 20\n+ line 21\n- line 22\n  line 23\n+ line 24",
+      "expected": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n… (30 more lines, Ctrl+O to expand)"
+    },
+    {
+      "name": "EditFile",
+      "width": 24,
+      "text": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 10\n  line 11\n+ line 12\n- line 13\n  line 14\n+ line 15\n- line 16\n  line 17\n+ line 18\n- line 19\n  line 20\n+ line 21\n- line 22\n  line 23\n+ line 24",
+      "expected": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n… (15 more lines, Ctrl+O to expand)"
+    },
+    {
+      "name": "EditFile",
+      "width": 80,
+      "text": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n- line 10\n  line 11\n+ line 12\n- line 13\n  line 14\n+ line 15\n- line 16\n  line 17\n+ line 18\n- line 19\n  line 20\n+ line 21\n- line 22\n  line 23\n+ line 24",
+      "expected": "+ line 0\n- line 1\n  line 2\n+ line 3\n- line 4\n  line 5\n+ line 6\n- line 7\n  line 8\n+ line 9\n… (15 more lines, Ctrl+O to expand)"
+    }
+  ],
+  "tables": [
+    {
+      "rows": [],
+      "width": 1,
+      "columns": 0,
+      "expected": null
+    },
+    {
+      "rows": [],
+      "width": 5,
+      "columns": 0,
+      "expected": null
+    },
+    {
+      "rows": [],
+      "width": 10,
+      "columns": 0,
+      "expected": null
+    },
+    {
+      "rows": [],
+      "width": 16,
+      "columns": 0,
+      "expected": null
+    },
+    {
+      "rows": [],
+      "width": 40,
+      "columns": 0,
+      "expected": null
+    },
+    {
+      "rows": [],
+      "width": 80,
+      "columns": 0,
+      "expected": null
+    },
+    {
+      "rows": [
+        [
+          "a",
+          "b"
+        ],
+        [
+          "中文",
+          "long words"
+        ]
+      ],
+      "width": 1,
+      "columns": 2,
+      "expected": null
+    },
+    {
+      "rows": [
+        [
+          "a",
+          "b"
+        ],
+        [
+          "中文",
+          "long words"
+        ]
+      ],
+      "width": 5,
+      "columns": 2,
+      "expected": null
+    },
+    {
+      "rows": [
+        [
+          "a",
+          "b"
+        ],
+        [
+          "中文",
+          "long words"
+        ]
+      ],
+      "width": 10,
+      "columns": 2,
+      "fitted": {
+        "columnWidths": [
+          4,
+          3
+        ],
+        "rows": [
+          [
+            "a",
+            "b"
+          ],
+          [
+            "中\n文",
+            "l\no\nn\ng\nw\no\nr\nd\ns"
+          ]
+        ]
+      },
+      "expected": "┌────┬───┐\n│ a  │ b │\n├────┼───┤\n│ 中 │ l │\n│ 文 │ o │\n│    │ n │\n│    │ g │\n│    │ w │\n│    │ o │\n│    │ r │\n│    │ d │\n│    │ s │\n└────┴───┘"
+    },
+    {
+      "rows": [
+        [
+          "a",
+          "b"
+        ],
+        [
+          "中文",
+          "long words"
+        ]
+      ],
+      "width": 16,
+      "columns": 2,
+      "fitted": {
+        "columnWidths": [
+          6,
+          7
+        ],
+        "rows": [
+          [
+            "a",
+            "b"
+          ],
+          [
+            "中文",
+            "long\nwords"
+          ]
+        ]
+      },
+      "expected": "┌──────┬───────┐\n│ a    │ b     │\n├──────┼───────┤\n│ 中文 │ long  │\n│      │ words │\n└──────┴───────┘"
+    },
+    {
+      "rows": [
+        [
+          "a",
+          "b"
+        ],
+        [
+          "中文",
+          "long words"
+        ]
+      ],
+      "width": 40,
+      "columns": 2,
+      "fitted": {
+        "columnWidths": [
+          6,
+          12
+        ],
+        "rows": [
+          [
+            "a",
+            "b"
+          ],
+          [
+            "中文",
+            "long words"
+          ]
+        ]
+      },
+      "expected": "┌──────┬────────────┐\n│ a    │ b          │\n├──────┼────────────┤\n│ 中文 │ long words │\n└──────┴────────────┘"
+    },
+    {
+      "rows": [
+        [
+          "a",
+          "b"
+        ],
+        [
+          "中文",
+          "long words"
+        ]
+      ],
+      "width": 80,
+      "columns": 2,
+      "fitted": {
+        "columnWidths": [
+          6,
+          12
+        ],
+        "rows": [
+          [
+            "a",
+            "b"
+          ],
+          [
+            "中文",
+            "long words"
+          ]
+        ]
+      },
+      "expected": "┌──────┬────────────┐\n│ a    │ b          │\n├──────┼────────────┤\n│ 中文 │ long words │\n└──────┴────────────┘"
+    },
+    {
+      "rows": [
+        [
+          "👩‍💻",
+          "x"
+        ],
+        [
+          "value",
+          "tab\tstop"
+        ]
+      ],
+      "width": 1,
+      "columns": 2,
+      "expected": null
+    },
+    {
+      "rows": [
+        [
+          "👩‍💻",
+          "x"
+        ],
+        [
+          "value",
+          "tab\tstop"
+        ]
+      ],
+      "width": 5,
+      "columns": 2,
+      "expected": null
+    },
+    {
+      "rows": [
+        [
+          "👩‍💻",
+          "x"
+        ],
+        [
+          "value",
+          "tab\tstop"
+        ]
+      ],
+      "width": 10,
+      "columns": 2,
+      "fitted": {
+        "columnWidths": [
+          4,
+          3
+        ],
+        "rows": [
+          [
+            "👩‍💻",
+            "x"
+          ],
+          [
+            "va\nlu\ne",
+            "t\na\nb\ns\nt\no\np"
+          ]
+        ]
+      },
+      "expected": "┌────┬───┐\n│ 👩‍💻 │ x │\n├────┼───┤\n│ va │ t │\n│ lu │ a │\n│ e  │ b │\n│    │ s │\n│    │ t │\n│    │ o │\n│    │ p │\n└────┴───┘"
+    },
+    {
+      "rows": [
+        [
+          "👩‍💻",
+          "x"
+        ],
+        [
+          "value",
+          "tab\tstop"
+        ]
+      ],
+      "width": 16,
+      "columns": 2,
+      "fitted": {
+        "columnWidths": [
+          6,
+          7
+        ],
+        "rows": [
+          [
+            "👩‍💻",
+            "x"
+          ],
+          [
+            "valu\ne",
+            "tab\nstop"
+          ]
+        ]
+      },
+      "expected": "┌──────┬───────┐\n│ 👩‍💻   │ x     │\n├──────┼───────┤\n│ valu │ tab   │\n│ e    │ stop  │\n└──────┴───────┘"
+    },
+    {
+      "rows": [
+        [
+          "👩‍💻",
+          "x"
+        ],
+        [
+          "value",
+          "tab\tstop"
+        ]
+      ],
+      "width": 40,
+      "columns": 2,
+      "fitted": {
+        "columnWidths": [
+          7,
+          10
+        ],
+        "rows": [
+          [
+            "👩‍💻",
+            "x"
+          ],
+          [
+            "value",
+            "tab stop"
+          ]
+        ]
+      },
+      "expected": "┌───────┬──────────┐\n│ 👩‍💻    │ x        │\n├───────┼──────────┤\n│ value │ tab stop │\n└───────┴──────────┘"
+    },
+    {
+      "rows": [
+        [
+          "👩‍💻",
+          "x"
+        ],
+        [
+          "value",
+          "tab\tstop"
+        ]
+      ],
+      "width": 80,
+      "columns": 2,
+      "fitted": {
+        "columnWidths": [
+          7,
+          10
+        ],
+        "rows": [
+          [
+            "👩‍💻",
+            "x"
+          ],
+          [
+            "value",
+            "tab stop"
+          ]
+        ]
+      },
+      "expected": "┌───────┬──────────┐\n│ 👩‍💻    │ x        │\n├───────┼──────────┤\n│ value │ tab stop │\n└───────┴──────────┘"
+    },
+    {
+      "rows": [
+        [
+          "heading"
+        ],
+        [
+          "very long value"
+        ]
+      ],
+      "width": 1,
+      "columns": 1,
+      "expected": null
+    },
+    {
+      "rows": [
+        [
+          "heading"
+        ],
+        [
+          "very long value"
+        ]
+      ],
+      "width": 5,
+      "columns": 1,
+      "fitted": {
+        "columnWidths": [
+          3
+        ],
+        "rows": [
+          [
+            "h\ne\na\nd\ni\nn\ng"
+          ],
+          [
+            "v\ne\nr\ny\nl\no\nn\ng\nv\na\nl\nu\ne"
+          ]
+        ]
+      },
+      "expected": "┌───┐\n│ h │\n│ e │\n│ a │\n│ d │\n│ i │\n│ n │\n│ g │\n├───┤\n│ v │\n│ e │\n│ r │\n│ y │\n│ l │\n│ o │\n│ n │\n│ g │\n│ v │\n│ a │\n│ l │\n│ u │\n│ e │\n└───┘"
+    },
+    {
+      "rows": [
+        [
+          "heading"
+        ],
+        [
+          "very long value"
+        ]
+      ],
+      "width": 10,
+      "columns": 1,
+      "fitted": {
+        "columnWidths": [
+          8
+        ],
+        "rows": [
+          [
+            "headin\ng"
+          ],
+          [
+            "very\nlong\nvalue"
+          ]
+        ]
+      },
+      "expected": "┌────────┐\n│ headin │\n│ g      │\n├────────┤\n│ very   │\n│ long   │\n│ value  │\n└────────┘"
+    },
+    {
+      "rows": [
+        [
+          "heading"
+        ],
+        [
+          "very long value"
+        ]
+      ],
+      "width": 16,
+      "columns": 1,
+      "fitted": {
+        "columnWidths": [
+          14
+        ],
+        "rows": [
+          [
+            "heading"
+          ],
+          [
+            "very long\nvalue"
+          ]
+        ]
+      },
+      "expected": "┌──────────────┐\n│ heading      │\n├──────────────┤\n│ very long    │\n│ value        │\n└──────────────┘"
+    },
+    {
+      "rows": [
+        [
+          "heading"
+        ],
+        [
+          "very long value"
+        ]
+      ],
+      "width": 40,
+      "columns": 1,
+      "fitted": {
+        "columnWidths": [
+          17
+        ],
+        "rows": [
+          [
+            "heading"
+          ],
+          [
+            "very long value"
+          ]
+        ]
+      },
+      "expected": "┌─────────────────┐\n│ heading         │\n├─────────────────┤\n│ very long value │\n└─────────────────┘"
+    },
+    {
+      "rows": [
+        [
+          "heading"
+        ],
+        [
+          "very long value"
+        ]
+      ],
+      "width": 80,
+      "columns": 1,
+      "fitted": {
+        "columnWidths": [
+          17
+        ],
+        "rows": [
+          [
+            "heading"
+          ],
+          [
+            "very long value"
+          ]
+        ]
+      },
+      "expected": "┌─────────────────┐\n│ heading         │\n├─────────────────┤\n│ very long value │\n└─────────────────┘"
+    }
+  ],
+  "wraps": [
+    {
+      "text": "one two three four",
+      "width": 1,
+      "hard": [
+        "o",
+        "n",
+        "e",
+        " ",
+        "t",
+        "w",
+        "o",
+        " ",
+        "t",
+        "h",
+        "r",
+        "e",
+        "e",
+        " ",
+        "f",
+        "o",
+        "u",
+        "r"
+      ],
+      "words": [
+        "o",
+        "n",
+        "e",
+        "t",
+        "w",
+        "o",
+        "t",
+        "h",
+        "r",
+        "e",
+        "e",
+        "f",
+        "o",
+        "u",
+        "r"
+      ]
+    },
+    {
+      "text": "one two three four",
+      "width": 2,
+      "hard": [
+        "on",
+        "e ",
+        "tw",
+        "o ",
+        "th",
+        "re",
+        "e ",
+        "fo",
+        "ur"
+      ],
+      "words": [
+        "on",
+        "e",
+        "tw",
+        "o",
+        "th",
+        "re",
+        "e",
+        "fo",
+        "ur"
+      ]
+    },
+    {
+      "text": "one two three four",
+      "width": 5,
+      "hard": [
+        "one t",
+        "wo th",
+        "ree f",
+        "our"
+      ],
+      "words": [
+        "one",
+        "two",
+        "three",
+        "four"
+      ]
+    },
+    {
+      "text": "one two three four",
+      "width": 8,
+      "hard": [
+        "one two ",
+        "three fo",
+        "ur"
+      ],
+      "words": [
+        "one two",
+        "three",
+        "four"
+      ]
+    },
+    {
+      "text": "one two three four",
+      "width": 20,
+      "hard": [
+        "one two three four"
+      ],
+      "words": [
+        "one two three four"
+      ]
+    },
+    {
+      "text": "中文abc👩‍💻def",
+      "width": 1,
+      "hard": [
+        "中",
+        "文",
+        "a",
+        "b",
+        "c",
+        "👩‍💻",
+        "d",
+        "e",
+        "f"
+      ],
+      "words": [
+        "中",
+        "文",
+        "a",
+        "b",
+        "c",
+        "👩‍💻",
+        "d",
+        "e",
+        "f"
+      ]
+    },
+    {
+      "text": "中文abc👩‍💻def",
+      "width": 2,
+      "hard": [
+        "中",
+        "文",
+        "ab",
+        "c",
+        "👩‍💻",
+        "de",
+        "f"
+      ],
+      "words": [
+        "中",
+        "文",
+        "ab",
+        "c",
+        "👩‍💻",
+        "de",
+        "f"
+      ]
+    },
+    {
+      "text": "中文abc👩‍💻def",
+      "width": 5,
+      "hard": [
+        "中文a",
+        "bc👩‍💻d",
+        "ef"
+      ],
+      "words": [
+        "中文a",
+        "bc👩‍💻d",
+        "ef"
+      ]
+    },
+    {
+      "text": "中文abc👩‍💻def",
+      "width": 8,
+      "hard": [
+        "中文abc",
+        "👩‍💻def"
+      ],
+      "words": [
+        "中文abc",
+        "👩‍💻def"
+      ]
+    },
+    {
+      "text": "中文abc👩‍💻def",
+      "width": 20,
+      "hard": [
+        "中文abc👩‍💻def"
+      ],
+      "words": [
+        "中文abc👩‍💻def"
+      ]
+    },
+    {
+      "text": "a\tb\tc",
+      "width": 1,
+      "hard": [
+        "a",
+        " ",
+        "b",
+        " ",
+        "c"
+      ],
+      "words": [
+        "a",
+        "b",
+        "c"
+      ]
+    },
+    {
+      "text": "a\tb\tc",
+      "width": 2,
+      "hard": [
+        "a ",
+        "b ",
+        "c"
+      ],
+      "words": [
+        "a",
+        "b",
+        "c"
+      ]
+    },
+    {
+      "text": "a\tb\tc",
+      "width": 5,
+      "hard": [
+        "a b c"
+      ],
+      "words": [
+        "a b c"
+      ]
+    },
+    {
+      "text": "a\tb\tc",
+      "width": 8,
+      "hard": [
+        "a b c"
+      ],
+      "words": [
+        "a b c"
+      ]
+    },
+    {
+      "text": "a\tb\tc",
+      "width": 20,
+      "hard": [
+        "a b c"
+      ],
+      "words": [
+        "a b c"
+      ]
+    },
+    {
+      "text": "   leading  and   trailing  ",
+      "width": 1,
+      "hard": [
+        " ",
+        " ",
+        " ",
+        "l",
+        "e",
+        "a",
+        "d",
+        "i",
+        "n",
+        "g",
+        " ",
+        " ",
+        "a",
+        "n",
+        "d",
+        " ",
+        " ",
+        " ",
+        "t",
+        "r",
+        "a",
+        "i",
+        "l",
+        "i",
+        "n",
+        "g",
+        " ",
+        " "
+      ],
+      "words": [
+        "l",
+        "e",
+        "a",
+        "d",
+        "i",
+        "n",
+        "g",
+        "a",
+        "n",
+        "d",
+        "t",
+        "r",
+        "a",
+        "i",
+        "l",
+        "i",
+        "n",
+        "g"
+      ]
+    },
+    {
+      "text": "   leading  and   trailing  ",
+      "width": 2,
+      "hard": [
+        "  ",
+        " l",
+        "ea",
+        "di",
+        "ng",
+        "  ",
+        "an",
+        "d ",
+        "  ",
+        "tr",
+        "ai",
+        "li",
+        "ng",
+        "  "
+      ],
+      "words": [
+        "le",
+        "ad",
+        "in",
+        "g",
+        "an",
+        "d",
+        "tr",
+        "ai",
+        "li",
+        "ng"
+      ]
+    },
+    {
+      "text": "   leading  and   trailing  ",
+      "width": 5,
+      "hard": [
+        "   le",
+        "ading",
+        "  and",
+        "   tr",
+        "ailin",
+        "g  "
+      ],
+      "words": [
+        "leadi",
+        "ng",
+        "and",
+        "trail",
+        "ing"
+      ]
+    },
+    {
+      "text": "   leading  and   trailing  ",
+      "width": 8,
+      "hard": [
+        "   leadi",
+        "ng  and ",
+        "  traili",
+        "ng  "
+      ],
+      "words": [
+        "leading",
+        "and",
+        "trailing"
+      ]
+    },
+    {
+      "text": "   leading  and   trailing  ",
+      "width": 20,
+      "hard": [
+        "   leading  and   tr",
+        "ailing  "
+      ],
+      "words": [
+        "leading  and",
+        "trailing"
+      ]
+    },
+    {
+      "text": "aa\n\nbb",
+      "width": 1,
+      "hard": [
+        "a",
+        "a",
+        "",
+        "b",
+        "b"
+      ],
+      "words": [
+        "a",
+        "a",
+        "",
+        "b",
+        "b"
+      ]
+    },
+    {
+      "text": "aa\n\nbb",
+      "width": 2,
+      "hard": [
+        "aa",
+        "",
+        "bb"
+      ],
+      "words": [
+        "aa",
+        "",
+        "bb"
+      ]
+    },
+    {
+      "text": "aa\n\nbb",
+      "width": 5,
+      "hard": [
+        "aa",
+        "",
+        "bb"
+      ],
+      "words": [
+        "aa",
+        "",
+        "bb"
+      ]
+    },
+    {
+      "text": "aa\n\nbb",
+      "width": 8,
+      "hard": [
+        "aa",
+        "",
+        "bb"
+      ],
+      "words": [
+        "aa",
+        "",
+        "bb"
+      ]
+    },
+    {
+      "text": "aa\n\nbb",
+      "width": 20,
+      "hard": [
+        "aa",
+        "",
+        "bb"
+      ],
+      "words": [
+        "aa",
+        "",
+        "bb"
+      ]
+    },
+    {
+      "text": "xxxxxxxxxxxxxxxxxxxx",
+      "width": 1,
+      "hard": [
+        "x",
+        "x",
+        "x",
+        "x",
+        "x",
+        "x",
+        "x",
+        "x",
+        "x",
+        "x",
+        "x",
+        "x",
+        "x",
+        "x",
+        "x",
+        "x",
+        "x",
+        "x",
+        "x",
+        "x"
+      ],
+      "words": [
+        "x",
+        "x",
+        "x",
+        "x",
+        "x",
+        "x",
+        "x",
+        "x",
+        "x",
+        "x",
+        "x",
+        "x",
+        "x",
+        "x",
+        "x",
+        "x",
+        "x",
+        "x",
+        "x",
+        "x"
+      ]
+    },
+    {
+      "text": "xxxxxxxxxxxxxxxxxxxx",
+      "width": 2,
+      "hard": [
+        "xx",
+        "xx",
+        "xx",
+        "xx",
+        "xx",
+        "xx",
+        "xx",
+        "xx",
+        "xx",
+        "xx"
+      ],
+      "words": [
+        "xx",
+        "xx",
+        "xx",
+        "xx",
+        "xx",
+        "xx",
+        "xx",
+        "xx",
+        "xx",
+        "xx"
+      ]
+    },
+    {
+      "text": "xxxxxxxxxxxxxxxxxxxx",
+      "width": 5,
+      "hard": [
+        "xxxxx",
+        "xxxxx",
+        "xxxxx",
+        "xxxxx"
+      ],
+      "words": [
+        "xxxxx",
+        "xxxxx",
+        "xxxxx",
+        "xxxxx"
+      ]
+    },
+    {
+      "text": "xxxxxxxxxxxxxxxxxxxx",
+      "width": 8,
+      "hard": [
+        "xxxxxxxx",
+        "xxxxxxxx",
+        "xxxx"
+      ],
+      "words": [
+        "xxxxxxxx",
+        "xxxxxxxx",
+        "xxxx"
+      ]
+    },
+    {
+      "text": "xxxxxxxxxxxxxxxxxxxx",
+      "width": 20,
+      "hard": [
+        "xxxxxxxxxxxxxxxxxxxx"
+      ],
+      "words": [
+        "xxxxxxxxxxxxxxxxxxxx"
+      ]
+    }
+  ],
+  "stable": [
+    {
+      "text": "Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. \n\n1. first\n\n2. second\n\n",
+      "expected": "Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. \n\n"
+    },
+    {
+      "text": "Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. \n\n1. first\n\n2. second\n\n3. third",
+      "expected": "Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. \n\n"
+    },
+    {
+      "text": "Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. \n\nFinal",
+      "expected": "Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. \n\n"
+    },
+    {
+      "text": "Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. \n\n# Heading\n\nFinal",
+      "expected": "Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. Introduction. \n\n# Heading\n\n"
+    },
+    {
+      "text": "An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 An unfinished sentence 中文 ",
+      "expected": ""
+    },
+    {
+      "text": "| Name | Value |\n| --- | --- |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n| key | value |\n",
+      "expected": ""
+    },
+    {
+      "text": "See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. See [the guide][guide]. \n\nNext",
+      "expected": ""
+    }
+  ]
+}

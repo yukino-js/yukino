@@ -110,6 +110,12 @@ func (m Model) renderComposer(available int) string {
 		}
 		status = "Working"
 	}
+	if m.userBash != nil {
+		status = "Running Bash... (Ctrl+B background · Esc cancel)"
+		if m.userBash.excluded {
+			status = "Running Bash... (Esc cancel)"
+		}
+	}
 	if m.retryStatus != "" {
 		status = m.retryStatus
 		color = yellowText

@@ -4,51 +4,19 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/yukino-js/yukino/yukino/internal/teams"
+	"github.com/yukino-js/yukino/yukino/internal/skills"
 	"github.com/yukino-js/yukino/yukino/internal/utils"
 	"github.com/yukino-js/yukino/yukino/internal/version"
 )
 
 type chatMessage struct {
-	role          string
-	content       string
-	toolGroup     []toolBlockInfo
-	subAgentBlock *subAgentBlock
-	expanded      bool
-}
-
-func (m *Model) calcViewportHeight(availableHeight int) int {
-	contentLines := m.viewport.TotalLineCount()
-	if contentLines < 1 {
-		contentLines = 1
-	}
-	if contentLines > availableHeight {
-		return availableHeight
-	}
-	return contentLines
-}
-
-func (m *Model) updateViewport() {
-	if !m.ready {
-		return
-	}
-	content := m.renderChatContent()
-	m.viewport.SetContent(content)
-
-	statusHeight, sepHeight := 1, 1
-	inputHeight := m.editor.Height() + 1
-	available := m.height - statusHeight - sepHeight - inputHeight - 1
-	if available < 1 {
-		available = 1
-	}
-	m.viewport.Height = m.calcViewportHeight(available)
-
-	if !m.userScrolled {
-		m.viewport.GotoBottom()
-	}
+	role             string
+	content          string
+	markdown         bool
+	thinkingDuration float64
+	toolGroup        []toolBlockInfo
 }
 
 func (m Model) View() string {
@@ -63,66 +31,6 @@ func (m Model) View() string {
 		return m.renderChatView()
 	}
 	return ""
-}
-
-func (m Model) renderTeammateTree() string {
-	if m.teamMgr == nil {
-		return ""
-	}
-	progressList := m.teamMgr.GetAllTeammateProgress()
-	if len(progressList) == 0 {
-		return ""
-	}
-
-	cyanStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#00d7ff"))
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	greenStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#00ff00"))
-	redStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#ff0000"))
-	yellowStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#ffff00"))
-
-	var sb strings.Builder
-	sb.WriteString("\n")
-
-	sb.WriteString("  ┌─ ")
-	sb.WriteString(cyanStyle.Render("team-lead"))
-	sb.WriteString(": ")
-	sb.WriteString(dimStyle.Render("Thinking…"))
-	if m.totalInput+m.totalOutput > 0 {
-		sb.WriteString(dimStyle.Render(fmt.Sprintf(" · %s tokens", teams.FormatTokens(int64(m.totalInput+m.totalOutput)))))
-	}
-	sb.WriteString("\n")
-
-	for i, p := range progressList {
-		isLast := i == len(progressList)-1
-		connector := "  ├─ "
-		if isLast {
-			connector = "  └─ "
-		}
-
-		sb.WriteString(connector)
-		sb.WriteString(cyanStyle.Render("@" + p.Name))
-		sb.WriteString(": ")
-
-		status := p.GetStatus()
-		switch status {
-		case "completed":
-			sb.WriteString(greenStyle.Render("completed"))
-		case "failed":
-			sb.WriteString(redStyle.Render("failed"))
-		case "stopped":
-			sb.WriteString(yellowStyle.Render("stopped"))
-		case "idle":
-			sb.WriteString(dimStyle.Render("idle"))
-		default:
-			sb.WriteString(dimStyle.Render(p.ActivitySummary() + "..."))
-		}
-
-		stats := fmt.Sprintf(" · %d tools · %s tokens", p.GetToolUseCount(), teams.FormatTokens(p.GetTokenCount()))
-		sb.WriteString(dimStyle.Render(stats))
-		sb.WriteString("\n")
-	}
-
-	return sb.String()
 }
 
 // renderActiveDialog mirrors the InteractionDock priority in
@@ -145,6 +53,12 @@ func (m Model) renderActiveDialog() string {
 		return m.renderPermDialog()
 	case m.askUserDialog:
 		return m.renderAskUserDialog()
+	case m.agentsDialog:
+		return m.renderAgentsDialog()
+	case m.workflowsDialog:
+		return m.renderWorkflowsDialog()
+	case m.thinkingDialog:
+		return m.renderThinkingDialog()
 	case m.sandboxDialog:
 		return m.renderSandboxDialog()
 	}
@@ -217,134 +131,147 @@ func (m Model) renderTranscriptHeader() string {
 	return "\n" + pad + title + "\n" + pad + line2 + "\n" + pad + line3
 }
 
+func (m Model) renderMessage(msg chatMessage) string {
+	columns := max(1, m.width)
+	padding := boolColumn(columns > 2)
+	width := columns - padding*2
+	panel := func(text, background, foreground string) string {
+		return "\n" + renderPanel(text, columns, padding, background, foreground)
+	}
+	switch msg.role {
+	case "user":
+		if skill, ok := skills.ParseSkillPrompt(msg.content); ok {
+			action := "expand"
+			if m.toolsExpanded {
+				action = "collapse"
+			}
+			text := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(Theme.CustomMessageLabel)).Render("[skill]") +
+				" " + plainTerminalLine(skill.Name) + " " + paint("(Ctrl+O to "+action+")", Theme.Muted)
+			if m.toolsExpanded {
+				text += "\n" + paint(expandTabs(plainTerminalText(skill.Directory)), Theme.Muted) + "\n" + renderMarkdownText(skill.Body, width, "user", false)
+			}
+			result := panel(text, Theme.CustomMessageBg, Theme.CustomMessageText)
+			if skill.Args != "" {
+				result += panel(expandTabs(plainTerminalText(skill.Args)), Theme.UserMessageBg, Theme.UserMessageText)
+			}
+			return result
+		}
+		return panel(renderMarkdownText(msg.content, width, "user", false), Theme.UserMessageBg, Theme.UserMessageText)
+	case "assistant":
+		return panel(renderMarkdownText(msg.content, width, "assistant", false), "", Theme.Text)
+	case "turn_summary":
+		result := m.renderThinking(msg.content, msg.thinkingDuration, false)
+		for _, tb := range msg.toolGroup {
+			result += m.renderToolBlock(tb)
+		}
+		return result
+	case "error":
+		return panel(expandTabs(plainTerminalText("Error: "+msg.content)), "", Theme.Error)
+	case "system":
+		if msg.markdown {
+			return panel(renderMarkdownText(msg.content, width, "assistant", false), "", Theme.Text)
+		}
+		color := Theme.Muted
+		if strings.HasPrefix(msg.content, "Error:") || strings.HasPrefix(msg.content, "Hook error:") {
+			color = Theme.Error
+		}
+		if strings.HasPrefix(msg.content, "Warning:") || strings.HasPrefix(msg.content, "Hook warning:") || strings.HasPrefix(msg.content, "↻") {
+			color = Theme.Warning
+		}
+		if strings.HasPrefix(msg.content, "⊙ ") || strings.HasPrefix(msg.content, "Compact:") {
+			text := strings.TrimPrefix(msg.content, "⊙ ")
+			if strings.HasPrefix(text, "Compact:") {
+				text = strings.TrimLeft(strings.TrimPrefix(text, "Compact:"), " \t\n")
+			}
+			return panel(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(Theme.CustomMessageLabel)).Render("[compaction]")+"\n"+expandTabs(plainTerminalText(text)), Theme.CustomMessageBg, Theme.CustomMessageText)
+		}
+		text := msg.content
+		if strings.HasPrefix(text, "↻") {
+			text = "Retrying: " + strings.TrimSpace(strings.TrimPrefix(text, "↻"))
+		}
+		return panel(expandTabs(plainTerminalText(text)), "", color)
+	}
+	return ""
+}
+
+func (m Model) renderThinking(text string, duration float64, streaming bool) string {
+	if strings.TrimSpace(text) == "" && duration == 0 {
+		return ""
+	}
+	padding := boolColumn(m.width > 2)
+	width := max(1, m.width-padding*2)
+	label := "Thinking"
+	if duration > 0 {
+		label = fmt.Sprintf("Thinking %.1fs", duration)
+	} else if streaming {
+		label = "Thinking…"
+	}
+	collapsed := ""
+	for _, candidate := range []string{label + " · Ctrl+O details", label + " · Ctrl+O", "Thinking · Ctrl+O"} {
+		if visibleWidth(candidate) <= width {
+			collapsed = candidate
+			break
+		}
+	}
+	if collapsed == "" {
+		collapsed = truncateToWidth(label, width, "…") + "\nCtrl+O"
+	}
+	content := collapsed
+	if m.toolsExpanded && strings.TrimSpace(text) != "" {
+		content = renderMarkdownText(strings.TrimSpace(text), width, "thinking", false)
+	}
+	lines := wrapToLines(content, width)
+	for i := range lines {
+		lines[i] = truncateToWidth(lines[i], width, "…")
+	}
+	if streaming && m.toolsExpanded {
+		limit := max(1, m.height/4)
+		if len(lines) > limit {
+			if limit == 1 {
+				lines = []string{"…"}
+			} else {
+				lines = append([]string{"…"}, lines[len(lines)-(limit-1):]...)
+			}
+		}
+	}
+	content = lipgloss.NewStyle().Italic(true).Foreground(lipgloss.Color(Theme.ThinkingText)).Render(strings.Join(lines, "\n"))
+	return "\n" + renderPanel(content, m.width, padding, "", Theme.ThinkingText)
+}
+
 func (m Model) renderChatContent() string {
 	var sb strings.Builder
-
 	for _, msg := range m.chatMessages[m.committedUpTo:] {
-		switch msg.role {
-		case "user":
-			sb.WriteString(promptStyle.Render("❯ "))
-			sb.WriteString(lipgloss.NewStyle().Foreground(brightText).Bold(true).Render(msg.content))
-			sb.WriteString("\n\n")
-
-		case "assistant":
-			sb.WriteString(aiMarkerStyle.Render("● "))
-			rendered := m.renderMarkdown(msg.content)
-			indented := indentBlock(rendered, "  ")
-			sb.WriteString(strings.TrimLeft(indented, " "))
-			sb.WriteString("\n\n")
-
-		case "tool", "tool_visible":
-			sb.WriteString("  ")
-			if strings.HasPrefix(msg.content, "✗") {
-				sb.WriteString(toolErrorStyle.Render(msg.content))
-			} else {
-				sb.WriteString(toolDoneStyle.Render(msg.content))
-			}
-			sb.WriteString("\n")
-			appendEditDiff(&sb, msg.toolGroup)
-
-		case "tool_collapsed":
-			if msg.expanded {
-				for _, tb := range msg.toolGroup {
-					sb.WriteString("  ")
-					text := renderToolBlockText(tb)
-					if tb.isError {
-						sb.WriteString(toolErrorStyle.Render(text))
-					} else {
-						sb.WriteString(toolDoneStyle.Render(text))
-					}
-					sb.WriteString("\n")
-				}
-			}
-
-		case "tool_group":
-			if msg.expanded {
-				for _, tb := range msg.toolGroup {
-					sb.WriteString("  ")
-					text := renderToolBlockText(tb)
-					if tb.isError {
-						sb.WriteString(toolErrorStyle.Render(text))
-					} else {
-						sb.WriteString(toolDoneStyle.Render(text))
-					}
-					sb.WriteString("\n")
-				}
-			} else {
-				summary := renderToolGroupSummary(msg.toolGroup)
-				sb.WriteString(toolDoneStyle.Render("  " + summary))
-				sb.WriteString(lipgloss.NewStyle().Foreground(dimText).Render("  (ctrl+o to expand)"))
-				sb.WriteString("\n")
-			}
-
-		case "sub_agent":
-			if msg.subAgentBlock != nil {
-				sb.WriteString(renderSubAgentBlock(msg.subAgentBlock, msg.expanded))
-			}
-
-		case "thinking":
-			sb.WriteString(lipgloss.NewStyle().Foreground(dimText).PaddingLeft(2).Render(msg.content))
-			sb.WriteString("\n\n")
-
-		case "system":
-			sb.WriteString(lipgloss.NewStyle().Foreground(dimText).PaddingLeft(2).Render(msg.content))
-			sb.WriteString("\n\n")
-
-		case "error":
-			sb.WriteString(errorStyle.Render("✖ " + msg.content))
-			sb.WriteString("\n\n")
-		}
+		sb.WriteString(m.renderMessage(msg))
+		sb.WriteByte('\n')
 	}
-
-	if m.activeSubAgent != nil && !m.activeSubAgent.done {
-		sb.WriteString(renderSubAgentBlock(m.activeSubAgent, false))
-	}
-
-	for _, tb := range m.toolBlocks {
-		if tb.toolName == "Agent" && m.activeSubAgent != nil {
-			continue
-		}
-		sb.WriteString(m.renderToolBlock(tb))
-		sb.WriteString("\n")
-	}
-
-	if m.streaming && m.streamBuf != "" {
-		sb.WriteString(aiMarkerStyle.Render("● "))
-		indented := indentBlock(m.streamBuf, "  ")
-		sb.WriteString(streamingTextStyle.Render(strings.TrimLeft(indented, " ")))
-		sb.WriteString("\n")
-	}
-
 	if m.streaming {
-		elapsed := time.Since(m.thinkingStart).Seconds()
-		sb.WriteString("\n")
-		sb.WriteString(lipgloss.NewStyle().Foreground(brandPurple).Render(
-			fmt.Sprintf("  %s Thinking…  (%.0fs)", m.spinner.View(), elapsed),
-		))
-		sb.WriteString("\n")
-		sb.WriteString(m.renderTeammateTree())
-	}
-
-	if !m.streaming {
-		tree := m.renderTeammateTree()
-		if tree != "" {
-			sb.WriteString(tree)
+		sb.WriteString(m.renderThinking(m.thinkingBuf, 0, true))
+		if m.streamBuf != "" {
+			padding := boolColumn(m.width > 2)
+			sb.WriteString("\n" + renderPanel(renderMarkdownText(m.streamBuf, max(1, m.width-padding*2), "assistant", true), m.width, padding, "", Theme.Text))
 		}
 	}
-
+	if !m.askUserDialog {
+		for _, tb := range m.toolBlocks {
+			sb.WriteString(m.renderToolBlock(m.decorateTool(tb)))
+			sb.WriteByte('\n')
+		}
+	}
+	if m.userBashTool != nil {
+		sb.WriteString(m.renderToolBlock(*m.userBashTool))
+	}
 	return sb.String()
 }
 
 func (m Model) renderMessagesRange(from, to int) string {
 	from = max(0, min(from, len(m.chatMessages)))
 	to = max(from, min(to, len(m.chatMessages)))
-	m.chatMessages = m.chatMessages[from:to]
-	m.committedUpTo = 0
-	m.streaming = false
-	m.toolBlocks = nil
-	m.activeSubAgent = nil
-	m.teamMgr = nil
-	return m.renderChatContent()
+	var sb strings.Builder
+	for _, msg := range m.chatMessages[from:to] {
+		sb.WriteString(m.renderMessage(msg))
+		sb.WriteByte('\n')
+	}
+	return sb.String()
 }
 
 func (m Model) getModelName() string {

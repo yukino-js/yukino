@@ -33,7 +33,6 @@ func (m *Model) activateInitialProvider(p *config.ProviderConfig) tea.Cmd {
 	client, err := llm.NewClient(p, systemPrompt)
 	if err != nil {
 		m.chatMessages = append(m.chatMessages, chatMessage{role: "error", content: err.Error()})
-		m.updateViewport()
 		return nil
 	}
 	m.client = client
@@ -86,6 +85,7 @@ func (m *Model) activateInitialProvider(p *config.ProviderConfig) tea.Cmd {
 		at.ParentChecker = ag.Checker
 	}
 	m.wireSkillsToAgent()
+	m.attachWorkflow()
 	m.memoryTasks = m.installMemoryTasks(ag, wd)
 	entries, err := history.LoadInputTexts()
 	if err != nil {
@@ -93,7 +93,6 @@ func (m *Model) activateInitialProvider(p *config.ProviderConfig) tea.Cmd {
 	}
 	m.historyEntries = entries
 	m.state = stateChat
-	m.updateViewport()
 	return m.initMCPServersCmd()
 }
 
@@ -126,7 +125,6 @@ func (m Model) openProviderDialog() (tea.Model, tea.Cmd) {
 				role:    "system",
 				content: fmt.Sprintf("Provider: %s · %s", m.selectedProvider.Name, m.selectedProvider.Model),
 			})
-			m.updateViewport()
 		}
 		return m, nil
 	}
@@ -138,7 +136,6 @@ func (m Model) openProviderDialog() (tea.Model, tea.Cmd) {
 		m.providerFocusURL = m.selectedProvider.BaseURL
 		m.providerFocusSet = true
 	}
-	m.updateViewport()
 	return m, nil
 }
 
@@ -166,7 +163,6 @@ func (m Model) handleProviderDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.providerDialog = false
-		m.updateViewport()
 		return m, nil
 	case "up", "down":
 		if len(matches) > 0 {
@@ -179,7 +175,6 @@ func (m Model) handleProviderDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.providerFocusURL = matches[next].BaseURL
 			m.providerFocusSet = true
 		}
-		m.updateViewport()
 		return m, nil
 	case "enter":
 		if len(matches) > 0 {
@@ -197,7 +192,6 @@ func (m Model) handleProviderDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.providerFocusSet = true
 			}
 		}
-		m.updateViewport()
 		return m, nil
 	}
 }
@@ -253,7 +247,6 @@ func (m Model) switchProvider(provider config.ProviderConfig) (tea.Model, tea.Cm
 			role:    "error",
 			content: fmt.Sprintf("Failed to switch provider: %s", err),
 		})
-		m.updateViewport()
 		return m, nil
 	}
 	m.client = client
@@ -277,6 +270,5 @@ func (m Model) switchProvider(provider config.ProviderConfig) (tea.Model, tea.Cm
 		role:    "system",
 		content: fmt.Sprintf("Provider switched to %s · %s.", provider.Name, provider.Model),
 	})
-	m.updateViewport()
 	return m, nil
 }

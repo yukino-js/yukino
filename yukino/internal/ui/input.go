@@ -29,7 +29,6 @@ var atCompletion = regexp.MustCompile(`(?:^|\s)@([^\s]*)$`)
 func (m *Model) resizeInput() {
 	rows := layoutInputRows(m.editor.lines, m.editor.width, m.editor.pastes)
 	m.editor.SetHeight(min(len(rows), max(1, max(5, m.height*3/10))))
-	m.updateViewport()
 }
 
 func (m *Model) updateSlashMenu() {
@@ -268,8 +267,8 @@ func (m Model) handleComposerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.dropdownDismissed = true
 			return m, nil
 		}
-		if m.streaming || m.compacting {
-			m.interruptForeground()
+		if m.foregroundBusy() {
+			m.interruptUserWork()
 		}
 		return m, nil
 	}
@@ -287,7 +286,6 @@ func (m Model) handleComposerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else {
 				checker.SetMode(mode)
 			}
-			m.updateViewport()
 		}
 		return m, nil
 	}
@@ -367,6 +365,8 @@ func (m Model) handleComposerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if len(m.editor.lines) == 1 || m.historyIndex > 0 {
 				m.historyUp()
 			}
+		} else if len(m.agentEntries()) > 0 {
+			return m.openAgentsDialog()
 		} else if m.historyIndex > 0 {
 			m.historyDown()
 		}
@@ -414,8 +414,8 @@ func (m Model) handleComposerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.slashCursor = 0
 		m.atCursor = 0
 	default:
-		if msg.Type == tea.KeyRunes && !msg.Alt {
-			m.editor.InsertString(string(msg.Runes))
+		if text, ok := textForKey(msg); ok {
+			m.editor.InsertString(text)
 			m.dropdownDismissed = false
 			m.slashCursor = 0
 			m.atCursor = 0

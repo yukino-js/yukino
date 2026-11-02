@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"time"
 
 	"github.com/yukino-js/yukino/yukino/internal/permissions"
@@ -58,6 +59,9 @@ type PermissionReply struct {
 }
 
 type PermissionRequestEvent struct {
+	Context    context.Context
+	AgentName  string
+	Cwd        string
 	ToolID     string
 	Args       map[string]any
 	Decision   permissions.Decision

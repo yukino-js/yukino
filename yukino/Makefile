@@ -6,8 +6,13 @@ BROWSER_DIST_TARGET := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))internal/re
 .PHONY: sync-browser-dist
 sync-browser-dist:
 	@test -s "$(BROWSER_DIST_SOURCE)/index.html" || { echo "Browser build missing: $(BROWSER_DIST_SOURCE)/index.html" >&2; exit 1; }
-	@mkdir -p "$(BROWSER_DIST_TARGET)"
-	rsync -a --delete -- "$(BROWSER_DIST_SOURCE)/" "$(BROWSER_DIST_TARGET)/"
+	@set -e; \
+		task_browser_stage="$$(mktemp -d)"; \
+		trap 'rm -rf "$$task_browser_stage"' EXIT HUP INT TERM; \
+		cp -R "$(BROWSER_DIST_SOURCE)/." "$$task_browser_stage/"; \
+		rm -rf "$(BROWSER_DIST_TARGET)"; \
+		mkdir -p "$(BROWSER_DIST_TARGET)"; \
+		cp -R "$$task_browser_stage/." "$(BROWSER_DIST_TARGET)/"
 
 GO ?= go
 BUILD_DIR ?= dist

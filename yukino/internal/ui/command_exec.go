@@ -24,6 +24,7 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/teams"
 	"github.com/yukino-js/yukino/yukino/internal/todo"
 	"github.com/yukino-js/yukino/yukino/internal/tools"
+	"github.com/yukino-js/yukino/yukino/internal/workflow"
 )
 
 func (m Model) buildCommandContext(args string) *commands.Context {
@@ -104,22 +105,37 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 			role:    "error",
 			content: fmt.Sprintf("Unknown command: /%s — type /help to see available commands", name),
 		})
-		m.updateViewport()
 		return m, nil
 	}
 
+	name = cmd.Name
 	ctx := m.buildCommandContext(args)
 
 	// The TUI intercepts these commands by name and renders the real status
 	// itself; the registry handlers are placeholders.
 	switch name {
+	case "thinking":
+		if strings.TrimSpace(args) == "" {
+			if _, ok := m.client.(llm.ThinkingLevelControl); ok {
+				return m.openThinkingDialog()
+			}
+		}
+	case "workflows":
+		if strings.TrimSpace(args) == "" {
+			return m.openWorkflowsDialog()
+		}
+		if service := workflow.GetWorkflowService(m.registry); service != nil {
+			ctx := m.workflowContext()
+			return m, func() tea.Msg {
+				output, err := service.Command(args, ctx)
+				return workflowActionDoneMsg{output: output, err: err}
+			}
+		}
 	case "status":
 		m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: m.buildSessionStatus()})
-		m.updateViewport()
 		return m, nil
 	case "memory":
 		m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: m.buildMemoryStatus(args)})
-		m.updateViewport()
 		return m, nil
 	case "mcp":
 		info := m.mcpServerInfo
@@ -127,7 +143,6 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 			info = "No MCP servers connected"
 		}
 		m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: info})
-		m.updateViewport()
 		return m, nil
 	case "skills":
 		if strings.TrimSpace(args) == "reload" {
@@ -156,7 +171,6 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 			sb.WriteString("Type /skills reload to hot-reload skills from disk.")
 		}
 		m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: sb.String()})
-		m.updateViewport()
 		return m, nil
 	case "goal":
 		return m.runGoalCommand(args)
@@ -184,7 +198,6 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 			if m.taskMgr != nil {
 				if err := m.taskMgr.UseSession(m.sessionID); err != nil {
 					m.chatMessages = append(m.chatMessages, chatMessage{role: "error", content: err.Error()})
-					m.updateViewport()
 					return m, nil
 				}
 			}
@@ -205,7 +218,10 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 			}
 			m.totalInput = 0
 			m.totalOutput = 0
-			m.updateViewport()
+			m.totalCacheRead = 0
+			m.totalCacheCreation = 0
+			m.subagents = nil
+			m.prepareOutput()
 			return m, tea.Batch(
 				func() tea.Msg { return tea.ClearScreen() },
 				tea.Println(m.renderTranscriptHeader()),
@@ -215,13 +231,11 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 				m.chatMessages = append(m.chatMessages, chatMessage{
 					role: "error", content: "Compact requires an active provider.",
 				})
-				m.updateViewport()
 				return m, nil
 			}
 			m.chatMessages = append(m.chatMessages, chatMessage{
 				role: "system", content: "Compacting conversation…",
 			})
-			m.updateViewport()
 			client := m.client
 			conv := m.conversation
 			var recovery *compact.RecoveryState
@@ -261,7 +275,6 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 		case "sandbox":
 			m.sandboxDialog = true
 			m.sandboxCursor = 0
-			m.updateViewport()
 			return m, nil
 		case "quit":
 			return m, tea.Quit
@@ -271,7 +284,6 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 			}
 			if m.client == nil {
 				m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: ClientNotReady})
-				m.updateViewport()
 				return m, nil
 			}
 			return m.openModelDialog()
@@ -284,7 +296,6 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 				role:    "system",
 				content: fmt.Sprintf("/%s is not yet supported in this build.", name),
 			})
-			m.updateViewport()
 			return m, nil
 		}
 
@@ -295,7 +306,6 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 			if args != "" {
 				displayText += " " + args
 			}
-			m.updateViewport()
 			newModel, teaCmd := m.sendPromptCommand(displayText, prompt, cmd.Agent)
 			if strings.HasSuffix(cmd.Description, "[skill]") {
 				loadedLine := lipgloss.NewStyle().Foreground(dimText).PaddingLeft(2).Render(
@@ -315,7 +325,6 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 		forkNotice := fmt.Sprintf("Forking skill %s in isolated sub-agent…", name)
 		m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: forkNotice})
 		m.committedUpTo = len(m.chatMessages)
-		m.updateViewport()
 		skillName := name
 		skillArgs := args
 		commitText := userLine + "\n" + lipgloss.NewStyle().Foreground(dimText).Render(forkNotice)
@@ -334,8 +343,7 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 	case commands.TypeLocal:
 		if cmd.Handler != nil {
 			output := cmd.Handler(ctx)
-			m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: output})
-			m.updateViewport()
+			m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: output, markdown: cmd.Markdown})
 			return m, nil
 		}
 	}
@@ -344,7 +352,6 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 		role:    "system",
 		content: fmt.Sprintf("/%s — not yet implemented", name),
 	})
-	m.updateViewport()
 	return m, nil
 }
 

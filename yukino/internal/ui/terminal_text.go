@@ -3,15 +3,37 @@ package ui
 import (
 	"regexp"
 	"strings"
-	"unicode"
 	"unicode/utf8"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/rivo/uniseg"
+	"github.com/yukino-js/yukino/yukino/internal/utils"
 )
+
+func textForKey(key tea.KeyMsg) (string, bool) {
+	if key.Alt {
+		return "", false
+	}
+	switch key.Type {
+	case tea.KeySpace:
+		return " ", true
+	case tea.KeyRunes:
+		return string(key.Runes), true
+	}
+	return "", false
+}
 
 func visibleWidth(text string) int {
 	return ansi.StringWidth(text)
+}
+
+func wrapToLines(text string, width int) []string {
+	return wrapTerminalText(text, width, false)
+}
+
+func wrapWordsToLines(text string, width int) []string {
+	return wrapTerminalText(text, width, true)
 }
 
 // truncateToWidth mirrors src/ui/terminal-text.ts truncateToWidth.
@@ -30,20 +52,7 @@ func truncateToWidth(text string, width int, suffix string) string {
 var plainNewlineRun = regexp.MustCompile(`\n+`)
 
 // plainTerminalText mirrors src/utils/index.ts plainTerminalText.
-func plainTerminalText(text string) string {
-	stripped := ansi.Strip(text)
-	stripped = strings.ReplaceAll(stripped, "\r\n", "\n")
-	stripped = strings.ReplaceAll(stripped, "\r", "\n")
-	return strings.Map(func(r rune) rune {
-		if r == '\n' || r == '\t' {
-			return r
-		}
-		if unicode.IsControl(r) {
-			return -1
-		}
-		return r
-	}, stripped)
-}
+func plainTerminalText(text string) string { return utils.PlainTerminalText(text) }
 
 // plainTerminalLine mirrors src/ui/terminal-text.ts plainTerminalLine.
 func plainTerminalLine(text string) string {

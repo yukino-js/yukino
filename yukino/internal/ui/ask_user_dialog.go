@@ -2,372 +2,332 @@ package ui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
-	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/yukino-js/yukino/yukino/internal/tools"
 )
 
-func (m Model) handleAskUserDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	multiQuestion := len(m.askUserQuestions) > 1
-
-	if m.askUserOnSubmit {
-		switch msg.String() {
-		case "up", "k":
-			if m.askUserSubmitIdx > 0 {
-				m.askUserSubmitIdx--
-			}
-			m.updateViewport()
-			return m, nil
-		case "down", "j":
-			if m.askUserSubmitIdx < 1 {
-				m.askUserSubmitIdx++
-			}
-			m.updateViewport()
-			return m, nil
-		case "left", "shift+tab":
-			m.askUserOnSubmit = false
-			m.askUserQIdx = len(m.askUserQuestions) - 1
-			m.updateViewport()
-			return m, nil
-		case "enter":
-			if m.askUserSubmitIdx == 0 {
-				return m.submitAllAnswers()
-			}
-			return m.cancelAskUser()
-		case "esc":
-			return m.cancelAskUser()
-		}
-		return m, nil
-	}
-
-	q := m.askUserQuestions[m.askUserQIdx]
-	optCount := len(q.Options) + 1
-	cursor := m.askUserCursors[m.askUserQIdx]
-
-	switch msg.String() {
-	case "up", "k":
-		if cursor > 0 {
-			m.askUserCursors[m.askUserQIdx]--
-		}
-		m.updateViewport()
-		return m, nil
-	case "down", "j":
-		if cursor < optCount-1 {
-			m.askUserCursors[m.askUserQIdx]++
-		}
-		m.updateViewport()
-		return m, nil
-	case "left", "shift+tab":
-		if multiQuestion && m.askUserQIdx > 0 {
-			m.askUserQIdx--
-			m.updateViewport()
-		}
-		return m, nil
-	case "right", "tab":
-		if multiQuestion {
-			if m.askUserQIdx < len(m.askUserQuestions)-1 {
-				m.askUserQIdx++
-			} else {
-				m.askUserOnSubmit = true
-				m.askUserSubmitIdx = 0
-			}
-			m.updateViewport()
-		}
-		return m, nil
-	case " ":
-		if q.MultiSelect && cursor < len(q.Options) {
-			sel := m.askUserSelected[m.askUserQIdx]
-			sel[cursor] = !sel[cursor]
-			m.updateViewport()
-			return m, nil
-		}
-	case "enter":
-		m.saveCurrentAnswer()
-
-		if !multiQuestion && !q.MultiSelect {
-			return m.submitAllAnswers()
-		}
-
-		if m.askUserQIdx < len(m.askUserQuestions)-1 {
-			m.askUserQIdx++
-		} else {
-			m.askUserOnSubmit = true
-			m.askUserSubmitIdx = 0
-		}
-		m.updateViewport()
-		return m, nil
-	case "backspace":
-		if cursor == len(q.Options) && len(m.askUserOther[m.askUserQIdx]) > 0 {
-			s := m.askUserOther[m.askUserQIdx]
-			_, size := utf8.DecodeLastRuneInString(s)
-			m.askUserOther[m.askUserQIdx] = s[:len(s)-size]
-			m.updateViewport()
-		}
-		return m, nil
-	case "esc":
-		return m.cancelAskUser()
-	default:
-		if cursor == len(q.Options) && len(msg.Runes) > 0 {
-			m.askUserOther[m.askUserQIdx] += string(msg.Runes)
-			m.updateViewport()
-		}
-		return m, nil
-	}
-	return m, nil
+func (m Model) askAllAnswered() bool { return len(m.askUserAnswered) == len(m.askUserQuestions) }
+func (m Model) askHideSubmit() bool {
+	return len(m.askUserQuestions) == 1 && !m.askUserQuestions[0].MultiSelect
 }
-
-func (m *Model) saveCurrentAnswer() {
-	q := m.askUserQuestions[m.askUserQIdx]
-	cursor := m.askUserCursors[m.askUserQIdx]
-
-	if cursor == len(q.Options) {
-		other := m.askUserOther[m.askUserQIdx]
-		if other == "" {
-			other = "Other"
-		}
-		m.askUserAnswered[m.askUserQIdx] = other
-	} else if q.MultiSelect {
-		var selected []string
-		for i, opt := range q.Options {
-			if m.askUserSelected[m.askUserQIdx][i] {
-				selected = append(selected, opt.Label)
-			}
-		}
-		if len(selected) == 0 {
-			selected = append(selected, q.Options[cursor].Label)
-		}
-		m.askUserAnswered[m.askUserQIdx] = strings.Join(selected, ", ")
+func (m *Model) toggleAskOption(index int) {
+	q := m.askUserQIdx
+	selected := m.askUserSelected[q]
+	selected[index] = !selected[index]
+	order := m.askUserSelectionOrder[q]
+	if selected[index] {
+		order = append(order, index)
 	} else {
-		m.askUserAnswered[m.askUserQIdx] = q.Options[cursor].Label
-	}
-}
-
-func (m *Model) collectAskUserAnswers() map[string]string {
-	result := make(map[string]string)
-	for idx, answer := range m.askUserAnswered {
-		if idx < len(m.askUserQuestions) {
-			result[m.askUserQuestions[idx].Text] = answer
+		for i, value := range order {
+			if value == index {
+				order = append(order[:i], order[i+1:]...)
+				break
+			}
 		}
+	}
+	m.askUserSelectionOrder[q] = order
+}
+func (m Model) selectedAskLabels() []string {
+	var result []string
+	for _, index := range m.askUserSelectionOrder[m.askUserQIdx] {
+		result = append(result, m.askUserQuestions[m.askUserQIdx].Options[index].Label)
 	}
 	return result
 }
-
+func (m *Model) commitAskAnswer(answer string) (tea.Model, tea.Cmd) {
+	m.askUserAnswered[m.askUserQIdx] = answer
+	m.askUserOtherMode[m.askUserQIdx] = false
+	if m.askHideSubmit() {
+		return m.submitAllAnswers()
+	}
+	if m.askUserQIdx < len(m.askUserQuestions)-1 {
+		m.askUserQIdx++
+	} else {
+		m.askUserOnSubmit = true
+	}
+	return m, nil
+}
+func (m Model) handleAskUserDialog(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if len(m.askUserQuestions) == 0 {
+		return m.cancelAskUser()
+	}
+	name := key.String()
+	if !m.askUserOnSubmit && m.askUserOtherMode[m.askUserQIdx] {
+		m.askUserTextEditor.SetWidth(max(1, m.width-11))
+		action := editTextField(&m.askUserTextEditor, key, true)
+		m.askUserOther[m.askUserQIdx] = m.askUserTextEditor.Value()
+		switch action {
+		case "escape":
+			m.askUserOtherMode[m.askUserQIdx] = false
+		case "submit":
+			parts := m.selectedAskLabels()
+			if other := strings.TrimSpace(m.askUserTextEditor.Value()); other != "" {
+				parts = append(parts, other)
+			}
+			answer := strings.Join(parts, ", ")
+			if answer == "" {
+				answer = "(no answer)"
+			}
+			return m.commitAskAnswer(answer)
+		}
+		return m, nil
+	}
+	if name == "esc" {
+		return m.cancelAskUser()
+	}
+	if !m.askHideSubmit() {
+		switch name {
+		case "left", "shift+tab":
+			if m.askUserOnSubmit {
+				m.askUserOnSubmit = false
+				m.askUserQIdx = len(m.askUserQuestions) - 1
+			} else {
+				m.askUserQIdx = max(0, m.askUserQIdx-1)
+			}
+			return m, nil
+		case "right", "tab":
+			if !m.askUserOnSubmit {
+				if m.askUserQIdx < len(m.askUserQuestions)-1 {
+					m.askUserQIdx++
+				} else {
+					m.askUserOnSubmit = true
+				}
+			}
+			return m, nil
+		}
+	}
+	if m.askUserOnSubmit {
+		switch name {
+		case "up":
+			m.askUserSubmitIdx = 0
+		case "down":
+			m.askUserSubmitIdx = 1
+		case "enter":
+			if m.askUserSubmitIdx == 1 {
+				return m.cancelAskUser()
+			}
+			if m.askAllAnswered() {
+				return m.submitAllAnswers()
+			}
+		}
+		return m, nil
+	}
+	q := m.askUserQuestions[m.askUserQIdx]
+	count := len(q.Options) + 1
+	cursor := m.askUserCursors[m.askUserQIdx]
+	if key.Type == tea.KeyRunes && !key.Alt {
+		digits := string(key.Runes)
+		number := 0
+		for _, r := range digits {
+			if r < '0' || r > '9' {
+				break
+			}
+			number = number*10 + int(r-'0')
+		}
+		if number >= 1 && number <= count {
+			m.askUserCursors[m.askUserQIdx] = number - 1
+			if number == count {
+				return m, nil
+			}
+			if q.MultiSelect {
+				m.toggleAskOption(number - 1)
+				return m, nil
+			}
+			return m.commitAskAnswer(q.Options[number-1].Label)
+		}
+	}
+	switch name {
+	case "up":
+		m.askUserCursors[m.askUserQIdx] = (cursor + count - 1) % count
+	case "down":
+		m.askUserCursors[m.askUserQIdx] = (cursor + 1) % count
+	case " ":
+		if q.MultiSelect && cursor < len(q.Options) {
+			m.toggleAskOption(cursor)
+		}
+	case "enter":
+		if cursor == len(q.Options) {
+			m.askUserOtherMode[m.askUserQIdx] = true
+			m.askUserTextEditor = newInputEditor()
+			m.askUserTextEditor.SetValue(m.askUserOther[m.askUserQIdx])
+			return m, nil
+		}
+		if q.MultiSelect {
+			labels := m.selectedAskLabels()
+			if len(labels) == 0 {
+				labels = []string{q.Options[cursor].Label}
+			}
+			return m.commitAskAnswer(strings.Join(labels, ", "))
+		}
+		return m.commitAskAnswer(q.Options[cursor].Label)
+	}
+	return m, nil
+}
 func (m *Model) submitAllAnswers() (tea.Model, tea.Cmd) {
-	m.askUserDialog = false
-	m.askUserRespCh <- tools.QuestionResponse{Answers: m.collectAskUserAnswers()}
-	m.updateViewport()
-	return m, tea.Batch(m.listenForAgentEvents(), m.listenForAskUser())
+	answers := make(map[string]string, len(m.askUserQuestions))
+	for i, q := range m.askUserQuestions {
+		answers[q.Text] = m.askUserAnswered[i]
+	}
+	m.answerAsk(tools.QuestionResponse{Answers: answers})
+	return m, nil
 }
-
 func (m *Model) cancelAskUser() (tea.Model, tea.Cmd) {
-	m.askUserDialog = false
-	m.askUserRespCh <- tools.QuestionResponse{Answers: map[string]string{"_declined": "true"}}
-	m.updateViewport()
-	return m, tea.Batch(m.listenForAgentEvents(), m.listenForAskUser())
+	m.answerAsk(tools.QuestionResponse{Answers: map[string]string{"_declined": "true"}})
+	return m, nil
 }
-
+func (m Model) renderAskNav() string {
+	total := len(m.askUserQuestions) + boolColumn(!m.askHideSubmit())
+	index := m.askUserQIdx
+	if m.askUserOnSubmit {
+		index = len(m.askUserQuestions)
+	}
+	labels := make([]string, len(m.askUserQuestions))
+	for i := range labels {
+		labels[i] = fmt.Sprintf("Q%d", i+1)
+	}
+	if visibleWidth(strings.Join(labels, "  "))+len(labels)*5+16 > m.width-2 {
+		label := "✓ Submit"
+		if index < len(labels) {
+			check := "☐"
+			if _, ok := m.askUserAnswered[index]; ok {
+				check = "☑"
+			}
+			label = check + " " + labels[index]
+		}
+		return paint(truncateToWidth(fmt.Sprintf("← %d/%d · %s →", index+1, total, label), max(1, m.width-2), "…"), Theme.Accent)
+	}
+	result := paint(" ← ", Theme.Dim)
+	for i, label := range labels {
+		color, check := Theme.Dim, "☐"
+		if _, ok := m.askUserAnswered[i]; ok {
+			color, check = Theme.Success, "☑"
+		}
+		text := " " + check + " " + label + " "
+		if i == index {
+			text = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(Theme.Text)).Background(lipgloss.Color(Theme.SelectedBg)).Render(text)
+		} else {
+			text = paint(text, color)
+		}
+		result += text
+	}
+	if !m.askHideSubmit() {
+		text := " ✓ Submit "
+		if index == len(labels) {
+			text = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(Theme.Text)).Background(lipgloss.Color(Theme.SelectedBg)).Render(text)
+		} else {
+			text = paint(text, Theme.Dim)
+		}
+		result += text
+	}
+	return result + paint(" → ", Theme.Dim) + "\n"
+}
 func (m Model) renderAskUserDialog() string {
 	if !m.askUserDialog || len(m.askUserQuestions) == 0 {
 		return ""
 	}
-	var sb strings.Builder
-	multiQuestion := len(m.askUserQuestions) > 1
-
-	if multiQuestion {
-		sb.WriteString(m.renderQuestionNavBar())
-		sb.WriteString("\n\n")
-	}
-
+	lines := strings.Split(m.renderAskNav(), "\n")
+	focus := 0
+	focusHeight := 1
+	hint := "Esc to cancel"
 	if m.askUserOnSubmit {
-		sb.WriteString(m.renderSubmitView())
-	} else {
-		sb.WriteString(m.renderQuestionView())
-	}
-
-	if multiQuestion && !m.askUserOnSubmit {
-		hint := lipgloss.NewStyle().Foreground(dimText).Render("      ← → navigate questions · enter to confirm")
-		sb.WriteString(hint)
-		sb.WriteString("\n\n")
-	}
-
-	return sb.String()
-}
-
-func (m Model) renderQuestionNavBar() string {
-	var sb strings.Builder
-	activeTab := lipgloss.NewStyle().Background(lipgloss.Color("99")).Foreground(lipgloss.Color("255")).Bold(true).Padding(0, 1)
-	inactiveTab := lipgloss.NewStyle().Foreground(lipgloss.Color("250")).Padding(0, 1)
-	dimArrow := lipgloss.NewStyle().Foreground(dimText)
-	brightArrow := lipgloss.NewStyle().Foreground(brandPurple).Bold(true)
-
-	if m.askUserQIdx == 0 && !m.askUserOnSubmit {
-		sb.WriteString(dimArrow.Render(" ←"))
-	} else {
-		sb.WriteString(brightArrow.Render(" ←"))
-	}
-
-	for i, q := range m.askUserQuestions {
-		header := q.Text
-		if header == "" {
-			header = fmt.Sprintf("Q%d", i+1)
+		lines = append(lines, ansiStyle(" Review your answers", "\x1b[1m", "\x1b[22m"), " ")
+		if !m.askAllAnswered() {
+			lines = append(lines, paint("   Warning: You have not answered all questions", Theme.Warning))
 		}
-		_, answered := m.askUserAnswered[i]
-		check := "☐"
-		if answered {
-			check = "☑"
-		}
-		label := header + " " + check
-
-		if !m.askUserOnSubmit && i == m.askUserQIdx {
-			sb.WriteString(activeTab.Render(label))
-		} else {
-			sb.WriteString(inactiveTab.Render(label))
-		}
-	}
-
-	submitLabel := "✓ Submit"
-	if m.askUserOnSubmit {
-		sb.WriteString(activeTab.Render(submitLabel))
-	} else {
-		sb.WriteString(inactiveTab.Render(submitLabel))
-	}
-
-	if m.askUserOnSubmit {
-		sb.WriteString(dimArrow.Render(" →"))
-	} else {
-		sb.WriteString(brightArrow.Render(" →"))
-	}
-
-	return sb.String()
-}
-
-func (m Model) askUserMaxLines() int {
-	maxLines := 0
-	for _, q := range m.askUserQuestions {
-		lines := 2 + len(q.Options) + 1
-		if q.MultiSelect {
-			lines++
-		}
-		if lines > maxLines {
-			maxLines = lines
-		}
-	}
-	return maxLines
-}
-
-func (m Model) renderQuestionView() string {
-	var sb strings.Builder
-	q := m.askUserQuestions[m.askUserQIdx]
-	cursor := m.askUserCursors[m.askUserQIdx]
-	lines := 0
-
-	header := lipgloss.NewStyle().Foreground(brandPurple).Bold(true).Render(" " + q.Text)
-	sb.WriteString(header)
-	sb.WriteString("\n\n")
-	lines += 2
-
-	for i, opt := range q.Options {
-		prefix := "   "
-		if i == cursor {
-			prefix = lipgloss.NewStyle().Foreground(brandPurple).Render(" ❯ ")
-		}
-		if q.MultiSelect {
-			check := "○"
-			if m.askUserSelected[m.askUserQIdx][i] {
-				check = "●"
+		for i, q := range m.askUserQuestions {
+			lines = append(lines, paint("   • ", Theme.Dim)+plainTerminalText(q.Text))
+			answer, ok := m.askUserAnswered[i]
+			color := Theme.Success
+			if !ok {
+				answer = "(not answered)"
+				color = Theme.Dim
 			}
-			prefix += check + " "
+			lines = append(lines, paint("     → "+plainTerminalText(answer), color))
 		}
-		label := opt.Label
-		if i == cursor {
-			label = lipgloss.NewStyle().Bold(true).Render(opt.Label)
+		lines = append(lines, " ")
+		if m.askAllAnswered() {
+			lines = append(lines, paint(" Ready to submit your answers?", Theme.Muted), " ")
+			focus = len(lines) + m.askUserSubmitIdx
+			for i, label := range []string{"Submit answers", "Cancel"} {
+				pointer, color := " ", Theme.Dim
+				if i == m.askUserSubmitIdx {
+					pointer, color = Icons.Arrow, Theme.Accent
+				}
+				lines = append(lines, " "+paint(pointer+" "+label, color))
+			}
 		}
-		desc := lipgloss.NewStyle().Foreground(dimText).Render(" — " + opt.Description)
-		sb.WriteString(fmt.Sprintf("%s%s%s\n", prefix, label, desc))
-		lines++
-	}
-
-	otherIdx := len(q.Options)
-	prefix := "   "
-	if cursor == otherIdx {
-		prefix = lipgloss.NewStyle().Foreground(brandPurple).Render(" ❯ ")
-	}
-	otherLabel := "Other"
-	if cursor == otherIdx {
-		otherLabel = lipgloss.NewStyle().Bold(true).Render("Other")
 	} else {
-		otherLabel = lipgloss.NewStyle().Foreground(dimText).Render("Other")
-	}
-	sb.WriteString(fmt.Sprintf("%s%s", prefix, otherLabel))
-	if cursor == otherIdx {
-		input := m.askUserOther[m.askUserQIdx] + "█"
-		sb.WriteString(": " + input)
-	}
-	sb.WriteString("\n")
-	lines++
-
-	if q.MultiSelect {
-		sb.WriteString(lipgloss.NewStyle().Foreground(dimText).Render("      space to toggle, enter to confirm"))
-		sb.WriteString("\n")
-		lines++
-	}
-
-	if len(m.askUserQuestions) > 1 {
-		target := m.askUserMaxLines()
-		for lines < target {
-			sb.WriteString("\n")
-			lines++
+		q := m.askUserQuestions[m.askUserQIdx]
+		cursor := m.askUserCursors[m.askUserQIdx]
+		contentWidth := max(0, m.width-boolColumn(m.width > 2)*2-1)
+		questionLines := wrapTerminalTextOptions(plainTerminalText(q.Text), max(1, contentWidth), true, false)
+		for _, line := range questionLines {
+			if contentWidth == 0 {
+				line = ""
+			} else {
+				line = " " + ansiStyle(line, "\x1b[1m", "\x1b[22m")
+			}
+			lines = append(lines, line)
 		}
-	}
-
-	return sb.String()
-}
-
-func (m Model) renderSubmitView() string {
-	var sb strings.Builder
-	lines := 0
-
-	header := lipgloss.NewStyle().Foreground(brandPurple).Bold(true).Render(" Review your answers:")
-	sb.WriteString(header)
-	sb.WriteString("\n\n")
-	lines += 2
-
-	for i, q := range m.askUserQuestions {
-		label := q.Text
-		if label == "" {
-			label = fmt.Sprintf("Q%d", i+1)
+		if q.MultiSelect {
+			lines = append(lines, paint("   (Space to toggle · Enter to confirm)", Theme.Dim))
 		}
-		answer, ok := m.askUserAnswered[i]
-		if ok {
-			sb.WriteString(fmt.Sprintf("   %s: %s\n", label, answer))
+		lines = append(lines, " ")
+		for i := 0; i <= len(q.Options); i++ {
+			label, description, color := "Other (type your own)", "", Theme.Dim
+			if i < len(q.Options) {
+				label = q.Options[i].Label
+				description = q.Options[i].Description
+				color = Theme.Muted
+				if m.askUserAnswered[m.askUserQIdx] == label {
+					color = Theme.Success
+				}
+				if q.MultiSelect {
+					marker := "☐ "
+					if m.askUserSelected[m.askUserQIdx][i] {
+						marker = "☑ "
+					}
+					label = marker + label
+				}
+			}
+			pointer := " "
+			if i == cursor {
+				pointer, color = Icons.Arrow, Theme.Accent
+				focus = len(lines)
+				if description != "" {
+					focusHeight = 2
+				}
+			}
+			if contentWidth > 0 {
+				lines = append(lines, " "+paint(truncateToWidth(pointer+" "+strconv.Itoa(i+1)+". "+plainTerminalLine(label), contentWidth, "…"), color))
+			}
+			if description != "" && contentWidth > 6 {
+				lines = append(lines, strings.Repeat(" ", 7)+paint(truncateToWidth(plainTerminalLine(description), contentWidth-6, "…"), Theme.Muted))
+			}
+			if i == cursor {
+				focusHeight = max(1, len(lines)-focus)
+			}
+		}
+		if m.askUserOtherMode[m.askUserQIdx] {
+			text, row := m.renderTextField(m.askUserTextEditor, 7, Icons.Arrow+" ")
+			focus = len(lines) + row
+			lines = append(lines, strings.Split(text, "\n")...)
+			hint = "Enter to confirm · Esc to return to options"
 		} else {
-			dim := lipgloss.NewStyle().Foreground(dimText).Render(fmt.Sprintf("   %s: (not answered)", label))
-			sb.WriteString(dim + "\n")
+			hint = "Enter to select · ↑/↓ to navigate · number keys answer directly"
+			if len(m.askUserQuestions) > 1 {
+				hint += " · ←/→ or Tab to switch questions"
+			}
+			hint += " · Esc to cancel"
 		}
-		lines++
 	}
-	sb.WriteString("\n")
-	lines++
-
-	for i, opt := range []string{"Submit answers", "Cancel"} {
-		if i == m.askUserSubmitIdx {
-			prefix := lipgloss.NewStyle().Foreground(brandPurple).Render(" ❯ ")
-			label := lipgloss.NewStyle().Bold(true).Render(opt)
-			sb.WriteString(prefix + label + "\n")
-		} else {
-			sb.WriteString("   " + opt + "\n")
-		}
-		lines++
+	width := max(1, m.width-boolColumn(m.width > 2)*2)
+	for i, line := range lines {
+		lines[i] = truncateToWidth(line, width, "…")
 	}
-
-	target := m.askUserMaxLines()
-	for lines < target {
-		sb.WriteString("\n")
-		lines++
-	}
-
-	return sb.String()
+	return renderSelectorFrame(selectorFrameParams{title: "Answer questions", hint: hint, content: strings.Join(lines, "\n"), width: m.width, rows: m.dialogAvailableRows(), focusRow: focus, focusHeight: focusHeight})
 }
