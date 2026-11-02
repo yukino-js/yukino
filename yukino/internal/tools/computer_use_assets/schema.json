@@ -50,13 +50,7 @@
           },
           "button": {
             "type": "string",
-            "enum": [
-              "left",
-              "right",
-              "wheel",
-              "back",
-              "forward"
-            ],
+            "enum": ["left", "right", "wheel", "back", "forward"],
             "description": "Button for type=click."
           },
           "x": {
@@ -89,10 +83,7 @@
                   "minimum": 0
                 }
               },
-              "required": [
-                "x",
-                "y"
-              ],
+              "required": ["x", "y"],
               "additionalProperties": false
             },
             "minItems": 2,
@@ -112,9 +103,7 @@
             "description": "Text to type for type=type."
           }
         },
-        "required": [
-          "type"
-        ],
+        "required": ["type"],
         "additionalProperties": false
       },
       "minItems": 1,
@@ -136,20 +125,14 @@
             "type": "string"
           }
         },
-        "required": [
-          "id"
-        ],
+        "required": ["id"],
         "additionalProperties": false
       },
       "description": "OpenAI-style safety checks raised with the batch; acknowledged in the tool result."
     },
     "status": {
       "type": "string",
-      "enum": [
-        "in_progress",
-        "completed",
-        "incomplete"
-      ],
+      "enum": ["in_progress", "completed", "incomplete"],
       "description": "OpenAI-style status of the computer call; echoed in the tool result."
     },
     "coordinate": {
@@ -184,12 +167,7 @@
     },
     "scroll_direction": {
       "type": "string",
-      "enum": [
-        "up",
-        "down",
-        "left",
-        "right"
-      ]
+      "enum": ["up", "down", "left", "right"]
     },
     "start_coordinate": {
       "type": "array",
@@ -217,14 +195,7 @@
     },
     "button": {
       "type": "string",
-      "enum": [
-        "left",
-        "right",
-        "wheel",
-        "middle",
-        "back",
-        "forward"
-      ],
+      "enum": ["left", "right", "wheel", "middle", "back", "forward"],
       "description": "Button for action=click."
     },
     "keys": {
@@ -249,10 +220,7 @@
             "minimum": 0
           }
         },
-        "required": [
-          "x",
-          "y"
-        ],
+        "required": ["x", "y"],
         "additionalProperties": false
       },
       "minItems": 2,

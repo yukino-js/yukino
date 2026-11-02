@@ -9,31 +9,16 @@
     {
       "input": {
         "action": "left_click",
-        "coordinate": [
-          10,
-          20
-        ]
+        "coordinate": [10, 20]
       },
       "calls": [
         {
           "command": "xdotool",
-          "args": [
-            "mousemove",
-            "--sync",
-            "10",
-            "20"
-          ]
+          "args": ["mousemove", "--sync", "10", "20"]
         },
         {
           "command": "xdotool",
-          "args": [
-            "click",
-            "--repeat",
-            "1",
-            "--delay",
-            "80",
-            "1"
-          ]
+          "args": ["click", "--repeat", "1", "--delay", "80", "1"]
         }
       ],
       "result": {
@@ -51,23 +36,11 @@
       "calls": [
         {
           "command": "xdotool",
-          "args": [
-            "mousemove",
-            "--sync",
-            "0",
-            "0"
-          ]
+          "args": ["mousemove", "--sync", "0", "0"]
         },
         {
           "command": "xdotool",
-          "args": [
-            "click",
-            "--repeat",
-            "1",
-            "--delay",
-            "80",
-            "8"
-          ]
+          "args": ["click", "--repeat", "1", "--delay", "80", "8"]
         }
       ],
       "result": {
@@ -80,46 +53,24 @@
         "action": "right_click",
         "x": 10,
         "y": 20,
-        "keys": [
-          "CTRL"
-        ]
+        "keys": ["CTRL"]
       },
       "calls": [
         {
           "command": "xdotool",
-          "args": [
-            "mousemove",
-            "--sync",
-            "10",
-            "20"
-          ]
+          "args": ["mousemove", "--sync", "10", "20"]
         },
         {
           "command": "xdotool",
-          "args": [
-            "keydown",
-            "--",
-            "CTRL"
-          ]
+          "args": ["keydown", "--", "CTRL"]
         },
         {
           "command": "xdotool",
-          "args": [
-            "click",
-            "--repeat",
-            "1",
-            "--delay",
-            "80",
-            "3"
-          ]
+          "args": ["click", "--repeat", "1", "--delay", "80", "3"]
         },
         {
           "command": "xdotool",
-          "args": [
-            "keyup",
-            "--",
-            "CTRL"
-          ]
+          "args": ["keyup", "--", "CTRL"]
         }
       ],
       "result": {
@@ -130,31 +81,16 @@
     {
       "input": {
         "action": "double_click",
-        "coordinate": [
-          0,
-          1
-        ]
+        "coordinate": [0, 1]
       },
       "calls": [
         {
           "command": "xdotool",
-          "args": [
-            "mousemove",
-            "--sync",
-            "0",
-            "1"
-          ]
+          "args": ["mousemove", "--sync", "0", "1"]
         },
         {
           "command": "xdotool",
-          "args": [
-            "click",
-            "--repeat",
-            "2",
-            "--delay",
-            "80",
-            "1"
-          ]
+          "args": ["click", "--repeat", "2", "--delay", "80", "1"]
         }
       ],
       "result": {
@@ -165,31 +101,16 @@
     {
       "input": {
         "action": "triple_click",
-        "coordinate": [
-          10,
-          20
-        ]
+        "coordinate": [10, 20]
       },
       "calls": [
         {
           "command": "xdotool",
-          "args": [
-            "mousemove",
-            "--sync",
-            "10",
-            "20"
-          ]
+          "args": ["mousemove", "--sync", "10", "20"]
         },
         {
           "command": "xdotool",
-          "args": [
-            "click",
-            "--repeat",
-            "3",
-            "--delay",
-            "80",
-            "1"
-          ]
+          "args": ["click", "--repeat", "3", "--delay", "80", "1"]
         }
       ],
       "result": {
@@ -200,20 +121,12 @@
     {
       "input": {
         "action": "mouse_move",
-        "coordinate": [
-          5,
-          9
-        ]
+        "coordinate": [5, 9]
       },
       "calls": [
         {
           "command": "xdotool",
-          "args": [
-            "mousemove",
-            "--sync",
-            "5",
-            "9"
-          ]
+          "args": ["mousemove", "--sync", "5", "9"]
         }
       ],
       "result": {
@@ -229,11 +142,7 @@
       "calls": [
         {
           "command": "xdotool",
-          "args": [
-            "key",
-            "--",
-            "CTRL+S"
-          ]
+          "args": ["key", "--", "CTRL+S"]
         }
       ],
       "result": {
@@ -244,18 +153,12 @@
     {
       "input": {
         "action": "keypress",
-        "keys": [
-          "ENTER"
-        ]
+        "keys": ["ENTER"]
       },
       "calls": [
         {
           "command": "xdotool",
-          "args": [
-            "key",
-            "--",
-            "ENTER"
-          ]
+          "args": ["key", "--", "ENTER"]
         }
       ],
       "result": {
@@ -271,13 +174,7 @@
       "calls": [
         {
           "command": "xdotool",
-          "args": [
-            "type",
-            "--delay",
-            "1",
-            "--",
-            "hello 中文"
-          ]
+          "args": ["type", "--delay", "1", "--", "hello 中文"]
         }
       ],
       "result": {
@@ -292,10 +189,7 @@
       "calls": [
         {
           "command": "xdotool",
-          "args": [
-            "getmouselocation",
-            "--shell"
-          ]
+          "args": ["getmouselocation", "--shell"]
         }
       ],
       "result": {
@@ -310,10 +204,7 @@
       "calls": [
         {
           "command": "xdotool",
-          "args": [
-            "mousedown",
-            "1"
-          ]
+          "args": ["mousedown", "1"]
         }
       ],
       "result": {
@@ -328,10 +219,7 @@
       "calls": [
         {
           "command": "xdotool",
-          "args": [
-            "mouseup",
-            "1"
-          ]
+          "args": ["mouseup", "1"]
         }
       ],
       "result": {
@@ -342,47 +230,25 @@
     {
       "input": {
         "action": "left_click_drag",
-        "start_coordinate": [
-          0,
-          1
-        ],
-        "coordinate": [
-          4,
-          8
-        ]
+        "start_coordinate": [0, 1],
+        "coordinate": [4, 8]
       },
       "calls": [
         {
           "command": "xdotool",
-          "args": [
-            "mousemove",
-            "--sync",
-            "0",
-            "1"
-          ]
+          "args": ["mousemove", "--sync", "0", "1"]
         },
         {
           "command": "xdotool",
-          "args": [
-            "mousedown",
-            "1"
-          ]
+          "args": ["mousedown", "1"]
         },
         {
           "command": "xdotool",
-          "args": [
-            "mousemove",
-            "--sync",
-            "4",
-            "8"
-          ]
+          "args": ["mousemove", "--sync", "4", "8"]
         },
         {
           "command": "xdotool",
-          "args": [
-            "mouseup",
-            "1"
-          ]
+          "args": ["mouseup", "1"]
         }
       ],
       "result": {
@@ -407,35 +273,19 @@
       "calls": [
         {
           "command": "xdotool",
-          "args": [
-            "mousemove",
-            "--sync",
-            "1",
-            "2"
-          ]
+          "args": ["mousemove", "--sync", "1", "2"]
         },
         {
           "command": "xdotool",
-          "args": [
-            "mousedown",
-            "1"
-          ]
+          "args": ["mousedown", "1"]
         },
         {
           "command": "xdotool",
-          "args": [
-            "mousemove",
-            "--sync",
-            "3",
-            "4"
-          ]
+          "args": ["mousemove", "--sync", "3", "4"]
         },
         {
           "command": "xdotool",
-          "args": [
-            "mouseup",
-            "1"
-          ]
+          "args": ["mouseup", "1"]
         }
       ],
       "result": {
@@ -452,12 +302,7 @@
       "calls": [
         {
           "command": "xdotool",
-          "args": [
-            "click",
-            "--repeat",
-            "3",
-            "4"
-          ]
+          "args": ["click", "--repeat", "3", "4"]
         }
       ],
       "result": {
@@ -474,12 +319,7 @@
       "calls": [
         {
           "command": "xdotool",
-          "args": [
-            "click",
-            "--repeat",
-            "3",
-            "5"
-          ]
+          "args": ["click", "--repeat", "3", "5"]
         }
       ],
       "result": {
@@ -496,12 +336,7 @@
       "calls": [
         {
           "command": "xdotool",
-          "args": [
-            "click",
-            "--repeat",
-            "3",
-            "6"
-          ]
+          "args": ["click", "--repeat", "3", "6"]
         }
       ],
       "result": {
@@ -518,12 +353,7 @@
       "calls": [
         {
           "command": "xdotool",
-          "args": [
-            "click",
-            "--repeat",
-            "3",
-            "7"
-          ]
+          "args": ["click", "--repeat", "3", "7"]
         }
       ],
       "result": {
@@ -536,38 +366,20 @@
         "action": "scroll",
         "scroll_x": -120,
         "scroll_y": 300,
-        "coordinate": [
-          0,
-          0
-        ]
+        "coordinate": [0, 0]
       },
       "calls": [
         {
           "command": "xdotool",
-          "args": [
-            "mousemove",
-            "--sync",
-            "0",
-            "0"
-          ]
+          "args": ["mousemove", "--sync", "0", "0"]
         },
         {
           "command": "xdotool",
-          "args": [
-            "click",
-            "--repeat",
-            "3",
-            "5"
-          ]
+          "args": ["click", "--repeat", "3", "5"]
         },
         {
           "command": "xdotool",
-          "args": [
-            "click",
-            "--repeat",
-            "1",
-            "6"
-          ]
+          "args": ["click", "--repeat", "1", "6"]
         }
       ],
       "result": {
@@ -589,27 +401,17 @@
     {
       "input": {
         "action": "hold_key",
-        "keys": [
-          "CTRL"
-        ],
+        "keys": ["CTRL"],
         "duration": 0
       },
       "calls": [
         {
           "command": "xdotool",
-          "args": [
-            "keydown",
-            "--",
-            "CTRL"
-          ]
+          "args": ["keydown", "--", "CTRL"]
         },
         {
           "command": "xdotool",
-          "args": [
-            "keyup",
-            "--",
-            "CTRL"
-          ]
+          "args": ["keyup", "--", "CTRL"]
         }
       ],
       "result": {
@@ -661,12 +463,7 @@
     {
       "input": {
         "action": "zoom",
-        "region": [
-          0,
-          0,
-          0,
-          0
-        ]
+        "region": [0, 0, 0, 0]
       },
       "calls": [],
       "result": {

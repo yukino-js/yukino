@@ -35,15 +35,11 @@
                         "y": 3
                       }
                     ],
-                    "keys": [
-                      "CTRL"
-                    ]
+                    "keys": ["CTRL"]
                   },
                   {
                     "type": "keypress",
-                    "keys": [
-                      "ENTER"
-                    ]
+                    "keys": ["ENTER"]
                   },
                   {
                     "type": "move",
@@ -140,15 +136,11 @@
                   "y": 3
                 }
               ],
-              "keys": [
-                "CTRL"
-              ]
+              "keys": ["CTRL"]
             },
             {
               "type": "keypress",
-              "keys": [
-                "ENTER"
-              ]
+              "keys": ["ENTER"]
             },
             {
               "type": "move",
