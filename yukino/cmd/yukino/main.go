@@ -7,9 +7,11 @@ import (
 	"os/signal"
 	"runtime/debug"
 	"syscall"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/charmbracelet/x/term"
 	"github.com/yukino-js/yukino/yukino/internal/a2a"
 	"github.com/yukino-js/yukino/yukino/internal/config"
 	"github.com/yukino-js/yukino/yukino/internal/crash_log"
@@ -20,6 +22,7 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/telemetry"
 	"github.com/yukino-js/yukino/yukino/internal/tools"
 	"github.com/yukino-js/yukino/yukino/internal/ui"
+	"github.com/yukino-js/yukino/yukino/internal/version"
 )
 
 // loadRuntimeConfig loads the app config with the project .mcp.json servers
@@ -52,6 +55,25 @@ func exitNow(code int) {
 }
 
 func main() {
+	mode, err := parseCliArgs(os.Args[1:])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+		os.Exit(1)
+	}
+	switch mode.Kind {
+	case "help":
+		if mode.Topic == "update" {
+			fmt.Println(updateHelp)
+		} else {
+			fmt.Println(cliHelp)
+		}
+		return
+	case "version":
+		fmt.Println(version.Version)
+		return
+	case "update":
+		exitNow(runUpdateMode(os.Args[2:]))
+	}
 	defer logger.CloseLogger()
 	defer tools.RunExitCleanups()
 	signals := make(chan os.Signal, 1)
@@ -83,43 +105,18 @@ func main() {
 		}
 	}()
 
-	// Maintenance mode: `yukino update` runs without loading the runtime or
-	// configuration, mirroring the reference CLI dispatch.
-	if len(os.Args) > 1 && os.Args[1] == "update" {
-		code := runUpdateMode(os.Args[2:])
-		exitNow(code)
-	}
-
 	// Fill the process environment from the global config's env block before
 	// anything reads it: telemetry initialization reads OTEL_*/SENTRY_* from
 	// the environment before the config is loaded.
 	config.HydrateConfigEnv()
 
-	remoteAddr := ""
-	a2aMode := false
-	a2aAddr := ""
-	for i := 1; i < len(os.Args); i++ {
-		switch os.Args[i] {
-		case "--remote":
-			remoteAddr = ":18888"
-			if i+1 < len(os.Args) && os.Args[i+1][0] != '-' {
-				remoteAddr = os.Args[i+1]
-				i++
-			}
-		case "--a2a":
-			a2aMode = true
-			if i+1 < len(os.Args) && os.Args[i+1][0] != '-' {
-				a2aAddr = os.Args[i+1]
-				i++
-			}
-		}
-	}
-
-	userPrompt, outputFormat, isPrint := parsePrintFlags(os.Args[1:])
-
 	telemetry.InitializeTelemetry()
 
-	if a2aMode {
+	if mode.Kind == "a2a" {
+		a2aAddr := ""
+		if mode.Address != nil {
+			a2aAddr = *mode.Address
+		}
 		telemetry.SetTelemetryMode(telemetry.ModeA2A)
 		if err := a2a.RunA2aServer(a2aAddr); err != nil {
 			telemetry.CaptureTelemetryError(err, "main")
@@ -132,17 +129,8 @@ func main() {
 		return
 	}
 
-	if isPrint {
+	if mode.Kind == "print" {
 		telemetry.SetTelemetryMode(telemetry.ModePrint)
-		if userPrompt == "" {
-			buf, _ := os.ReadFile("/dev/stdin")
-			userPrompt = string(buf)
-		}
-		if userPrompt == "" {
-			fmt.Fprintf(os.Stderr, "Error: -p requires a prompt argument or stdin input\n")
-			telemetry.ShutdownTelemetry()
-			exitNow(1)
-		}
 		cfg, validHooks, err := loadRuntimeConfig(false)
 		if err != nil {
 			telemetry.CaptureTelemetryError(err, "print")
@@ -150,7 +138,7 @@ func main() {
 			telemetry.ShutdownTelemetry()
 			exitNow(1)
 		}
-		if err := runPrint(userPrompt, cfg, validHooks, outputFormat); err != nil {
+		if err := runPrint(mode.Prompt, cfg, validHooks, mode.OutputFormat); err != nil {
 			telemetry.CaptureTelemetryError(err, "print")
 			if !errors.Is(err, errGoalCommand) {
 				fmt.Fprintf(os.Stderr, "Error: %s\n", err)
@@ -162,7 +150,7 @@ func main() {
 		return
 	}
 
-	if remoteAddr != "" {
+	if mode.Kind == "remote" {
 		cfg, validHooks, err := loadRuntimeConfig(true)
 		if err != nil {
 			telemetry.CaptureTelemetryError(err, "config")
@@ -176,7 +164,7 @@ func main() {
 			telemetry.ShutdownTelemetry()
 			exitNow(1)
 		}
-		srv := remote.NewServer(cfg.Providers, cfg.MCPServers, validHooks, remoteAddr, cfg.EnableCoordinatorMode, cfg.DefaultProvider, cfg.Sandbox, cfg.MemoryEnabled())
+		srv := remote.NewServer(cfg.Providers, cfg.MCPServers, validHooks, *mode.Address, cfg.EnableCoordinatorMode, cfg.DefaultProvider, cfg.Sandbox, cfg.MemoryEnabled())
 		srv.MCPLoading = cfg.MCPLoading
 		// Graceful shutdown on Ctrl+C/SIGTERM: stop the server (closes WS/HTTP,
 		// disconnects MCP children), sweep detached children and persist the
@@ -210,21 +198,41 @@ func main() {
 		telemetry.ShutdownTelemetry()
 		exitNow(1)
 	}
+	terminalInput, err := ui.NewTerminalInput(os.Stdin)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+		telemetry.ShutdownTelemetry()
+		exitNow(1)
+	}
+	defer terminalInput.Close()
+	ui.SetThemeMode(ui.DetectTerminalTheme(terminalInput, os.Stdout, cfg.Theme))
 	m := ui.New(cfg.Providers, cfg.MCPServers, validHooks, cfg.Sandbox, cfg.DefaultProvider, cfg.PermissionMode, cfg.MemoryEnabled())
 	m.EnableCoordinatorMode = cfg.EnableCoordinatorMode
 	m.MCPLoading = cfg.MCPLoading
-	p := tea.NewProgram(m)
+	m.StartupResume = mode.Resume
+	p := tea.NewProgram(m, tea.WithInput(terminalInput.Stdin))
 
 	finalModel, err := p.Run()
-	if disposable, ok := finalModel.(interface{ Dispose() error }); ok {
-		_ = disposable.Dispose()
+	model, hasModel := finalModel.(ui.Model)
+	if hasModel {
+		if cleanupErr := model.Dispose(); cleanupErr != nil {
+			logger.Global().Error(map[string]any{"err": cleanupErr}, "terminal worker cleanup failed")
+		}
 	}
+	terminalInput.Close()
 	if err != nil {
 		telemetry.CaptureTelemetryError(err, "main")
 		crash_log.RecordError("main", err)
 		logger.Global().Fatal(map[string]any{"err": err}, "unhandled runtime error")
 		telemetry.ShutdownTelemetry()
 		exitNow(-1)
+	}
+	if hasModel {
+		columns, _, sizeErr := term.GetSize(os.Stdout.Fd())
+		if sizeErr != nil {
+			columns = 80
+		}
+		fmt.Fprintln(os.Stdout, "\n"+ui.RenderInteractionSummary(model.InteractionSummary(), columns, term.IsTerminal(os.Stdout.Fd()), time.Now()))
 	}
 	telemetry.ShutdownTelemetry()
 }

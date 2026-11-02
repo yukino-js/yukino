@@ -9,11 +9,13 @@ import (
 	"unicode"
 
 	"github.com/yukino-js/yukino/yukino/internal/agent"
+	"github.com/yukino-js/yukino/yukino/internal/bootstrap"
 	"github.com/yukino-js/yukino/yukino/internal/commands"
 	"github.com/yukino-js/yukino/yukino/internal/config"
 	"github.com/yukino-js/yukino/yukino/internal/conversation"
 	"github.com/yukino-js/yukino/yukino/internal/file_history"
 	"github.com/yukino-js/yukino/yukino/internal/goal"
+	"github.com/yukino-js/yukino/yukino/internal/history"
 	"github.com/yukino-js/yukino/yukino/internal/llm"
 	"github.com/yukino-js/yukino/yukino/internal/mcp"
 	"github.com/yukino-js/yukino/yukino/internal/memory"
@@ -40,6 +42,10 @@ const (
 )
 
 type Model struct {
+	interactionStats                       bootstrap.InteractionSummary
+	agentStartedAt, toolBatchStartedAt     time.Time
+	activeToolIDs                          map[string]bool
+	StartupResume                          any
 	userBash                               *userBashRun
 	userBashTool                           *toolBlockInfo
 	userBashOutputCh                       chan userBashOutputMsg
@@ -74,6 +80,7 @@ type Model struct {
 	client                                 llm.Client
 	registry                               *tools.Registry
 	ag                                     *agent.Agent
+	steeringAgent                          *agent.Agent
 
 	state         appState
 	streaming     bool
@@ -136,7 +143,8 @@ type Model struct {
 	ctrlCDeadline      time.Time
 	ctrlCGeneration    int
 	toolsExpanded      bool
-	pendingMessages    []string
+	pendingMessages    []queuedMessage
+	steeringPending    []history.InputEntry
 	queuePaused        bool
 	retryStatus        string
 	activityError      string
@@ -235,10 +243,11 @@ type Model struct {
 	loginSubmitting  bool
 	// loginModelEdited blocks the discovery auto-fill once the user typed in
 	// the model field.
-	loginModelEdited   bool
-	loginDiscovery     loginDiscoveryState
-	loginDiscoveryGen  int
-	loginCompletedConn *loginConnection
+	loginModelEdited     bool
+	loginDiscovery       loginDiscoveryState
+	loginDiscoveryGen    int
+	loginDiscoveryCancel context.CancelFunc
+	loginCompletedConn   *loginConnection
 
 	providerDialog   bool
 	providerQuery    string
@@ -293,7 +302,10 @@ func New(providers []config.ProviderConfig, mcpConfigs []config.MCPServerConfig,
 
 	lifeCtx, lifeCancel := context.WithCancel(context.Background())
 	m := Model{
-		lifeCtx: lifeCtx, lifeCancel: lifeCancel, hostPermissionCh: make(chan agent.PermissionRequestEvent, 32), userBashOutputCh: make(chan userBashOutputMsg, 16),
+		interactionStats: bootstrap.InteractionSummary{StartedAt: float64(time.Now().UnixMilli())},
+		sessionID:        session.NewID(),
+		loginForm:        newProviderLoginForm(nil),
+		lifeCtx:          lifeCtx, lifeCancel: lifeCancel, hostPermissionCh: make(chan agent.PermissionRequestEvent, 32), userBashOutputCh: make(chan userBashOutputMsg, 16),
 		providers:          providers,
 		todoList:           initialTodos,
 		mcpConfigs:         mcpConfigs,

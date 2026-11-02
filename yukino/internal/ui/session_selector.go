@@ -224,6 +224,7 @@ func (m Model) doResumeSession(wd, targetID string, saved []session.Message) (te
 	m.committedUpTo = 0
 	m.conversation.Reset()
 	m.pendingMessages = nil
+	m.steeringPending = nil
 	m.queuePaused = false
 	m.sessionID = targetID
 

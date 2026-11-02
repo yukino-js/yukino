@@ -16,7 +16,6 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/mcp"
 	"github.com/yukino-js/yukino/yukino/internal/permissions"
 	"github.com/yukino-js/yukino/yukino/internal/sandbox"
-	"github.com/yukino-js/yukino/yukino/internal/session"
 	"github.com/yukino-js/yukino/yukino/internal/subagent"
 	"github.com/yukino-js/yukino/yukino/internal/teams"
 	"github.com/yukino-js/yukino/yukino/internal/tools"
@@ -36,7 +35,6 @@ func (m *Model) activateInitialProvider(p *config.ProviderConfig) tea.Cmd {
 		return nil
 	}
 	m.client = client
-	m.sessionID = session.NewID()
 	m.fileHistory = file_history.New(m.sessionID)
 	m.defaultTools.EditFile.FileHistory = m.fileHistory
 	m.defaultTools.WriteFile.FileHistory = m.fileHistory

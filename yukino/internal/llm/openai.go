@@ -143,6 +143,7 @@ func (c *openaiClient) Stream(ctx context.Context, conv *conversation.Manager, t
 
 		var currentToolName, currentCallID, jsonAccum string
 		var reasoningID, reasoningText, reasoningPartText string
+		startedComputerCalls := map[string]bool{}
 		sawTerminalResponse := false
 
 		type sseResult struct {
@@ -214,6 +215,13 @@ func (c *openaiClient) Stream(ctx context.Context, conv *conversation.Manager, t
 					currentCallID = event.Item.CallID
 					jsonAccum = ""
 					events <- ToolCallStart{ToolName: currentToolName, ToolID: currentCallID}
+				case "computer_call":
+					if event.Item.CallID == "" || event.Item.ID == "" {
+						errs <- &NetworkError{Message: "Responses computer call started without a valid id"}
+						return
+					}
+					startedComputerCalls[event.Item.CallID] = true
+					events <- ToolCallStart{ToolName: "ComputerUse", ToolID: event.Item.CallID}
 				case "reasoning":
 					reasoningID = event.Item.ID
 					reasoningText = ""
@@ -247,6 +255,18 @@ func (c *openaiClient) Stream(ctx context.Context, conv *conversation.Manager, t
 					currentToolName = ""
 					currentCallID = ""
 					jsonAccum = ""
+				case "computer_call":
+					if event.Item.CallID == "" || event.Item.ID == "" || !startedComputerCalls[event.Item.CallID] {
+						errs <- &NetworkError{Message: "Responses computer call completed without a valid start event"}
+						return
+					}
+					delete(startedComputerCalls, event.Item.CallID)
+					var raw map[string]any
+					if err := json.Unmarshal([]byte(event.Item.RawJSON()), &raw); err != nil {
+						errs <- &NetworkError{Message: err.Error()}
+						return
+					}
+					events <- ToolCallComplete{ToolName: "ComputerUse", ToolID: event.Item.CallID, ProviderItemID: event.Item.ID, Arguments: computerCallArguments(raw)}
 				}
 			case "response.completed", "response.incomplete":
 				sawTerminalResponse = true
@@ -374,6 +394,14 @@ func userContentsFor(m conversation.Message) responses.EasyInputMessageContentUn
 
 func buildOpenAIInput(messages []conversation.Message) responses.ResponseInputParam {
 	var input responses.ResponseInputParam
+	computerCalls := map[string]conversation.ToolUseBlock{}
+	for _, message := range messages {
+		for _, call := range message.ToolUses {
+			if call.ToolName == "ComputerUse" {
+				computerCalls[call.ToolUseID] = call
+			}
+		}
+	}
 	for _, m := range messages {
 		for _, tb := range m.ThinkingBlocks {
 			if tb.Type != "thinking" || !strings.HasPrefix(tb.Signature, "rs_") {
@@ -394,6 +422,18 @@ func buildOpenAIInput(messages []conversation.Message) responses.ResponseInputPa
 				})
 			}
 			for _, tu := range m.ToolUses {
+				if tu.ToolName == "ComputerUse" {
+					id := tu.ProviderItemID
+					if id == "" {
+						id = tu.ToolUseID
+					}
+					status, _ := tu.Arguments["status"].(string)
+					if status != "in_progress" && status != "incomplete" {
+						status = "completed"
+					}
+					input = append(input, param.Override[responses.ResponseInputItemUnionParam](map[string]any{"type": "computer_call", "id": id, "call_id": tu.ToolUseID, "status": status, "actions": computerActionsForResponses(tu.Arguments), "pending_safety_checks": safetyChecksForResponses(tu.Arguments)}))
+					continue
+				}
 				argsJSON, _ := json.Marshal(tu.Arguments)
 				input = append(input, responses.ResponseInputItemUnionParam{
 					OfFunctionCall: &responses.ResponseFunctionToolCallParam{
@@ -405,10 +445,19 @@ func buildOpenAIInput(messages []conversation.Message) responses.ResponseInputPa
 			}
 		} else if len(m.ToolResults) > 0 {
 			for _, tr := range m.ToolResults {
-				input = append(input, responses.ResponseInputItemParamOfFunctionCallOutput(
-					tr.ToolUseID,
-					toolOutputForResponses(tr),
-				))
+				if call, ok := computerCalls[tr.ToolUseID]; ok {
+					url := computerScreenshotURL(tr)
+					output := map[string]any{"type": "computer_screenshot"}
+					if url != "" {
+						output["image_url"] = url
+					}
+					input = append(input, param.Override[responses.ResponseInputItemUnionParam](map[string]any{"type": "computer_call_output", "call_id": tr.ToolUseID, "output": output, "acknowledged_safety_checks": safetyChecksForResponses(call.Arguments)}))
+					if tr.IsError || url == "" {
+						input = append(input, param.Override[responses.ResponseInputItemUnionParam](map[string]any{"role": "user", "content": tr.Content}))
+					}
+				} else {
+					input = append(input, param.Override[responses.ResponseInputItemUnionParam](map[string]any{"type": "function_call_output", "call_id": tr.ToolUseID, "output": toolOutputForResponses(tr)}))
+				}
 			}
 			if m.HasContent() {
 				input = append(input, responses.ResponseInputItemUnionParam{
@@ -444,45 +493,25 @@ func buildOpenAIInput(messages []conversation.Message) responses.ResponseInputPa
 	return input
 }
 
-// toolOutputForResponses serializes rich tool-result content. The OpenAI Go SDK
-// v1.12 only accepts string function-call output, so image and document blocks
-// degrade to text summaries instead of native input_image/input_file parts.
-func toolOutputForResponses(tr conversation.ToolResultBlock) string {
+func toolOutputForResponses(tr conversation.ToolResultBlock) any {
 	if len(tr.ContentBlocks) == 0 {
 		return tr.Content
 	}
-	parts := []string{}
+	parts := []map[string]any{}
 	if tr.Content != "" {
-		parts = append(parts, tr.Content)
+		parts = append(parts, map[string]any{"type": "input_text", "text": tr.Content})
 	}
-	for _, raw := range tr.ContentBlocks {
-		block := conversation.NormalizeToolResultContentBlock(raw)
-		if block == nil {
-			continue
-		}
-		switch block["type"] {
-		case "image":
-			source, _ := block["source"].(map[string]any)
-			mediaType, _ := source["media_type"].(string)
-			if mediaType == "" {
-				mediaType = "image"
-			}
-			parts = append(parts, "[Image: "+mediaType+"]")
-		case "document":
-			title, _ := block["title"].(string)
-			if title == "" {
-				title = "document"
-			}
-			parts = append(parts, "[Document: "+title+"]")
-		case "text":
-			text, _ := block["text"].(string)
-			parts = append(parts, text)
+	for _, block := range tr.ContentBlocks {
+		if url := imageDataURL(block); url != "" {
+			parts = append(parts, map[string]any{"type": "input_image", "image_url": url, "detail": "auto"})
+		} else if document := documentForResponses(block); document != nil {
+			parts = append(parts, document)
 		}
 	}
 	if len(parts) == 0 {
 		return tr.Content
 	}
-	return strings.Join(parts, "\n")
+	return parts
 }
 
 func classifyOpenAIError(err error) error {

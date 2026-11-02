@@ -293,7 +293,7 @@ func renderDialogTextField(prompt, value string, cursor, width int) string {
 		after += "…"
 	}
 	style := lipgloss.NewStyle().Foreground(normalText)
-	return selectorHintStyle.Render(prompt) +
+	return selectorHintStyle().Render(prompt) +
 		style.Render(before) +
 		style.Reverse(true).Render(window.current) +
 		style.Render(after)
@@ -315,7 +315,7 @@ func (m Model) renderModelDialog() string {
 			status = "error"
 		}
 		content := renderDialogTextField("Model id: ", m.modelCustomText, m.modelCustomCursor, max(1, m.width-4)) + "\n" +
-			selectorHintStyle.Render("Any id is accepted, even one the provider does not list.")
+			selectorHintStyle().Render("Any id is accepted, even one the provider does not list.")
 		return renderSelectorFrame(selectorFrameParams{
 			title:    "Select model",
 			subtitle: StatusMessages[status] + " — type a model id",

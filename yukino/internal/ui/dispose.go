@@ -2,10 +2,11 @@ package ui
 
 import (
 	"errors"
+	"github.com/yukino-js/yukino/yukino/internal/agent"
 	"github.com/yukino-js/yukino/yukino/internal/session"
 )
 
-func (m Model) Dispose() error {
+func (m *Model) Dispose() error {
 	var failures []error
 	if m.lifeCancel != nil {
 		m.lifeCancel()
@@ -31,6 +32,18 @@ func (m Model) Dispose() error {
 	if m.cancelStream != nil {
 		m.cancelStream()
 	}
+	if ch := m.agentCh; ch != nil {
+		for event := range ch {
+			m.recordInteractionEvent(event)
+			if usage, ok := event.(agent.UsageEvent); ok {
+				m.totalInput += usage.InputTokens
+				m.totalOutput += usage.OutputTokens
+				m.totalCacheRead += usage.CacheReadTokens
+				m.totalCacheCreation += usage.CacheCreationTokens
+			}
+		}
+	}
+	m.endInteractionRun()
 	if m.ideCancel != nil {
 		m.ideCancel()
 	}

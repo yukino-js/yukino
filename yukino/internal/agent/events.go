@@ -14,6 +14,7 @@ type AgentEvent interface{ agentEvent() }
 type StreamText struct{ Text string }
 type ThinkingText struct{ Text string }
 type ThinkingComplete struct{ Thinking, Signature string }
+type SteeringDelivered struct{ Text, InputID string }
 type ToolUseEvent struct {
 	ToolID   string
 	ToolName string
@@ -72,8 +73,9 @@ type PermissionRequestEvent struct {
 
 func (StreamText) agentEvent() {}
 
-func (ThinkingText) agentEvent()     {}
-func (ThinkingComplete) agentEvent() {}
+func (ThinkingText) agentEvent()      {}
+func (ThinkingComplete) agentEvent()  {}
+func (SteeringDelivered) agentEvent() {}
 
 func (ToolUseEvent) agentEvent()    {}
 func (ToolResultEvent) agentEvent() {}

@@ -70,7 +70,7 @@ func (m Model) executePlanApproval() (tea.Model, tea.Cmd) {
 	if strings.TrimSpace(planContent) == "" {
 		return m, nil
 	}
-	return m.sendMessage("Execute this plan:\n\n" + planContent)
+	return m.sendMessage("Execute this plan:\n\n"+planContent, nil)
 }
 
 func (m Model) sendPlanFeedback(feedback string) (tea.Model, tea.Cmd) {
@@ -82,7 +82,7 @@ func (m Model) sendPlanFeedback(feedback string) (tea.Model, tea.Cmd) {
 	m.planApprovalDialog = false
 	m.planApprovalInput = ""
 	m.planFeedbackRequired = false
-	return m.sendMessage(feedback)
+	return m.sendMessage(feedback, nil)
 }
 
 func (m Model) renderPlanApprovalDialog() string {

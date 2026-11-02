@@ -9,13 +9,6 @@ import (
 // Ports of src/ui/selector-frame.tsx and src/ui/selector-layout.ts: the shared
 // chrome used by every selector dialog.
 
-var (
-	selectorTitleStyle    = lipgloss.NewStyle().Bold(true).Foreground(accentColor)
-	selectorSubtitleStyle = lipgloss.NewStyle().Foreground(mutedText)
-	selectorHintStyle     = lipgloss.NewStyle().Foreground(dimText)
-	selectorBorderStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color(Theme.Border))
-)
-
 type selectorChromeSpec struct {
 	borders bool
 	title   bool
@@ -23,6 +16,8 @@ type selectorChromeSpec struct {
 	detail  bool
 	height  int
 }
+
+func selectorHintStyle() lipgloss.Style { return lipgloss.NewStyle().Foreground(dimText) }
 
 // selectorChrome mirrors selectorChrome in src/ui/selector-layout.ts.
 func selectorChrome(rows int, subtitle bool) selectorChromeSpec {
@@ -91,6 +86,9 @@ func renderSelectorFrame(p selectorFrameParams) string {
 	if p.rows <= 0 {
 		return ""
 	}
+	selectorTitleStyle := lipgloss.NewStyle().Bold(true).Foreground(accentColor)
+	selectorSubtitleStyle := lipgloss.NewStyle().Foreground(mutedText)
+	selectorBorderStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(Theme.Border))
 	chrome := selectorChrome(p.rows, p.subtitle != "")
 	frameWidth := max(1, p.width)
 	padding := 0
@@ -138,7 +136,7 @@ func renderSelectorFrame(p selectorFrameParams) string {
 		sb.WriteString("\n")
 	}
 	if chrome.hint {
-		sb.WriteString(pad(selectorHintStyle.Render(fitHint(p.hint, contentWidth))))
+		sb.WriteString(pad(selectorHintStyle().Render(fitHint(p.hint, contentWidth))))
 		sb.WriteString("\n")
 	}
 	if chrome.borders {

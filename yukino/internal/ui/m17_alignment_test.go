@@ -142,7 +142,7 @@ func TestComposerCompletesBeforeSubmitting(t *testing.T) {
 	cancelled := false
 	m.cancelStream = func() { cancelled = true }
 	m, _ = keyModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
-	if cancelled || !m.streaming || !reflect.DeepEqual(m.pendingMessages, []string{"follow-up"}) || m.editor.Value() != "" {
+	if cancelled || !m.streaming || !reflect.DeepEqual(m.pendingMessages, []queuedMessage{{text: "follow-up"}}) || m.editor.Value() != "" {
 		t.Fatal("busy input was lost or interrupted the foreground")
 	}
 	m, _ = keyModel(t, m, tea.KeyMsg{Type: tea.KeyUp})
@@ -313,7 +313,7 @@ func TestQueueRunsAfterForegroundEndsAndWaitsForInitialization(t *testing.T) {
 	m := newChatModel(t)
 	m.editor.SetValue("draft typed during execution")
 	m.ag = &agent.Agent{}
-	m.pendingMessages = []string{"/help"}
+	m.pendingMessages = []queuedMessage{{text: "/help"}}
 	updated, _ := m.Update(struct{}{})
 	m = asModel(t, updated)
 	if m.editor.Value() != "draft typed during execution" {
@@ -323,7 +323,7 @@ func TestQueueRunsAfterForegroundEndsAndWaitsForInitialization(t *testing.T) {
 		t.Fatal("idle follow-up was not dispatched")
 	}
 	m.ag = nil
-	m.pendingMessages = []string{"not ready"}
+	m.pendingMessages = []queuedMessage{{text: "not ready"}}
 	updated, _ = m.Update(struct{}{})
 	m = asModel(t, updated)
 	if len(m.pendingMessages) != 1 {
@@ -337,7 +337,7 @@ func TestQueuedTurnWaitsForAgentCleanup(t *testing.T) {
 	m.streaming = true
 	ch := make(chan agent.AgentEvent)
 	m.agentCh = ch
-	m.pendingMessages = []string{"/help"}
+	m.pendingMessages = []queuedMessage{{text: "/help"}}
 	updated, _ := m.Update(agentEventMsg{ch: ch, event: agent.LoopComplete{}})
 	m = asModel(t, updated)
 	if len(m.pendingMessages) != 1 || m.settlingCh != ch || !m.settleWaiting {

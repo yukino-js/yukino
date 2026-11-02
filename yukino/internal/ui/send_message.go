@@ -11,12 +11,18 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/session"
 )
 
-func (m Model) sendMessage(text string) (tea.Model, tea.Cmd) {
+func (m Model) sendMessage(text string, existingInput *history.InputEntry) (tea.Model, tea.Cmd) {
 	m.refreshSkillsIfNeeded()
 	wd, _ := os.Getwd()
-	input, err := history.RecordInput(history.InputOptions{Cwd: wd, SessionID: &m.sessionID, Source: "cli", Text: text})
-	if err != nil {
-		return m.inputError(err)
+	var input history.InputEntry
+	if existingInput != nil {
+		input = *existingInput
+	} else {
+		var err error
+		input, err = history.RecordInput(history.InputOptions{Cwd: wd, SessionID: &m.sessionID, Source: "cli", Text: text})
+		if err != nil {
+			return m.inputError(err)
+		}
 	}
 	expanded, blocks := conversation.ExpandAtRefsWithImages(text, wd)
 	userRecord := session.Message{Content: expanded}
@@ -27,11 +33,14 @@ func (m Model) sendMessage(text string) (tea.Model, tea.Cmd) {
 	if err != nil {
 		return m.inputError(err)
 	}
-	m.historyEntries = append(m.historyEntries, text)
+	if existingInput == nil {
+		m.historyEntries = append(m.historyEntries, text)
+	}
 	m.historyIndex = 0
 	m.historyDraft = nil
 
 	m.streaming = true
+	m.beginInteractionRun()
 	m.atMenuOpen = false
 	m.atMatches = nil
 
@@ -50,6 +59,7 @@ func (m Model) sendMessage(text string) (tea.Model, tea.Cmd) {
 
 	conv := m.conversation
 	ag := m.ag
+	m.steeringAgent = ag
 	ag.MemoryRecallCh = prefetchCh
 	m.startingAgent = true
 	startAgentCmd := func() tea.Msg {
@@ -71,6 +81,7 @@ func (m Model) sendPromptCommand(displayText, prompt, agentRole string) (tea.Mod
 	m.historyDraft = nil
 
 	m.streaming = true
+	m.beginInteractionRun()
 	m.atMenuOpen = false
 	m.atMatches = nil
 
@@ -95,6 +106,9 @@ func (m Model) sendPromptCommand(displayText, prompt, agentRole string) (tea.Mod
 
 	conv := m.conversation
 	ag := m.ag
+	if agentRole == "" {
+		m.steeringAgent = ag
+	}
 	ag.MemoryRecallCh = prefetchCh
 	m.startingAgent = true
 	startAgentCmd := func() tea.Msg {

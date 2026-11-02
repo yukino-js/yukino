@@ -177,19 +177,31 @@ func (m Model) renderUIStatus(rows int) string {
 	if m.latestVersion != "" && !m.updateDismissed {
 		lines = append(lines, padding+truncateToWidth(paint("New Yukino version v"+m.latestVersion+" is available. Run ", Theme.Warning)+ansiStyle(paint("yukino update", Theme.Accent), "\x1b[1m", "\x1b[22m"), width, "…"))
 	}
-	if len(m.pendingMessages) > 0 {
+	if len(m.pendingMessages)+len(m.steeringPending) > 0 {
 		limit := min(3, max(1, rows-4))
 		if m.height < 12 {
 			limit = 1
 		}
-		start := max(0, len(m.pendingMessages)-limit)
-		for _, text := range m.pendingMessages[start:] {
-			lines = append(lines, padding+truncateToWidth("Follow-up: "+plainTerminalLine(text), width, "…"))
+		steeringLimit := limit
+		if len(m.pendingMessages) > 0 {
+			steeringLimit = (limit + 1) / 2
 		}
-		if len(m.pendingMessages) > limit {
-			lines = append(lines, padding+fmt.Sprintf("%d queued messages", len(m.pendingMessages)))
+		steeringLimit = min(len(m.steeringPending), steeringLimit)
+		followUpLimit := min(len(m.pendingMessages), limit-steeringLimit)
+		for _, input := range m.steeringPending[len(m.steeringPending)-steeringLimit:] {
+			lines = append(lines, padding+truncateToWidth("Steering: "+plainTerminalLine(input.Text), width, "…"))
 		}
-		lines = append(lines, padding+truncateToWidth("↑ on empty input edits the latest queued message", width, "…"))
+		for _, message := range m.pendingMessages[len(m.pendingMessages)-followUpLimit:] {
+			lines = append(lines, padding+truncateToWidth("Follow-up: "+plainTerminalLine(message.text), width, "…"))
+		}
+		if total := len(m.pendingMessages) + len(m.steeringPending); total > limit {
+			lines = append(lines, padding+fmt.Sprintf("%d queued messages", total))
+		}
+		hint := "↑ on empty input edits the latest queued message"
+		if m.width >= 100 {
+			hint = "Steering injects at the next turn boundary · Follow-up waits until the agent finishes · ↑ on empty input edits the latest"
+		}
+		lines = append(lines, padding+truncateToWidth(hint, width, "…"))
 	}
 	if !m.ctrlCDeadline.IsZero() {
 		lines = append(lines, padding+truncateToWidth("Press Ctrl+C again to exit.", width, "…"))

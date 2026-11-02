@@ -1,0 +1,10 @@
+import fs from "node:fs";
+import { homedir } from "node:os";
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+import { stripVTControlCharacters } from "node:util";
+const reference=resolve(process.env.YUKINO_REFERENCE ?? resolve(homedir(),"github/yukino-code/apps/yukino"));
+const {renderInteractionSummary}=await import(pathToFileURL(resolve(reference,"src/ui/interaction-summary.ts")).href);
+const summary={agentActiveMs:10000,cacheCreationTokens:2000,cacheReadTokens:8000,failedToolCalls:1,inputTokens:2000,outputTokens:500,sessionId:"muuxygb5-4929a904",startedAt:1000,successfulToolCalls:3,toolTimeMs:4000,latestVersion:"999.0.0"};
+const cases=[1,2,3,10,20,40,80,160].map(columns=>({columns,expected:stripVTControlCharacters(renderInteractionSummary(summary,{color:false,columns,endedAt:16000}))}));
+fs.writeFileSync(new URL("summary-reference.json",import.meta.url),JSON.stringify({summary,cases},null,2)+"\n");

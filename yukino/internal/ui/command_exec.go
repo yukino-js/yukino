@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"strconv"
 
@@ -181,6 +182,7 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 		switch name {
 		case "clear":
 			m.pendingMessages = nil
+			m.steeringPending = nil
 			m.queuePaused = false
 			if m.taskMgr != nil {
 				if err := m.taskMgr.StopAll(context.Background()); err != nil {
@@ -217,6 +219,9 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 				panic(err)
 			}
 			m.totalInput = 0
+			m.interactionStats = bootstrap.InteractionSummary{StartedAt: float64(time.Now().UnixMilli())}
+			m.activeToolIDs = nil
+			m.agentStartedAt, m.toolBatchStartedAt = time.Time{}, time.Time{}
 			m.totalOutput = 0
 			m.totalCacheRead = 0
 			m.totalCacheCreation = 0

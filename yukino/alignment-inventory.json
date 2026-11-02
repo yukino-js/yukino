@@ -1,0 +1,2276 @@
+{
+  "reference_commit": "1847a71e03f90d0e5fc60a2a797c60af327b7750",
+  "counts": {
+    "Corrected": 213,
+    "Language-specific difference": 2,
+    "Partially aligned": 58,
+    "Pending review": 20,
+    "Reviewed": 26,
+    "Shared browser build": 51,
+    "Synchronized artifact": 7
+  },
+  "files": [
+    {
+      "source": "src/a2a/card.ts",
+      "source_sha256": "0e2f738fd1adb97593d60377311029ed29fb2a4657e125825a30dbf4ff553044",
+      "counterpart": "`internal/a2a/card.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/a2a/constants.ts",
+      "source_sha256": "455c11413cc5e2e102d9a0fda7303a5d7017a34fe57f400e8bc9071f580907f4",
+      "counterpart": "`internal/a2a/constants.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/a2a/conversion.ts",
+      "source_sha256": "e097957a4deab58be0cb8438e5a341bb6f1a6713e62d16958d997c9ecde4acb8",
+      "counterpart": "`internal/a2a/conversion.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/a2a/executor.ts",
+      "source_sha256": "9cefd1e12e57302bb0b805c8f91861415716f9e204cef5e065f45a3f22a6e04b",
+      "counterpart": "`internal/a2a/executor.go`, `internal/a2a/runtime.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/a2a/index.ts",
+      "source_sha256": "ae863f93a756552af93cce966ab83d03e60bb3aebd2b66bf3ff9e1a649d5e3d4",
+      "counterpart": "`internal/a2a`",
+      "status": "Reviewed"
+    },
+    {
+      "source": "src/a2a/prompts.ts",
+      "source_sha256": "f39ab6a41c65406795ec4471cc465b0df4330d49477fb8b6fe3dd3f7f5173cea",
+      "counterpart": "`internal/a2a/prompts.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/a2a/request-handler.ts",
+      "source_sha256": "5706d0e1499981d283d95d0ade8bab3439198b517c15416b3d2c1df4012954c4",
+      "counterpart": "`internal/a2a/request_handler.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/a2a/server.ts",
+      "source_sha256": "4a15b9489475ffd1761a96e076d0a180370bc3035010d4514d8ce3888eacafee",
+      "counterpart": "`internal/a2a/server.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/agent/constants.ts",
+      "source_sha256": "46d3f6fdee31a5070acb2efd8b8f49b24aff4352fa714b03c59703967846b844",
+      "counterpart": "`internal/agent/constants.go`, `internal/tool_result`, `internal/goal`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/agent/events.ts",
+      "source_sha256": "56f7cda555631f650fcd39b04273840d79cfe64b3355ebdb483fd20cb39d6670",
+      "counterpart": "`internal/agent/events.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/agent/index.ts",
+      "source_sha256": "5b6eaf10dfbeccf52fce089b2aab70c273cfd87483e47fffafd602b71c259d07",
+      "counterpart": "`internal/agent/agent.go`, `internal/agent/run.go`, `internal/agent/artifacts.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/agent/prompts.ts",
+      "source_sha256": "be00649e04e6c0691507ee0c2017ff085f0c04f92b09eefbebe1bfadaa0668b7",
+      "counterpart": "`internal/agent/prompts.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/agent/streaming-executor.ts",
+      "source_sha256": "05b86432210a8170bd1f3c905cccfa9f395bb97cc7ff0c46567ede6adecaad57",
+      "counterpart": "`internal/agent/streaming_executor.go`, `internal/agent/agent.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/bootstrap/exit-cleanup.ts",
+      "source_sha256": "3da4f7d20a6bcb7ed56077d5af0f3c903d7c3427b721dd6b7d80b05ddb616dde",
+      "counterpart": "`internal/tools/exit_cleanup.go`, `cmd/yukino/main.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/bootstrap/index.ts",
+      "source_sha256": "ea7bc6496461c29400a90f103c47f38d4c5819f3d69feac5b42bb7fab4a00392",
+      "counterpart": "`internal/bootstrap`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/bootstrap/interaction-summary.ts",
+      "source_sha256": "f664e11e6b6b4a157c131ec3a2b3f85c154c91a8ac4f223c97d7a47802179083",
+      "counterpart": "`internal/bootstrap/interaction_summary.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/bootstrap/sandbox.ts",
+      "source_sha256": "32b6dc9b9f57ead3f1886dfec5cb6a6548bbd7ff1e6738a43fe7c94f83369916",
+      "counterpart": "`internal/bootstrap/sandbox.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/bootstrap/tool-registry.ts",
+      "source_sha256": "ee178cdcaf972dcc6a0460a06d9360b8ad51e1d5acb9e51202706e89899d6271",
+      "counterpart": "`internal/bootstrap/tool_registry.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/cli.ts",
+      "source_sha256": "bf2347cbba09d2005f4bdd87ca46d570d452ce0a05a66f744eb3b680ab3ea6f1",
+      "counterpart": "`cmd/yukino/cli.go`, `cmd/yukino/main.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/commands/commands.ts",
+      "source_sha256": "c9ecfa81edcdd5fd1b37ee94a4e783789b0e33e6ba92bd002443193990e18322",
+      "counterpart": "`internal/commands`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/commands/constants.ts",
+      "source_sha256": "0dab95edd1333c1fd8288c5c1925bc8cc3d9973fbbec76d029f7afa8af24d586",
+      "counterpart": "`internal/commands`",
+      "status": "Reviewed"
+    },
+    {
+      "source": "src/commands/index.ts",
+      "source_sha256": "f93a662ed27b4d2ef00babe74ae43bf1945f26c2bab8ab4ef99d4b4d2c27db82",
+      "counterpart": "`internal/commands`",
+      "status": "Reviewed"
+    },
+    {
+      "source": "src/commands/loader.ts",
+      "source_sha256": "688f4dfbca46bdb6976b78e9b7faa964af710a62990a1464b3bf07dc9493148f",
+      "counterpart": "`internal/commands`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/commands/prompts.ts",
+      "source_sha256": "8d8576f7bd4d25d7df4ea9cf86e9f32158f827b293f39206518220cb143924b9",
+      "counterpart": "`internal/commands`",
+      "status": "Reviewed"
+    },
+    {
+      "source": "src/commands/subagent.ts",
+      "source_sha256": "91634cdcbe9377ec2d5d5ac581ac385ee2fa500392ffd700507985cece4df2a6",
+      "counterpart": "`internal/commands/subagent.go`, `internal/ui/send_message.go`, `internal/remote/server.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/commands/usage-tracker.ts",
+      "source_sha256": "57e5be26449d703e3258a060349dc7cf1937f30edc874ee4cc9398966608cbda",
+      "counterpart": "`internal/commands/usage_tracker.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/compact/compact.ts",
+      "source_sha256": "b7685071897ec4f42ecf28d840838cce2551470b87e106b45474cc6402dfa33f",
+      "counterpart": "`internal/compact/compact.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/compact/constants.ts",
+      "source_sha256": "c6decb9201a95387328da8ef2551af6ce6b0da5fb56da3695d0357d2277dcf8d",
+      "counterpart": "`internal/compact/constants.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/compact/index.ts",
+      "source_sha256": "87f1d242036e34167abe1d72790fbb63bec32cd5b2f72c31a090123866593616",
+      "counterpart": "`internal/compact`",
+      "status": "Reviewed"
+    },
+    {
+      "source": "src/compact/prompts.ts",
+      "source_sha256": "fe203a94189338f2a9640272c6de6fa23a98152f1846e540b18efded469a014e",
+      "counterpart": "`internal/compact/prompts.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/compact/recovery.ts",
+      "source_sha256": "b082daffcfe6240f97f5a4bb004351f7d932360299fac8f85584f2fd84dabaa9",
+      "counterpart": "`internal/compact/recovery.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/config/constants.ts",
+      "source_sha256": "367e9241d0c11d08a64288a7900770f0a19ca10474a2eb1cc6047b13fc627ffc",
+      "counterpart": "`internal/config`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/config/index.ts",
+      "source_sha256": "f68892fc721dcc4f465774205696f3828c453dc491372f3a98901c4633984b15",
+      "counterpart": "`internal/config`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/config/provider-config.ts",
+      "source_sha256": "87fb4259614acb9b56ccc704c436ad103a1fd8e85264fb9bf622a50e887c20a5",
+      "counterpart": "`internal/config`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/config/provider-login.ts",
+      "source_sha256": "0f907b0771e8c65ae3a99ff74c7f8ceafa9f7dcd10b5ac64f581952be466c3e5",
+      "counterpart": "`internal/config`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/conversation/at-expand.ts",
+      "source_sha256": "1a70ee9c8c601886bf04b8e64eca5e66f016a47458e0e5cf8bf5b3ba9ff6ef42",
+      "counterpart": "`internal/conversation/at_expand.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/conversation/constants.ts",
+      "source_sha256": "9ae44ccfc9b76d5a45bbe3274cae46ce711fe7e67bd9e3b093524458fc42d63d",
+      "counterpart": "`internal/conversation`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/conversation/index.ts",
+      "source_sha256": "33ca2908955a48f0bdb8a602b5699922f493a64dfb49758ea839e3c8603352d5",
+      "counterpart": "`internal/conversation/conversation.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/conversation/pairing.ts",
+      "source_sha256": "0ffa2aff64dac435d56aeba012e42b62ba2918ca12483c9c313c5da98031ed10",
+      "counterpart": "`internal/conversation/pairing.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/conversation/prompts.ts",
+      "source_sha256": "57e71848215c89cd8a82db70454465024e8dd674229801788b910d54edc43a11",
+      "counterpart": "`internal/conversation/conversation.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/conversation/user-bash.ts",
+      "source_sha256": "38ae51ede7611c1720d376f67327624458cafac51b67cd2033a66c4daf71e6fb",
+      "counterpart": "`internal/conversation`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/file-history/constants.ts",
+      "source_sha256": "225519a092e2f1475c8ebfef6a7ecd4168edef78cc85886b907672a1753b23fc",
+      "counterpart": "`internal/file_history/file_history.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/file-history/index.ts",
+      "source_sha256": "d14bd3dbec041d5e94f65a6af1b79231e58172bcb402450fadb724dce651d8cb",
+      "counterpart": "`internal/file_history/file_history.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/goal/constants.ts",
+      "source_sha256": "155231ced324a5dec82dae8776816db5cc88b92352218488218851f8747b698d",
+      "counterpart": "`internal/goal/constants.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/goal/index.ts",
+      "source_sha256": "3981bb80b44b8f2e6cc509abaffeb792536ce27ca0c6f26a3fc798584eb9dcce",
+      "counterpart": "`internal/goal/goal.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/goal/prompts.ts",
+      "source_sha256": "dd37cee76ba3b8ce00aa76eb3090d2b866189c811ed71296dfab2706e4661401",
+      "counterpart": "`internal/goal/prompts.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/history/constants.ts",
+      "source_sha256": "aa561a45bac494fe9abc81b630abef388c0cf694cc3f7e80e7a20454f05133a9",
+      "counterpart": "`internal/history/history.go`",
+      "status": "Reviewed"
+    },
+    {
+      "source": "src/history/index.ts",
+      "source_sha256": "52b22d1cf0555a1b3a905274bb3ebbcdd60b285b9a1aad2b286a76a729aa981b",
+      "counterpart": "`internal/history/history.go`, `internal/history/schema.go`, `internal/history/usage_order.go`, `internal/history/signature_*.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/hooks/constants.ts",
+      "source_sha256": "e6e11dffce0d33351ca3087c59a848d1f2d6d3a74f9df61be4ffc4badc9fc0a4",
+      "counterpart": "`internal/hooks`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/hooks/index.ts",
+      "source_sha256": "3cd3bcff164bd2336be64f87568e656d76c138d56f7eae86a67df343d8340b5e",
+      "counterpart": "`internal/hooks`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/images/clipboard.ts",
+      "source_sha256": "d6b930b7f450d7366f8b033760c746e8b7665d1987086c11c955d043cb817ffb",
+      "counterpart": "`internal/images/clipboard.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/images/constants.ts",
+      "source_sha256": "0183c5dfa0613817b0dc0a4bf98f2cb5b037ef1e326f76a1c23e6d6c93e4b311",
+      "counterpart": "`internal/images/constants.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/images/image-worker.js",
+      "source_sha256": "aa508bebf4419e1591d0b9821c6806b4d0ac875ce137ad150bd7512524c1c471",
+      "counterpart": "`internal/images/worker.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/images/index.ts",
+      "source_sha256": "b30a277147106427f69a841a314aa43744b43f49a452197e6570df9de92b1b7f",
+      "counterpart": "`internal/images/images.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/images/types.ts",
+      "source_sha256": "acadc6ed792f9c5da5ba6223d065df5cc163afdf87dc17d06f0e648b156fbd4a",
+      "counterpart": "`internal/images/types.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/images/worker.ts",
+      "source_sha256": "9c9b524a71f0494f3f142243aa5e96c07087dd2192cec7a7ce0c2a00862aaeaf",
+      "counterpart": "`internal/images/worker.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/index.ts",
+      "source_sha256": "da7270e4c5a473ea2bba71d30f67328957cba953d15fd1fb769c300cf77cc789",
+      "counterpart": "`cmd/yukino`",
+      "status": "Pending review"
+    },
+    {
+      "source": "src/llm/anthropic.ts",
+      "source_sha256": "e4845f3169fc04fc4c1485349762bb7a33bcd18217c47fe419a015767d89b1c1",
+      "counterpart": "`internal/llm`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/llm/client.ts",
+      "source_sha256": "3ea3b0fe886dff2953a36afb37c3cb8a9a79bc286af919a121704be9aa1523ee",
+      "counterpart": "`internal/llm`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/llm/constants.ts",
+      "source_sha256": "c3180c5420b3ae23b07c86d6d2ade209128075fbf926077d9b10237b2a0ebe3a",
+      "counterpart": "`internal/llm`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/llm/errors.ts",
+      "source_sha256": "4df0233d4559dc8a749cfb8d79176983064c3793ecb86cd7e94f5ec8933e0c33",
+      "counterpart": "`internal/llm`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/llm/events.ts",
+      "source_sha256": "07a597d181c8a4def592f8ff611d88f6ee0ad1c814c000b682598001fba58876",
+      "counterpart": "`internal/llm`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/llm/index.ts",
+      "source_sha256": "656512e774edd3a5a9273d94657b44cf094dede1582106e9551f6333134db71a",
+      "counterpart": "`internal/llm`",
+      "status": "Reviewed"
+    },
+    {
+      "source": "src/llm/model-discovery.ts",
+      "source_sha256": "98ee164e3cf1366eeb7315d1d2a3b1b22b4d8fc0d2c6fe851fae8e770e5c5a10",
+      "counterpart": "`internal/llm`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/llm/openai.ts",
+      "source_sha256": "b2346b711be6216d48fdd50818c991b35f8b8eb42abcfb787a30dd577ce36c34",
+      "counterpart": "`internal/llm/openai.go`, `internal/llm/openai_computer.go`, `internal/llm/openai_compat.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/llm/retry.ts",
+      "source_sha256": "7b8828d6104a02e496c3f35d824b1a9b1b2fdb85454f7d9fb8b7ac157766962a",
+      "counterpart": "`internal/llm`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/logger/constants.ts",
+      "source_sha256": "40e021fef1c925b5e498a21fed097a621bc658730f493f5bc2a6f8e9cc766f03",
+      "counterpart": "`internal/logger/constants.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/logger/index.ts",
+      "source_sha256": "1bffab9a023df7c0c58598b1d7aad733afe84832ad545a67391173863263cda9",
+      "counterpart": "`internal/logger/logger.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/main.tsx",
+      "source_sha256": "d77f7b95933e2dbea2af97d6589ea7d105ad0103663ddfdb2828376bf5fb60c6",
+      "counterpart": "`cmd/yukino/main.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/mcp/apps.ts",
+      "source_sha256": "0f761b1e90cfc259328f7260d75af364813ec61272c4d94346e519825f6f6115",
+      "counterpart": "`internal/mcp`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/mcp/client.ts",
+      "source_sha256": "24bb3876fe30e08a1a9c36b49146d16222931e6ab4c610291b980ad94f6218ae",
+      "counterpart": "`internal/mcp`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/mcp/constants.ts",
+      "source_sha256": "2a82bc7ea54e6d0da278551d1f4d4da4ef8c9770c64fcf98d77a7efc5abb9d68",
+      "counterpart": "`internal/mcp/strategy.go` and related files",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/mcp/index.ts",
+      "source_sha256": "b18c6c9bef2228967bb87dcdcc67cef7a1ba191c5d54d6cbbdbdfc0c896501e2",
+      "counterpart": "`internal/mcp`",
+      "status": "Reviewed"
+    },
+    {
+      "source": "src/mcp/instructions.ts",
+      "source_sha256": "14f922da2c3c1e92529be576f225663bec08bd1303af3bfc4bb89639c2d86299",
+      "counterpart": "`internal/mcp`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/mcp/manager.ts",
+      "source_sha256": "f6a93fbd0436f454ddb4f88257fd0f44286b1212521040e87d2f165703314d9e",
+      "counterpart": "`internal/mcp`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/mcp/prompts.ts",
+      "source_sha256": "c6ace23e4fe404606a1b87bfbb87f81aeaf100d86726d29dbc0d988c69460a9f",
+      "counterpart": "`internal/mcp`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/mcp/strategy.ts",
+      "source_sha256": "4eb649490c8d7339c4a906c1988f22ea8633867dee6f6f8c82e1b969b81a5e4e",
+      "counterpart": "`internal/mcp/strategy.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/mcp/tool-wrapper.ts",
+      "source_sha256": "1f347c693831c62e79202bd0db5d411c44b4cf5d0663ffbe29c1bfe0ee8a7477",
+      "counterpart": "`internal/mcp`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/memory/background.ts",
+      "source_sha256": "0dc1313d1e94427d54547f02e9a8a7205b7ae298ffc5c558ca558ffbbe159aca",
+      "counterpart": "`internal/memory`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/memory/consolidation.ts",
+      "source_sha256": "6e89a8a78b46edbcac44f88eab3cb7c64e11b02b95dcba81a63448f743c27d2a",
+      "counterpart": "`internal/memory/consolidation/consolidation.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/memory/constants.ts",
+      "source_sha256": "a11572f834c80bcf6a597d1c4562e73da93d29acaadca2c02d2472779df7ba40",
+      "counterpart": "`internal/memory`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/memory/extractor.ts",
+      "source_sha256": "3820e98193485a2e62ce8f3d483a4a0581732c6f440507dea309518c521a7b2b",
+      "counterpart": "`internal/memory/extractor/extractor.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/memory/index.ts",
+      "source_sha256": "41e26bc346fcfb54c2630039c042697b8c1a1c130baa5a2e8e32c3bec5451424",
+      "counterpart": "`internal/memory`",
+      "status": "Reviewed"
+    },
+    {
+      "source": "src/memory/instructions.ts",
+      "source_sha256": "6a11f3b67058a2e37137cc41454c822c9c42003ca01485d54b534ec1d3dac5c5",
+      "counterpart": "`internal/memory`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/memory/manager.ts",
+      "source_sha256": "9a4093b01ce2fb9426329b8213d98f14031b38d9798d1e0edac3ab6c1b06789c",
+      "counterpart": "`internal/memory`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/memory/memory-age.ts",
+      "source_sha256": "da5bd3019856c65fbbb539685e56d7ac4b1fcab37393bd41c08bdb5d2cc92bb8",
+      "counterpart": "`internal/memory`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/memory/permissions.ts",
+      "source_sha256": "e25d4e2af19439aa66a9a19295832c4f22229398eb3592805c42103a117f8876",
+      "counterpart": "`internal/memory/permissions.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/memory/prompts.ts",
+      "source_sha256": "12d6e64b720940800c25a145c26762514a8e303e7e343ff830a6399af3045ee9",
+      "counterpart": "`internal/memory`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/memory/written-paths.ts",
+      "source_sha256": "20dce830ee2030323ad0585f8f5175d8ce5b2e607b629bbaa76668741132a3d4",
+      "counterpart": "`internal/memory`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/permissions/constants.ts",
+      "source_sha256": "df9e72f09fec972d871098969f25a052ac7232f9db9762ce3d4154e3af9fc1cd",
+      "counterpart": "`internal/permissions/constants.go`, `internal/tools/safe_command.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/permissions/index.ts",
+      "source_sha256": "c3b52f517efc8aafb9aa6112e45ee473560de2c2d0a001085c1b56f7a61a0b3c",
+      "counterpart": "`internal/permissions/permissions.go`, `internal/permissions/mode.go`, `internal/permissions/worktree.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/permissions/request.ts",
+      "source_sha256": "dcf72013079b66770824af6f00cd8355c7d113c039ad8f29a8cb0bb005795082",
+      "counterpart": "`internal/agent/agent.go`, `internal/subagent/agent_tool.go`, `internal/commands/subagent.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/permissions/shell.ts",
+      "source_sha256": "32c705a6ae38da13a0497c083ed2f6b8545488654a99204dbc5ebdbb9cd21484",
+      "counterpart": "`internal/permissions/shell.go`",
+      "status": "Reviewed"
+    },
+    {
+      "source": "src/plan-file/constants.ts",
+      "source_sha256": "2ead9f2e91076ba1c1b6579ac15b108e1508913843e11a5d158d885a663fb326",
+      "counterpart": "`internal/plan_file`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/plan-file/index.ts",
+      "source_sha256": "3ea53d784efd8f86a230395e22afcc096c2781629ea8153f481b75b9005a89de",
+      "counterpart": "`internal/plan_file/plan_file.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/print-mode.ts",
+      "source_sha256": "0af31f5845e3fd7d9d2cf985b49ce416b24517abdae033d10eaeed95055dfd42",
+      "counterpart": "`cmd/yukino`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/prompt/builder.ts",
+      "source_sha256": "fe2d361aae04a274056b35c9411db5959f2db2f2891ba1f5c6ace135b4f5e621",
+      "counterpart": "`internal/prompt/builder.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/prompt/constants.ts",
+      "source_sha256": "58acc35c10aace88ce5d617c249ce401a0e7de935f3875eea37575d6db4fe08b",
+      "counterpart": "`internal/prompt`",
+      "status": "Reviewed"
+    },
+    {
+      "source": "src/prompt/coordinator.ts",
+      "source_sha256": "3324752dc27e40597e7f3effcb27411788b91acf65adbaa200bd1cde80ef9b31",
+      "counterpart": "`internal/prompt/coordinator.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/prompt/index.ts",
+      "source_sha256": "4dcf9793bbb798543c2c56ee6ff43bbbed3265de9208bd50e21c7dbb4c1aceca",
+      "counterpart": "`internal/prompt`",
+      "status": "Reviewed"
+    },
+    {
+      "source": "src/prompt/plan-mode.ts",
+      "source_sha256": "b86de0db42aaddda9959575ea7ccfe533cb6a0146b92d0a8e1c6c1fe3dab774b",
+      "counterpart": "`internal/prompt/plan_mode.go`, `internal/prompt/plan_prompts.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/prompt/prompts.ts",
+      "source_sha256": "f05f3ae6587c90f7ad9eb528ca7d7c2b0ef89d8dee14c453b2e8ab6b7fee4320",
+      "counterpart": "`internal/prompt`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/prompt/sections.ts",
+      "source_sha256": "3721b7cbde3824e89479a5e3dc18d01cd60f8636b972dde51db4aa0b65450217",
+      "counterpart": "`internal/prompt/sections.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/prompt/tools.ts",
+      "source_sha256": "0bbcb1256af328ceb3bcb2fa1abbdd0b541106392520c1d307f4639fd99c901d",
+      "counterpart": "`internal/prompt/tools.go`, `internal/agent/run.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/recover.ts",
+      "source_sha256": "d50c475217fe94274bd58498868a83fcedf77ae979adf3a2b3d1f1338a7ed6ed",
+      "counterpart": "`cmd/yukino`, `internal/crash_log`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/remote/address.ts",
+      "source_sha256": "6cb58f7f83694c86d303484220fecccaa84f4e4d5883b04e5183e5027c55e87e",
+      "counterpart": "`internal/remote/access.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/remote/browser/dist/index.html",
+      "source_sha256": "a32957a248253e724393d6f42e413754f9e17c0208e151eb50e655638c9d3c4d",
+      "counterpart": "`internal/remote/browser/dist/index.html`",
+      "status": "Synchronized artifact"
+    },
+    {
+      "source": "src/remote/browser/dist/static/chunk-OR5FHECQ.js",
+      "source_sha256": "4a3a284331530d8c4e91072db469546e5120dbcc5d340f039df858b9524799dc",
+      "counterpart": "`internal/remote/browser/dist/static/chunk-OR5FHECQ.js`",
+      "status": "Synchronized artifact"
+    },
+    {
+      "source": "src/remote/browser/dist/static/chunk-RFE6KDWB.js",
+      "source_sha256": "17519df6d48fa8d8915bc0cc9e7fd6fd4d43bb4882ee10669ff7ca0e4001e141",
+      "counterpart": "`internal/remote/browser/dist/static/chunk-RFE6KDWB.js`",
+      "status": "Synchronized artifact"
+    },
+    {
+      "source": "src/remote/browser/dist/static/highlight-Y5QQXU5Q.js",
+      "source_sha256": "5949bb3de23f6bae75b05255160c098e7e24dcf2dabfbf00cf6a7c7a581df022",
+      "counterpart": "`internal/remote/browser/dist/static/highlight-Y5QQXU5Q.js`",
+      "status": "Synchronized artifact"
+    },
+    {
+      "source": "src/remote/browser/dist/static/index.css",
+      "source_sha256": "4f18da8a5cfb6359baccd6ec5f6bca8165eaec7d071652a145f2e163e99a8ef5",
+      "counterpart": "`internal/remote/browser/dist/static/index.css`",
+      "status": "Synchronized artifact"
+    },
+    {
+      "source": "src/remote/browser/dist/static/index.js",
+      "source_sha256": "58a755a9fc25c9790fbe46ce37e7192286cfb21fe9b6bb2c9674f219e0181e1f",
+      "counterpart": "`internal/remote/browser/dist/static/index.js`",
+      "status": "Synchronized artifact"
+    },
+    {
+      "source": "src/remote/browser/dist/static/webapi-HZESKPJE.js",
+      "source_sha256": "29c8a6f61eeb151c43a0fe19fd0813a8bf450d9c2ff54ceb1e229b7947223f95",
+      "counterpart": "`internal/remote/browser/dist/static/webapi-HZESKPJE.js`",
+      "status": "Synchronized artifact"
+    },
+    {
+      "source": "src/remote/browser/index.html",
+      "source_sha256": "a32957a248253e724393d6f42e413754f9e17c0208e151eb50e655638c9d3c4d",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/postcss.config.mjs",
+      "source_sha256": "2d98f45df3d5e1f0d1ef4be482f04440c7fc163b27ed33e5d33e63ec1e16965e",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/app.tsx",
+      "source_sha256": "07d8cf4726a6894be410ebffd82e421ce236cc327ddaa76df770ca77a390d6bd",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/components/activity-panel.tsx",
+      "source_sha256": "ae5ae8eaa7c5e2e4c4a8484cf838c8e09aeeea085bda33b7f550b7ad59f0e8e0",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/components/ask-user-dialog.tsx",
+      "source_sha256": "97096a81ab870512ba61cae4d0fc6869f1cd36b25fdc0a796a6e86303ea16321",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/components/assistant-message.tsx",
+      "source_sha256": "fa0b6d684c2ab907b06035716f1acff41ae320638a0f63ca1652c35e29a49776",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/components/collapsible.tsx",
+      "source_sha256": "80936fcdbc1280856af5044066aae7b0229e9d9fd5bce5ee78b9d77b7c8e60b8",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/components/diff-lines.tsx",
+      "source_sha256": "1f4a7b80c141b6c37952d0705dc867f2f40423e4af8dce5852e0839784ee6aa4",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/components/done-indicator.tsx",
+      "source_sha256": "8b3e359d62bc8edb54a77454fe6afacf9e132955764f5f8fbe141b434719451c",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/components/error-message.tsx",
+      "source_sha256": "a411ea59d11fe37e10936592f4b22a03f23afd747c052c346e0bd090a6fd7c74",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/components/input-area.tsx",
+      "source_sha256": "b679b23dc147373a9cb4e9eeb1901ff9612b20e12b3537ae8cf744f9cc2cc803",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/components/markdown.tsx",
+      "source_sha256": "86dbc54b7c997d36d5e41c18b3b3356988e515b9aa8c49eeb7b48c267d36041b",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/components/mcp-app.tsx",
+      "source_sha256": "b65b7a0963afa8931d64ec839837bf15ad3a69dd1efc4da442a9f632ff31abb7",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/components/message-list.tsx",
+      "source_sha256": "e79d3c92cafbf691fa886c1c7f70777165d57db571a8a9dae0ff78ebff8f2f6e",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/components/modal.tsx",
+      "source_sha256": "b6880dc6d2ab34680a7d3b531c3007fc7dea803e0dd66f85766c5b8d13364f6d",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/components/model-picker.tsx",
+      "source_sha256": "8ce5558f5851672c5393acb0c14dbb18ecae829619339ce8688ec6d160a4b7b1",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/components/permission-dialog.tsx",
+      "source_sha256": "19b118e832267f58801c960e0f147572377a4e444efcb14ea74bf33112e7c9bf",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/components/picker-list.tsx",
+      "source_sha256": "b7fc842f0a1746ac4bf36b3d314c7d8b3d2d6ab012ed3207a3d24078d8c75987",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/components/plan-approval-dialog.tsx",
+      "source_sha256": "4a7f5c9cbcae7d829e6a028bc7421a095f32f091772d57020ca878925e662061",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/components/provider-dialog.tsx",
+      "source_sha256": "bd499bd08cdd58d87b22510223954b042936a6ec49701b6b57bfe05ea79158ce",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/components/rewind-dialog.tsx",
+      "source_sha256": "de94c0858c29f44a95627140546f94d31a32263f99de6c88aca8a9dbe83d91ad",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/components/session-picker.tsx",
+      "source_sha256": "1867b681ff30404844f0f933030f8e11629742cd758f258c33699fecf6524bb4",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/components/slash-menu.tsx",
+      "source_sha256": "838b21416e42273caba71c038620c0640ae9b96783e1966a58bd234839f018c3",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/components/status-bar.tsx",
+      "source_sha256": "f993d90d8b8770e6b841753ceb49b56a5dda5bda6160e0c19b5d78e9427572e0",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/components/streaming-cursor.tsx",
+      "source_sha256": "103e63735351b33b7feac0fb527c59ab5343091f5ccf299c0f4e2214032a4fca",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/components/system-message.tsx",
+      "source_sha256": "e36e3f80cf46ac7dfac2e6a6fdf64667d3b9155efa7087ff584c877c477f40e1",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/components/thinking-block.tsx",
+      "source_sha256": "65249ee8e42aaa3966f8be072f3e46c7279297d73e6052ec939b7be8eae60e04",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/components/thinking-picker.tsx",
+      "source_sha256": "7b431f0f2ce773d7ee586d405f83b39e6dd1bbea8223f09190434128e57ec00e",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/components/todo-progress.tsx",
+      "source_sha256": "885671c6ff37780ccd3a2496166330dffb5bb9aa3795ba111c6d9dd477c20521",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/components/tool-block.tsx",
+      "source_sha256": "65d313d09417bb7995f4d160d0272755f5b8cf3006bbf96f97cd012e71ffe3cd",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/components/user-message.tsx",
+      "source_sha256": "706aa796a5f463e6d35d91269a58131f4e427c56b01f42cde2e799d93751d2a2",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/components/welcome.tsx",
+      "source_sha256": "a8ad5998bdc294cc63343256cb7e082837a159f6a1f8a3cbc4a4c3cb707d2045",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/constants.ts",
+      "source_sha256": "a874a050d3a0f20610891cfd8d064a6e454e4266c71b76a7a5f34535ba36c65a",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/hooks/offline-queue.ts",
+      "source_sha256": "f9379f1f6eb392f8702a66eee915b050eb395c4ae297770e3cf6551d8ba7e391",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/hooks/use-auto-scroll.ts",
+      "source_sha256": "ec75d13c9139595e9f2f7d73c3836ac1f4ef5d646db121186696ca8d5d51ce2e",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/hooks/use-chat.ts",
+      "source_sha256": "383cdba887730ea4273408769fc5340b55544352e31a8565654871eec71dbe61",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/hooks/use-scroll-follow.ts",
+      "source_sha256": "821105cef31741670579e31798984f23774bca3899aa1ec2ef7651fcc98af2c6",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/hooks/use-theme.ts",
+      "source_sha256": "6079fe0665a873d9147ed3d2872d86f27722e516369868e1000cb85e23d971e8",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/hooks/use-web-socket.ts",
+      "source_sha256": "de8985b5f08fd2c22c26286aff1066e9fb98f72d1471ae670fa3cfc0b4b1b969",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/index.tsx",
+      "source_sha256": "65bda5c8586f764d184a6fa3bc86a576b726f69fad5ea20acaf0bce4c8a2e035",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/lib/format.ts",
+      "source_sha256": "778f7bb73c656ffd804a20bfc58bec8ada23d981f6a22c969dda1fd9874f9d21",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/lib/highlight.ts",
+      "source_sha256": "96c61ea5d3a77a26bb20bf96ca4ea056d2d0bc1bfed4fc7d6dd5f0c3da25beb9",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/lib/markdown.ts",
+      "source_sha256": "9a1cc39fffa1609eee8e7470d3162758daeccff827cbf23242439cdc06e8cede",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/lib/mcp-app-context.ts",
+      "source_sha256": "21347bda8f65b0413159255fd5224f6f9a9284b22a5c03061a3261b00c67d84c",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/lib/mcp-app-requests.ts",
+      "source_sha256": "03cb5f5420b311f889355122a58a6a052e4a7e3e7d79b4ea627cf7ba703fd787",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/lib/mcp-app-sandbox.ts",
+      "source_sha256": "573887a835fbc436b6fa8ea1889aa6807c0c5555ebb0bf99c339704f93bb2779",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/main.css",
+      "source_sha256": "0bd4dbde411a60db10a0692a3bbe78eb9b73bbb78fb8f28e426bdf4865f8ce5e",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/shims.d.ts",
+      "source_sha256": "a1e11ea9c568f92e5ff3b72ce5f9a47575e0b3c390a8b318e71f413af9f1b1a8",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/src/types.ts",
+      "source_sha256": "6cf635d17b923a040143a82835d9eff6c738503faf6a02d628b94d4969bfacb4",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/tsconfig.json",
+      "source_sha256": "208e9e02f4c903efcc4bc34d059fc20c27a691d2d1655ccc10defd830655abb2",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/browser/tsup.config.ts",
+      "source_sha256": "85aff9999f6f5bc38392f4bc19da2ab9a46fd2478d67bd0f14256a8eb4a09aa1",
+      "counterpart": "`internal/remote/browser/dist`",
+      "status": "Shared browser build"
+    },
+    {
+      "source": "src/remote/constants.ts",
+      "source_sha256": "63be00230068cf9932e248249c1738fb51ce73d37800da33d4cc1abb86b82f3d",
+      "counterpart": "`internal/remote/web.go`, `internal/remote/server.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/remote/index.ts",
+      "source_sha256": "b1d3b6c4a6236fc2d5a046b228d9d30bdf8341828b7cc582211101c6d2d76a4d",
+      "counterpart": "`internal/remote`",
+      "status": "Reviewed"
+    },
+    {
+      "source": "src/remote/log.ts",
+      "source_sha256": "3f0d34c8620a13f5e73734eb3b093e48a14e2f4a04d704a435fbf6e5813da86a",
+      "counterpart": "`internal/remote`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/remote/mcp-apps.ts",
+      "source_sha256": "3d112429b916c27eec9a67ec39e94eba24c48a4dc48d748e92690f84c84421ce",
+      "counterpart": "`internal/remote`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/remote/server.ts",
+      "source_sha256": "39e665f2543f0c820e25559b4aaaaf1cefdc541db17d1e335bf729ec28dd4852",
+      "counterpart": "`internal/remote/server.go`, `internal/remote/plan.go`, `internal/remote/goal.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/remote/session-state.ts",
+      "source_sha256": "a57c9d543be27bb1b50b0b07b210893ecce5754e8a465a214a8a54ca6f09a2ed",
+      "counterpart": "`internal/remote/server.go`, `internal/remote/goal.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/sandbox/bwrap.ts",
+      "source_sha256": "8815dc74aa4ae498928612924d5033cc9293d264eb7afd42292d4e3ee33df922",
+      "counterpart": "`internal/sandbox/bwrap.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/sandbox/constants.ts",
+      "source_sha256": "0eb597612f163e65f2d09a518215aa8b6bff7be70a462e9aa65c1dfbde3d21f4",
+      "counterpart": "`internal/sandbox/seatbelt.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/sandbox/index.ts",
+      "source_sha256": "9feb11d575e53f5eea840ee20220e6f86569e587002f9c97f3442ebcddfe35bd",
+      "counterpart": "`internal/sandbox/sandbox.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/sandbox/seatbelt.ts",
+      "source_sha256": "65df89152b89afd1874306667afa42f17dab763221848c2305bac3c50e22e79e",
+      "counterpart": "`internal/sandbox/seatbelt.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/session/constants.ts",
+      "source_sha256": "04c1d7d0dafb75bdf7fd38539de5184daec87b663ca572a2ae0d152f6c78b7d8",
+      "counterpart": "`internal/session`",
+      "status": "Reviewed"
+    },
+    {
+      "source": "src/session/index.ts",
+      "source_sha256": "350b93000e598896d33af13294a399b176ca7e033f8c2b9f2ca3ca134dcf1c69",
+      "counterpart": "`internal/session/session.go`, `internal/session/messages.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/skills/catalog.ts",
+      "source_sha256": "9df24c8b6d763cee3cc7bee49a26bd064b9412282daf89db40521e9cbb2a6e49",
+      "counterpart": "`internal/skills`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/skills/constants.ts",
+      "source_sha256": "6f953f3408e0643da9319d9f6be74a9638a4e2902ce1acf165fdd9ac905a2281",
+      "counterpart": "`internal/skills`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/skills/executor.ts",
+      "source_sha256": "c2f9934f777146f68f869e8d7944cf4ff021120e68fb2ec140cc8dbd5538e01e",
+      "counterpart": "`internal/skills`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/skills/index.ts",
+      "source_sha256": "39a7d7c09711a9ccd0f28991035bab40182e5596835ffe7944c3d1472709c0f3",
+      "counterpart": "`internal/skills`",
+      "status": "Reviewed"
+    },
+    {
+      "source": "src/skills/install-skill-tool.ts",
+      "source_sha256": "9f4e739b055b3071c714282161cdf28e908c57eec6602d15e1d0be926bbd2c19",
+      "counterpart": "`internal/skills`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/skills/load-skill-tool.ts",
+      "source_sha256": "130fa2d162cff7c99c1b7967938880d01df34a056ee842c1afef5a886ede5571",
+      "counterpart": "`internal/skills/load_skill_tool.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/skills/prompts.ts",
+      "source_sha256": "5fc9cb0062b621d7aef7db6720304d754015d5f4aa91231030e35c11e0fd70e8",
+      "counterpart": "`internal/skills`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/storage/constants.ts",
+      "source_sha256": "b2b7d798a57d8ec0b76279deeb91a322eb74a3ecb8d7752167c94f4001e77cd3",
+      "counterpart": "`internal/storage/constants.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/storage/index.ts",
+      "source_sha256": "d9d2893c7adb03059c6f6c257d6b7fdaa5d79e6c61229dadabb555e89daede79",
+      "counterpart": "`internal/storage/storage.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/storage/private.ts",
+      "source_sha256": "d417ce89247d3f498233c52441d13ca5a55b26e82eac5d5900af3239b1a10648",
+      "counterpart": "`internal/storage/private.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/subagent/agent-tool.ts",
+      "source_sha256": "6ca0cd0900063792c3dcd1e123c93719e5829f25d61932d49610513072d659f1",
+      "counterpart": "`internal/subagent/agent_tool.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/subagent/constants.ts",
+      "source_sha256": "960b3c384b38a44fa7fc2c17cb7258a3903974e73edcb3b8da681f74b9e62608",
+      "counterpart": "`internal/subagent`",
+      "status": "Reviewed"
+    },
+    {
+      "source": "src/subagent/definition.ts",
+      "source_sha256": "3d3ae54025cb569b9a7de9575ef9d351b50e5e15c04892eb5bd32b10eae7be33",
+      "counterpart": "`internal/subagent/definition.go`, `internal/subagent/subagent.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/subagent/index.ts",
+      "source_sha256": "dc18b9c8f4b06df9b36961511f68461de4c5daf540816dd508f90de067cc6e31",
+      "counterpart": "`internal/subagent`",
+      "status": "Reviewed"
+    },
+    {
+      "source": "src/subagent/loader.ts",
+      "source_sha256": "7a9d88a519b988b6b17d0c6b202180ffe1c7a4af9cbe22197f7865e808ce27e8",
+      "counterpart": "`internal/subagent/loader.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/subagent/plan.ts",
+      "source_sha256": "340e5b1143f679acb77b222dcb095f02f78d209d27c9145957b095081f32dc5b",
+      "counterpart": "`internal/subagent/agent_tool.go`, `internal/tools/enter_plan_mode.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/subagent/prompts.ts",
+      "source_sha256": "6902c8c5df31fb89234289aa720a5aa1ab1b072c96391cad901ee464c24e24dd",
+      "counterpart": "`internal/subagent/prompts.go`, `internal/subagent/subagent.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/subagent/spawn.ts",
+      "source_sha256": "a7ae2707e2e44cde278ace3f73cf830dfd6a77ba825447ec56e4035eb2ce4eaa",
+      "counterpart": "`internal/subagent/spawn.go`, `internal/subagent/agent_tool.go`, `internal/teams/spawn.go`, `internal/teams/in_process.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/subagent/task-manager.ts",
+      "source_sha256": "f3d962a019a77aa243b259dd181b505c3128c4d875c27b9600889975c197dbf2",
+      "counterpart": "`internal/subagent/task_manager.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/subagent/task-store.ts",
+      "source_sha256": "988494f9fbce4151a84edae76098159441c16698e135c0e9993f7e7b668eb83b",
+      "counterpart": "`internal/subagent/task_store.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/subagent/tool-filter.ts",
+      "source_sha256": "90f2cb4b1e71f4110ea181b93f0a05654b3bd751988be1de5d2752be8f339d5a",
+      "counterpart": "`internal/subagent/tool_filter.go`, `internal/subagent/agent_tool.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/teams/constants.ts",
+      "source_sha256": "1c002c2818fd9f602cfa731bd303a8d3e2c75200660499341f43b51be1728ceb",
+      "counterpart": "`internal/teams`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/teams/coordinator.ts",
+      "source_sha256": "03d7dd8b52d41f6df6e2270414f7d37c7d2d26dc103bb94fe62a7f8f51defb00",
+      "counterpart": "`internal/teams/coordinator.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/teams/file-lock.ts",
+      "source_sha256": "f0df240b5f950bb6a033d50eda6596041e46033838a7e2166b1477a1bee0aa84",
+      "counterpart": "`internal/storage/file_lock.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/teams/file-mailbox.ts",
+      "source_sha256": "682b2dad2d0fcdcb3e2faf30b32cadc0d4d941cdbaa436356b16bc040df4815e",
+      "counterpart": "`internal/teams/file_mailbox.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/teams/index.ts",
+      "source_sha256": "db5c0ac1bc34cd9cf577f016a33d25901c1b2a39ba054ab9636732462e7dca6f",
+      "counterpart": "`internal/teams/teams.go`, `internal/teams/runner.go`, `internal/teams/in_process.go`, `internal/teams/plan.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/teams/progress.ts",
+      "source_sha256": "9d1d03d77784e915418aa3b00c7667f6dc0781b6cedc568f9e07393072d80b58",
+      "counterpart": "`internal/teams/progress.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/teams/prompts.ts",
+      "source_sha256": "017c53a812d3af8a34a76cb1d6660a9fd74af0fb8da8fc3d21a2fcb0a3b9510c",
+      "counterpart": "`internal/teams/prompts.go`, `internal/prompt/teammate.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/teams/protocol.ts",
+      "source_sha256": "7bb3db27923e667eb3576d7e8d7bc2cac354f9cc26834903c66912c0da7fc362",
+      "counterpart": "`internal/teams/protocol.go`, `internal/teams/runner.go`, `internal/teams/plan.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/teams/registry.ts",
+      "source_sha256": "333e369b1c6116a9c9d9d2e8dd4c3b3a728345b692b56323f77be90376da8ac8",
+      "counterpart": "`internal/teams`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/teams/shared-task.ts",
+      "source_sha256": "552efa072a9a88768e361f0f1fbdaf150617443a15cb6b6b6c59f81109fcc650",
+      "counterpart": "`internal/teams/shared_task.go`, `internal/todo/write.go`, `internal/todo/store.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/teams/task-stop.ts",
+      "source_sha256": "d79acc117ecc577016f52865da016965fe371ac4b7c95ab38a358ac1100b68f3",
+      "counterpart": "`internal/teams/task_stop.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/teams/task-tools.ts",
+      "source_sha256": "5b9cee37dff5acb0f0017c444065282aad939fdb949944a39ddd83a81d93d0d6",
+      "counterpart": "`internal/teams/task_tools.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/teams/team-file.ts",
+      "source_sha256": "2b9179356a159f7c4f7023b6b47c74193585e97b9cf506f31f7bd99db929b73d",
+      "counterpart": "`internal/teams/team_file.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/teams/tools.ts",
+      "source_sha256": "74b5b3f7897f260868fcad9a731643bd4bda507aa2006d12166400e0023b117f",
+      "counterpart": "`internal/teams/tools.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/telemetry/constants.ts",
+      "source_sha256": "b0eb3303399bc7c7b8367bd518a3a66e0d9b26d9050054c57e7ff242fb4161c5",
+      "counterpart": "`internal/telemetry/constants.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/telemetry/index.ts",
+      "source_sha256": "d67ce7a527bfbe86b5e7ebc025358e84f9f23fcaee9dd5c8ad081ddf7e78d19b",
+      "counterpart": "`internal/telemetry/telemetry.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/telemetry/instrumentation.ts",
+      "source_sha256": "19595e94b148763ea0dc0536a774257e1cf94f29071fe3cc5cd5074d8c02f832",
+      "counterpart": "`internal/telemetry/instrumentation.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/telemetry/privacy.ts",
+      "source_sha256": "c35a46438c60675badda58f8ed96e612c357f880d05432acc4667cd0ad6fe9e0",
+      "counterpart": "`internal/telemetry/privacy.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/telemetry/providers.ts",
+      "source_sha256": "b6b19c7bfe0082215d8755a2af2e478e473ab0bdff2ca5a192629833083f65bf",
+      "counterpart": "`internal/telemetry/providers.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/theme/constants.ts",
+      "source_sha256": "cf771cff0540d52bdb139cdf8e1f6433a21a55b340773550a1ea2b4f405705f5",
+      "counterpart": "`internal/ui/theme.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/theme/index.ts",
+      "source_sha256": "1e8c597cee9849d5ba6ab96768d7e8c6f2dcf6ebc2673ff10f5d30cfe503f5be",
+      "counterpart": "`internal/ui/theme.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/theme/palettes.js",
+      "source_sha256": "9cbc242ee6ba27b9f637482dd06bb30e2e1023d57fd6613aab3fb12d9409c6e0",
+      "counterpart": "`internal/ui/theme.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/theme/syntax.ts",
+      "source_sha256": "3c9f87e462dd788810c93630177db6a64a0459a49bc7acca0722fcbd0d267c66",
+      "counterpart": "`internal/ui/theme.go`",
+      "status": "Language-specific difference"
+    },
+    {
+      "source": "src/todo/constants.ts",
+      "source_sha256": "e06ac2963a4248462d63547390281b2a0ec1b04baa291d8a0c754db69abc8644",
+      "counterpart": "`internal/todo/write.go`, `internal/todo/store.go`, `internal/todo/todo.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/todo/dependencies.ts",
+      "source_sha256": "514f46b4e528cbe6770f9704714adef0660797d4f1a5e5425ea73d5fca7efafc",
+      "counterpart": "`internal/todo/write.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/todo/index.ts",
+      "source_sha256": "0cd44b60bb2ede069b004c50f3acf6aea3ca89fe5563be5235ce8efce0a09194",
+      "counterpart": "`internal/todo/todo.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/todo/progress.ts",
+      "source_sha256": "dce9ec14a981c388aa80a20119cbc46e9b6dbaad339ce8d0ad839939889bd2f0",
+      "counterpart": "`internal/todo/todo.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/todo/prompts.ts",
+      "source_sha256": "1ddb908e6c94060e231b13bb39f72cc9548c98fc8487273c53669f7d1d30194a",
+      "counterpart": "`internal/todo/prompts.go`, `internal/todo/tools.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/todo/store.ts",
+      "source_sha256": "ce780060d4d927d1936493e47e2d9c01beb96fe34ac46fd8dc374799d2c12312",
+      "counterpart": "`internal/todo/store.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/todo/tools.ts",
+      "source_sha256": "65fee09caa88c00cdf6d2e934376ae6621b2f5d0528960089a786d9881f39446",
+      "counterpart": "`internal/todo/tools.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/todo/write.ts",
+      "source_sha256": "ce29e5d93609e26d2d47f0c584c58464ab2e10ea2a9ec93f0e2b15b435c07d58",
+      "counterpart": "`internal/todo/write.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/tool-result/constants.ts",
+      "source_sha256": "65ed15aca53e0ac6bcf06b32e317fa344390baf469e9da57a72d30e515c778d6",
+      "counterpart": "`internal/tool_result/budget.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/tool-result/index.ts",
+      "source_sha256": "6746d2711329c1be7502992f10288d662bcaae18f3941ae5748a775899b153e4",
+      "counterpart": "`internal/tool_result/budget.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/tool-result/prompts.ts",
+      "source_sha256": "1117afa8936119efc5981fdf9d0fc4e82aa62b55eb6e35f32a512a242480a50e",
+      "counterpart": "`internal/tool_result/budget.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/tools/ask-user.ts",
+      "source_sha256": "064dcc15af98a7c6858df654fd02b031e29e9ff589a3ad733374e1a889925bd4",
+      "counterpart": "`internal/tools`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/tools/atomic-write.ts",
+      "source_sha256": "b3b59628a14c5a7e2117dd76de423dfafc2efa78c1cec096603051457ec54bc1",
+      "counterpart": "`internal/tools/atomic_write.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/tools/bash.ts",
+      "source_sha256": "e2b6b6b3079c5426b422c49cef396c4fc0c19214dee34ca412cf74654b7c0b49",
+      "counterpart": "`internal/tools/bash.go`, `internal/tools/shell_background.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/tools/computer-use.ts",
+      "source_sha256": "1c77da25b3109c030a3908a01f93fbaad831e36302cdede4c1a0530390485370",
+      "counterpart": "`internal/tools/computer_use.go`, `internal/tools/computer_use_native.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/tools/constants.ts",
+      "source_sha256": "7abeff289636c68d68f376446d1c53375e9faee31274b944800ef1f1e6463606",
+      "counterpart": "`internal/tools/constants.go` and related files",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/tools/diff.ts",
+      "source_sha256": "e0800c71b1d960909f5c5cc4736e338226d9be76a8cdee89c05b7acd0f581565",
+      "counterpart": "`internal/tools/diff.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/tools/edit-file-diagnostics.ts",
+      "source_sha256": "9eb011e4274d0148646209e8ab215154d0c38a103415ede108ce342d5ad33ccb",
+      "counterpart": "`internal/tools/edit_file_diagnostics.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/tools/edit-file.ts",
+      "source_sha256": "a643da55fa72abad902cd8ea3f5cb634de8599409688e42bb3699b8b8dd47c3c",
+      "counterpart": "`internal/tools/edit_file.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/tools/enter-plan-mode.ts",
+      "source_sha256": "caf1f57d31cd5fd2e479dedd08659958f42264dfc6b1bdb55d304483263d7b27",
+      "counterpart": "`internal/tools/enter_plan_mode.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/tools/enter-worktree.ts",
+      "source_sha256": "258e65e0080b5cad062fc6445635a2b77b77a34baa856344c035eb5170135919",
+      "counterpart": "`internal/tools/enter_worktree.go`, `internal/permissions/worktree.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/tools/execution-coordinator.ts",
+      "source_sha256": "c9ff5ac7cf952e1953ef97c37b8df3fd9d66607985faa01ddc9eb8ab7d19b992",
+      "counterpart": "`internal/tools/execution_coordinator.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/tools/exit-code-hints.ts",
+      "source_sha256": "f749db9e609b2158bae27272c678a3417a80dfdcb0f8ea0b317f6ae5da5a5605",
+      "counterpart": "`internal/tools/exit_code_hints.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/tools/exit-plan-mode.ts",
+      "source_sha256": "19fb1269322df223818e04108c76d367d04856d7f2955d6bbe8b03460aab99e5",
+      "counterpart": "`internal/tools/exit_plan_mode.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/tools/exit-worktree.ts",
+      "source_sha256": "c941db30643b584c75aa5995860aa48bb893720ab31f305b550b44d11fa837bb",
+      "counterpart": "`internal/tools/exit_worktree.go`, `internal/permissions/worktree.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/tools/file-mutation-queue.ts",
+      "source_sha256": "4a31866be659e5c0e1512f5bae9d2141b71fe6e8fcbd759185d5cb32bfb75a41",
+      "counterpart": "`internal/tools/execution_coordinator.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/tools/file-state-cache.ts",
+      "source_sha256": "cfae14e86c16d79d0924a43779cdf07b520c9f1b066a3041d4e1a6709961033b",
+      "counterpart": "`internal/tools/file_state_cache.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/tools/glob.ts",
+      "source_sha256": "f3e5746f5d27d94b240a765dd2ea253719dd3b81486aaf14addfd57d588f84fd",
+      "counterpart": "`internal/tools/glob.go`, `internal/tools/search_output.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/tools/goal.ts",
+      "source_sha256": "46e8fd01820d68d5f43c2be2365a78719c845ef39ac6ef019e5730e6658f48c1",
+      "counterpart": "`internal/tools/goal.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/tools/grep.ts",
+      "source_sha256": "e9962c1415fcfad1f8ff7dfc3c94164a0f91075df860252b47cf38340ac9fe7f",
+      "counterpart": "`internal/tools/grep.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/tools/index.ts",
+      "source_sha256": "1c4979c4e5bb1488b4b56ca24c1a06f63610a20711a704188dc1738ea06ec13a",
+      "counterpart": "`internal/tools`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/tools/is-diff-tool.ts",
+      "source_sha256": "60394829bae50628b4e7000bdb1f14e547aa4031375c831b7b3fb92761c1f326",
+      "counterpart": "`internal/ui/tool_display.go`",
+      "status": "Reviewed"
+    },
+    {
+      "source": "src/tools/mcp-call.ts",
+      "source_sha256": "6ef3e1abbce2058c42785a04aa723753604d2fe0c6dcf6692c1663595bbb0c1b",
+      "counterpart": "`internal/tools/mcp_call.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/tools/powershell.ts",
+      "source_sha256": "b0a88c6df16386cac12412b1502eb1b74a382c3965556ef67a957e244060ca21",
+      "counterpart": "`internal/tools/powershell.go`, `internal/tools/shell_background.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/tools/prompts.ts",
+      "source_sha256": "3a9667895edccc929f460f8647ffc219920e2accb54c65631b1192f0b4f6f9f0",
+      "counterpart": "`internal/tools/descriptions.go` and related files",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/tools/read-file.ts",
+      "source_sha256": "f53d0d8ffd0bfbfdcd7d40c03138c45ed01909ade8b2ef43d75991f466c77ca8",
+      "counterpart": "`internal/tools/read_file.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/tools/registry.ts",
+      "source_sha256": "bdd73a44cc4c7d74578ed66a903c44d1404181a18116fc85fbc9106ae36a6009",
+      "counterpart": "`internal/tools/registry.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/tools/search-output.ts",
+      "source_sha256": "057313d890ad4b80832c53e185c2f641a217433a0bd94ffd3ac87c9561d9df7f",
+      "counterpart": "`internal/tools/search_output.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/tools/shell-background.ts",
+      "source_sha256": "d04000b9a54d430adeb1c93a0df8533d0026f0e461dc32246ae282a51e32b4e3",
+      "counterpart": "`internal/tools/shell_background.go`, `internal/tools/powershell.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/tools/shell-output.ts",
+      "source_sha256": "f641a213b03c6541f54ff12df70ba755d7d937529117ab0c3b5dbee50ac96592",
+      "counterpart": "`internal/tools/search_output.go`, `internal/tools/shell_background.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/tools/snippets.ts",
+      "source_sha256": "02a11904f8043666385b171776b2e0c00b0d67e4593a48ab863ed993c1bb94f6",
+      "counterpart": "`internal/tools/computer_use_assets`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/tools/synthetic-output.ts",
+      "source_sha256": "8b7b25077eefabd4f14084af3c6a14db332559322b56689f8b46e895ce7de287",
+      "counterpart": "`internal/tools`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/tools/task-output.ts",
+      "source_sha256": "8c097e8d78c392f55688e37ae019db2e9d463d4438ef720aa6bda725f677f164",
+      "counterpart": "`internal/tools/task_output.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/tools/tool-search.ts",
+      "source_sha256": "8aa408551aa28e408a933e6d44dd9684c52a90d3226083130fac9f2819add214",
+      "counterpart": "`internal/tools/tool_search.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/tools/types.ts",
+      "source_sha256": "041dec31ea96b1c7faea83c6346ae76f73dd1d90b3d50e49d70de67ed7029443",
+      "counterpart": "`internal/tools/tool.go`, `internal/tools/execution_coordinator.go`, `internal/conversation/content_blocks.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/tools/web-fetch.ts",
+      "source_sha256": "d7650d60d1f166b2869401b0f8b6ab64f7eac1dc87a0a85abd0280852658f2f1",
+      "counterpart": "`internal/tools/web_fetch.go`",
+      "status": "Language-specific difference"
+    },
+    {
+      "source": "src/tools/write-file.ts",
+      "source_sha256": "aa1e1e0b8d5a15c1776a2b30e3b54c094591332c6fb06f6d76a56ba1edd7fa77",
+      "counterpart": "`internal/tools/write_file.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/ui/agent-activity.tsx",
+      "source_sha256": "03aa02fa5957b211cfb4f5a60ce75a19cb021e4263ef017673fb10357245df6b",
+      "counterpart": "`internal/ui/chat.go`",
+      "status": "Reviewed"
+    },
+    {
+      "source": "src/ui/agent-status.tsx",
+      "source_sha256": "c657824ff25d02f5ea9d142a1bf30db76e76c405fd95c2c2a8976f9129b73863",
+      "counterpart": "`internal/ui/status_progress.go`",
+      "status": "Reviewed"
+    },
+    {
+      "source": "src/ui/agent-tool-progress.tsx",
+      "source_sha256": "e87a11f9f0160a70bbf49250fafafefe087d0ee7b6b98a2a9f76d4a6ac69dfb5",
+      "counterpart": "`internal/ui/agent_progress.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/ui/agents-dialog.tsx",
+      "source_sha256": "13ca5bf430e03ead7f482819045646ea27a979f942e3f9fc8f1a3f0875eaf85c",
+      "counterpart": "`internal/ui`",
+      "status": "Pending review"
+    },
+    {
+      "source": "src/ui/app.tsx",
+      "source_sha256": "1f7628e2286a742d2269ae4511939768569005cca5f8440a5fe87cc484444d62",
+      "counterpart": "`internal/ui`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/ui/ask-user-dialog.tsx",
+      "source_sha256": "95228a2d313d55a1d35f39994559bf7823931240c72b1ac302a8eef6858b859b",
+      "counterpart": "`internal/ui`",
+      "status": "Pending review"
+    },
+    {
+      "source": "src/ui/chat.tsx",
+      "source_sha256": "9d2e18e4626995063cbfe333181530f90cfe20b74422c7eaa9d473d36638a9f7",
+      "counterpart": "`internal/ui`",
+      "status": "Pending review"
+    },
+    {
+      "source": "src/ui/constants.ts",
+      "source_sha256": "152674fee2cb93a03339f4405f1daa7c319a1680964b85aebc2e34c9f394fcd6",
+      "counterpart": "`internal/ui/constants.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/ui/cursor-text.tsx",
+      "source_sha256": "b5b7164a60e8d33fb1aa441c685b06a6f1d465b958f1f39967af5fe3e62aaed7",
+      "counterpart": "`internal/ui`",
+      "status": "Pending review"
+    },
+    {
+      "source": "src/ui/diff-render.tsx",
+      "source_sha256": "108858d55b516f8be8a6c54732edb8e24a36c244aa7376c6aabcf4ecb44ab59e",
+      "counterpart": "`internal/ui/tool_display.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/ui/footer.tsx",
+      "source_sha256": "8e0673a0d35f5a75f4833a3c89ef8e8d9e4cc0866a065305dada205c8226fa94",
+      "counterpart": "`internal/ui/footer.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/ui/input-draft.ts",
+      "source_sha256": "2d1b7b203fa036a35bf1f97fc61b59c03daeb3b3b531733835207c727079be3d",
+      "counterpart": "`internal/ui/input_draft.go`, `internal/ui/input.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/ui/input-navigation.ts",
+      "source_sha256": "ba7c7e200699f1afdc124ad0d4e77afc967a711e29210d3bf725ab7a3e2b0217",
+      "counterpart": "`internal/ui/input_draft.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/ui/input-paste.ts",
+      "source_sha256": "d4359c48bd0b9f13b13d82a03a675f247ab09ea79c5076dcd04f8ecdfa1ffa27",
+      "counterpart": "`internal/ui/input_draft.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/ui/input.tsx",
+      "source_sha256": "869948ffa8b83873f4abf2240e2d4d23bed9919dfbfb8fc72633bf14aed4c1a9",
+      "counterpart": "`internal/ui/input.go`, `internal/ui/composer.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/ui/interaction-dock.tsx",
+      "source_sha256": "3bbccd96671bcef1299023b1d3e14f0c3d5f5783f958533cea516cf9887bc4d4",
+      "counterpart": "`internal/ui/ui.go`, `internal/ui/chat.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/ui/interaction-summary.ts",
+      "source_sha256": "3d2feee3f4b2781a2a56a2816d18149ede997560bd8c85a6ac4d767ec9ef7bb0",
+      "counterpart": "`internal/ui/interaction_summary.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/ui/interrupt-scope.ts",
+      "source_sha256": "c78b66f6489e842b78e71155b902026691699897c41dfbbcca935aab20075ed6",
+      "counterpart": "`internal/ui/interrupt.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/ui/list-window.ts",
+      "source_sha256": "780982425a72fc6702b70ca311e92c32e65f27ca2ee380ed4ba7a5cb5d55604d",
+      "counterpart": "`internal/ui/selector_list.go`",
+      "status": "Reviewed"
+    },
+    {
+      "source": "src/ui/markdown.ts",
+      "source_sha256": "f94c88a321f961b575c738bbbeff8830132f1c29a4ad3b826d26cf72b22e845a",
+      "counterpart": "`internal/ui/markdown.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/ui/marked-terminal.ts",
+      "source_sha256": "be0be4031f80144c9a3495524c06180e5b81e521da00c12b7667e67a3d5f30c6",
+      "counterpart": "`internal/ui/markdown.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/ui/model-select.tsx",
+      "source_sha256": "9c7e06d77270363f3cfdeac0fefd775af5529be8105d6cea1182ab7821f64c46",
+      "counterpart": "`internal/ui`",
+      "status": "Pending review"
+    },
+    {
+      "source": "src/ui/pending-queue.tsx",
+      "source_sha256": "40a22882852a97cf78d6a40bbf1ca2f67b121a5df8b14ee8c9741a4fb2acd6ad",
+      "counterpart": "`internal/ui/footer.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/ui/permission-dialog.tsx",
+      "source_sha256": "bcead2c2de8591b93450df24308e8922b80c6f2f256842cdee6da4035105bb7c",
+      "counterpart": "`internal/ui`",
+      "status": "Pending review"
+    },
+    {
+      "source": "src/ui/permission-request.ts",
+      "source_sha256": "9a9253b26653743380fd5cd4694626c5dddeef4b14290c53f9f4f278b8bdfe5b",
+      "counterpart": "`internal/ui`",
+      "status": "Pending review"
+    },
+    {
+      "source": "src/ui/plan-approval.tsx",
+      "source_sha256": "637cc982f1185ab543d82bec8800b450f3ed41539f3f6dbcc8278f096a59d5ef",
+      "counterpart": "`internal/ui/plan_approval.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/ui/provider-login.tsx",
+      "source_sha256": "fa405c5e0178f056182bd72abb2e290ca194d031cc22b3661887f7b29ae34515",
+      "counterpart": "`internal/ui/provider_login.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/ui/provider-select.tsx",
+      "source_sha256": "a61cdc2f686cfa1fc2875d69766d1fffa557aa6128047562cf63df7277e0e07f",
+      "counterpart": "`internal/ui`",
+      "status": "Pending review"
+    },
+    {
+      "source": "src/ui/rewind-dialog.tsx",
+      "source_sha256": "0e9ee98aedcdfb01c403a763dd5b6e8890f2ac3b3aa07e71d08b9b337a824e8c",
+      "counterpart": "`internal/ui`",
+      "status": "Pending review"
+    },
+    {
+      "source": "src/ui/selector-frame.tsx",
+      "source_sha256": "a051a49a9ec42300a7d79041ef048d5504b847ef5200b691159aa8240695fccc",
+      "counterpart": "`internal/ui/selector_frame.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/ui/selector-layout.ts",
+      "source_sha256": "d6a9a6d55f30c31fc95b88951e93e2ea0ce6f708e7aa4e9f139ae4ec93cfef8c",
+      "counterpart": "`internal/ui/selector_frame.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/ui/selector-list.tsx",
+      "source_sha256": "2a78ba1a8c2cc0293c23e33a58794e5a4d0dbafd8d7678cceed792c5ea175065",
+      "counterpart": "`internal/ui/selector_list.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/ui/selector-search.ts",
+      "source_sha256": "09157154d45282c241a350ddfe58c75d13961703c3a0a245ac69090883118937",
+      "counterpart": "`internal/ui/selector_list.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/ui/session-selector.tsx",
+      "source_sha256": "270189ffeafa31cd15b6d078a2a4a8985a3a9dd8f35684a1fc0cd3b498718249",
+      "counterpart": "`internal/ui`",
+      "status": "Pending review"
+    },
+    {
+      "source": "src/ui/status-border.tsx",
+      "source_sha256": "8c7d2872bd52216546ff15d8f3b1b17ff7eaf4452247eb2449479a4b3745ca63",
+      "counterpart": "`internal/ui/composer.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/ui/streaming-markdown.ts",
+      "source_sha256": "90041162a1dda37c2f0852d6fe1885931bf85c803a388e4454366659bbd1826e",
+      "counterpart": "`internal/ui`",
+      "status": "Pending review"
+    },
+    {
+      "source": "src/ui/styles.ts",
+      "source_sha256": "e52703cea12c6b5fd9212a1c83295b2afe4ab997cfa16ccc513587129b0acaad",
+      "counterpart": "`internal/ui/styles.go`, `internal/ui/composer.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/ui/syntax-highlight.ts",
+      "source_sha256": "69d6facf74857550f834c2f4b8fe3189fe7161728092fa1842469d5369a4c6d7",
+      "counterpart": "`internal/ui`",
+      "status": "Pending review"
+    },
+    {
+      "source": "src/ui/table-layout.ts",
+      "source_sha256": "b567104266018c82b112a952123a9decca4bfbbab5879c97a275b1fa81db9384",
+      "counterpart": "`internal/ui`",
+      "status": "Pending review"
+    },
+    {
+      "source": "src/ui/terminal-input.ts",
+      "source_sha256": "7466c7b6ae04627bd1eaa1e56c84ceba0233b0e8010351dcc4b24aa1270b59ca",
+      "counterpart": "`internal/ui/terminal_input.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/ui/terminal-layout.tsx",
+      "source_sha256": "6928de26e1298cb82c9306f0c68e5ccf48d6f98d7302b7d8a77e2a103641a4a5",
+      "counterpart": "`internal/ui/chat.go`, `internal/ui/footer.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/ui/terminal-output.ts",
+      "source_sha256": "d11ad8b4a2a5412a25cf8aa62918f9220f8a2ee567834830330c59d6f5475ba9",
+      "counterpart": "`internal/ui`",
+      "status": "Pending review"
+    },
+    {
+      "source": "src/ui/terminal-text.ts",
+      "source_sha256": "349937f09f857b24fa72f1b7388719b57e5477fce66a98517a6eb3a8e6783035",
+      "counterpart": "`internal/ui/terminal_text.go`, `internal/ui/text_wrap.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/ui/terminal-theme.ts",
+      "source_sha256": "c6fe0da9faff281e11e82a58cfd8be71b6011336ca710c2872aeba485be0a698",
+      "counterpart": "`internal/ui/terminal_theme.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/ui/text-field.tsx",
+      "source_sha256": "a1d7d11f4d67f9c64a45a482172f4150e13413a3133eac9d8d187247450f44ea",
+      "counterpart": "`internal/ui`",
+      "status": "Pending review"
+    },
+    {
+      "source": "src/ui/thinking-block.tsx",
+      "source_sha256": "609a346e6be136db9f5cd10252959ecfdad729f4932f434dc30669e7be050fa6",
+      "counterpart": "`internal/ui/chat.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/ui/thinking-select.tsx",
+      "source_sha256": "d8a280b2cf12cea12c523f60d8cc6b3b90110076f49a4e9e6d13bf9631c9f0bf",
+      "counterpart": "`internal/ui`",
+      "status": "Pending review"
+    },
+    {
+      "source": "src/ui/todo-progress.tsx",
+      "source_sha256": "ef2ae44b1daab50a5c47f38b8059ed48bc9463fbf87cd031df16b0952ee8ecde",
+      "counterpart": "`internal/ui/status_progress.go`",
+      "status": "Reviewed"
+    },
+    {
+      "source": "src/ui/tool-display.tsx",
+      "source_sha256": "434544c5084ef1e17ddc62bb948bb7cbaa396e6a81ee63fd26b2185a42a7dd68",
+      "counterpart": "`internal/ui`",
+      "status": "Pending review"
+    },
+    {
+      "source": "src/ui/tool-preview.ts",
+      "source_sha256": "4fe558b4639ba4b72fbd7eb52f113c9b6a3bc81de0ae7caa68aa64e2dcc76547",
+      "counterpart": "`internal/ui/tool_display.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/ui/transcript.tsx",
+      "source_sha256": "fc6f9fd8dc47905210ca0cb8f42922ec33435bcd20d71781ed07240af94b67c0",
+      "counterpart": "`internal/ui/chat.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/ui/update-notice.tsx",
+      "source_sha256": "da910d319ffb9e0a105dd14b87a49621ec3d10d70d6a7d142b3b43175b3f49e9",
+      "counterpart": "`internal/ui/footer.go`",
+      "status": "Reviewed"
+    },
+    {
+      "source": "src/ui/use-agent-output.ts",
+      "source_sha256": "85bfe54a4a7c10bfad5d12cc6b57c7e2ed2473ce35fe62eacf80af081b8d993f",
+      "counterpart": "`internal/ui/agent_events.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/ui/use-follow-up-queue.ts",
+      "source_sha256": "42bed4a36254b3062522d918c68f7c72b89e5388c7ebf5ea01aeafbd4e5432e2",
+      "counterpart": "`internal/ui/terminal_controls.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/ui/use-ide-input.ts",
+      "source_sha256": "0ab9cfa3157e396a7a882dfff59e804232a2a1c4329fd357691605373e540b9a",
+      "counterpart": "`internal/ui/ide_input.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/ui/use-notification-wakeup.ts",
+      "source_sha256": "454140392c90a39bd29d837af24507e3682ed3844359775614547d5af11a9e76",
+      "counterpart": "`internal/ui/notification_wakeup.go`, `internal/ui/agents_dialog.go`",
+      "status": "Reviewed"
+    },
+    {
+      "source": "src/ui/use-subagents.ts",
+      "source_sha256": "73c74ea706e33aacab3fbd7af6aa3dccbf23d89edad9c6e831b5f0c38091512e",
+      "counterpart": "`internal/ui/agent_progress.go`, `internal/ui/agent_events.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/ui/use-task-progress.ts",
+      "source_sha256": "ba5ee3ebc3510dd1dad20dd7480e9407de202643c8021b590eaf790d74876bf3",
+      "counterpart": "`internal/ui/status_progress.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/ui/use-teammate-states.ts",
+      "source_sha256": "430e41173c2002199e63ce71c01f36e2fac07927b47e6987ff9c793a5286eb89",
+      "counterpart": "`internal/ui/agents_dialog.go`, `internal/ui/status_progress.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/ui/use-terminal-controls.ts",
+      "source_sha256": "47fb3e5a14660124b74ab00fca3ddf513ce739c2557e057007c86d177d2e9ea5",
+      "counterpart": "`internal/ui/terminal_controls.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/ui/use-terminal-layout.ts",
+      "source_sha256": "db22c387a2c5fb87bb661ac84d1110c40aaa68bae69c3bd61361e53c552c2abc",
+      "counterpart": "`internal/ui/ui.go`, `internal/ui/footer.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/ui/use-update-notice.ts",
+      "source_sha256": "d7cf34665bc7e6b9808c50746f0bd4f575b9ecdebb6c68eaf0dc1bac29790450",
+      "counterpart": "`internal/ui/notification_wakeup.go`",
+      "status": "Reviewed"
+    },
+    {
+      "source": "src/ui/use-user-bash.ts",
+      "source_sha256": "c49ca9ffcf4e309d4384c4a3a8bc6c1d8c1b03a0d0cb3085396b79d1fa76758f",
+      "counterpart": "`internal/ui`",
+      "status": "Pending review"
+    },
+    {
+      "source": "src/ui/workflows-dialog.tsx",
+      "source_sha256": "e1edf53900c0242b14fb48bd9c5eb8bf2ffbe521e87cf2c30dccf8a520417d40",
+      "counterpart": "`internal/ui`",
+      "status": "Pending review"
+    },
+    {
+      "source": "src/update/constants.ts",
+      "source_sha256": "2b583ce9cbd4ad1a0c83d5e2c6c7f985951f7afd76f3e42a89db88a913049b76",
+      "counterpart": "`internal/update/constants.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/update/index.ts",
+      "source_sha256": "232c4b067f139c17a989d0ba2f116550a3208c5d92338662bebac71c42c08519",
+      "counterpart": "`internal/update/update.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/update/install.ts",
+      "source_sha256": "d432b873fd66896cddf06bb191c6f143253295e1711d1abd7ac261a61f092e7a",
+      "counterpart": "`internal/update/install.go`, `internal/update/install_signal_unix.go`, `internal/update/install_signal_windows.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/update/version-check.ts",
+      "source_sha256": "92e761eb962dc40709690a567e00b4579895c380eff6ab9cd91e77ac2ba89a38",
+      "counterpart": "`internal/update/version_check.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/utils/constants.ts",
+      "source_sha256": "d59fd9986f4cf7639557a574310bc15a67628298b1a99c1c1910fb0f1b4068bb",
+      "counterpart": "`internal/utils/constants.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/utils/file-scan.ts",
+      "source_sha256": "4bc4fc1e984966b1dc11933edc1263af3d6207e215e74b0cee87ee1921bd91ea",
+      "counterpart": "`internal/utils/file_scan.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/utils/index.ts",
+      "source_sha256": "61c5c5cf4accdc2e1f60d90c2759e228e9b01be89ebf0e69359400d9b9a0debd",
+      "counterpart": "`internal/utils/index.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/utils/paths.ts",
+      "source_sha256": "bdae1a1d88f7184ffd445b9d2fc7d7a1e2381b2d9889f7ca1df97c06da366ad5",
+      "counterpart": "`internal/utils/paths.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/utils/public-http.ts",
+      "source_sha256": "4b5f8b98ced114491ef6c91adde789d4d79969b7aed821560337566ef4936d3e",
+      "counterpart": "`internal/utils/public_http.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/utils/redact.ts",
+      "source_sha256": "72f291f14a8268e192949eefe11448bdfe7c8371f87f7197e861d249c02267f9",
+      "counterpart": "`internal/utils/redact.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/utils/slug.ts",
+      "source_sha256": "fcabbdee3a2a684a652e4e90750e5b714f1482d2cb66e8cad9c91508f0403ada",
+      "counterpart": "`internal/utils/slug.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/utils/xml.ts",
+      "source_sha256": "079bae5fa09a0bee546b44b5aa0cc1cdb288ee91f7c409eb2c6b95a88a266506",
+      "counterpart": "`internal/utils/xml.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/version.ts",
+      "source_sha256": "b6c163083fe33d6521b4a360b68fe9d0c0f43ec82001ad15158917a326baaca3",
+      "counterpart": "`internal/version/version.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/vscode/constants.ts",
+      "source_sha256": "83c1e0b427da8947e26f924ae43139774b6de77e8a03fb7d67346f3f79ec7ed5",
+      "counterpart": "`internal/vscode/constants.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/vscode/ide-client.ts",
+      "source_sha256": "7aa0a89808582126d9ad4d0c6bfa14df297045f9e0c176b8f3288c99bd432ad8",
+      "counterpart": "`internal/vscode/ide_client.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/vscode/index.ts",
+      "source_sha256": "6c1382f938fe83c9fea3e68517de743ef8937366d69e7700c2a7c6407861fb15",
+      "counterpart": "`internal/vscode`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/vscode/lockfile.ts",
+      "source_sha256": "eb7ab9b8b41b0877154f176587a2961adf6c67e53258fb449d6555768f5ae56e",
+      "counterpart": "`internal/vscode/lockfile.go`, `internal/vscode/pid_unix.go`, `internal/vscode/pid_windows.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/vscode/ws-transport.ts",
+      "source_sha256": "97a63af1e855c0f2af2c5ecbf88eba4f0f7b139b39c5874fecb0951ce3a87f80",
+      "counterpart": "`internal/vscode/ws_transport.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/websocket-security.ts",
+      "source_sha256": "661f1e3782a2a1baf21e4be0eb5645ae538a4a6cfc216ba0a9597a2926517df3",
+      "counterpart": "`internal/remote/access.go`",
+      "status": "Partially aligned"
+    },
+    {
+      "source": "src/workflow/agent-adapter.ts",
+      "source_sha256": "fb119003a80fbf5170a738f5bf94fb894b195bbd7a69714d226dbc655b5de479",
+      "counterpart": "`internal/workflow/agent_adapter.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/workflow/backend.ts",
+      "source_sha256": "f1fb3c666d00936e4a62acdeafae820539879b8584436defc8ba6b3daaee999b",
+      "counterpart": "`internal/workflow/backend.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/workflow/budget.ts",
+      "source_sha256": "1133124c8e9509d9dac679bba878d5834619a08fc504c9032ee95894430438d5",
+      "counterpart": "`internal/workflow/budget.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/workflow/concurrency.ts",
+      "source_sha256": "d10dd7d4e0560df054a5691b133fb8e430828985ea97c9e04fb0f45e3234cdde",
+      "counterpart": "`internal/workflow/concurrency.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/workflow/constants.ts",
+      "source_sha256": "5e924ccdc62015db3cd903947eecef3cfd6f82da264598ae47dd9c6bd4032957",
+      "counterpart": "`internal/workflow/constants.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/workflow/context.ts",
+      "source_sha256": "a83ed9be886d5a4002ef89d09883dd238b1206a5a04b1b294a1a62ab33fbb818",
+      "counterpart": "`internal/workflow/context.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/workflow/errors.ts",
+      "source_sha256": "99c0f6ffb01c80db3012452f4dc8225b48f45e57102ceeeca17661018bc5448d",
+      "counterpart": "`internal/workflow/errors.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/workflow/hooks.ts",
+      "source_sha256": "df29f837e487930e7031fa9d5c43d2ac71df805986d5e33bb9b2fe6b026495fc",
+      "counterpart": "`internal/workflow/hooks.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/workflow/index.ts",
+      "source_sha256": "6028a8b43221f145950f006cdf641f41786925ac9d2b3a284c8bae273536b0f2",
+      "counterpart": "`internal/workflow`",
+      "status": "Reviewed"
+    },
+    {
+      "source": "src/workflow/journal.ts",
+      "source_sha256": "6ca3d76c2ea8fa53f5a2c89d0c7288395e5e776e9d26527d4b19f195bd352761",
+      "counterpart": "`internal/workflow/journal.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/workflow/named-workflows.ts",
+      "source_sha256": "df69cf25e557dc344aa0b112431aae1d7c72821cce6a7cb19a6127472f6973bb",
+      "counterpart": "`internal/workflow/named_workflows.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/workflow/paths.ts",
+      "source_sha256": "bb60194fae38685682de44aa54615989012a039ad563cae4d63c8d0753b637b9",
+      "counterpart": "`internal/workflow/paths.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/workflow/persistence.ts",
+      "source_sha256": "1630c51898cdcfc7742e82882b73e14b06b0491ab88f561105bce72a540ee148",
+      "counterpart": "`internal/workflow/persistence.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/workflow/ports.ts",
+      "source_sha256": "8e7719c635adacd07e0f427a81d6babe09c2d486d9a19a316c5fed0eb74c1ef0",
+      "counterpart": "`internal/workflow/ports.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/workflow/progress.ts",
+      "source_sha256": "3e8bd04816ce538012846c2d64884be15ff384c6b3662deabce8e82efcb2c9df",
+      "counterpart": "`internal/workflow/progress.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/workflow/prompts.ts",
+      "source_sha256": "b5f342f7f26c0f4a868911e50ee3ef6c5cb8cca993a331c34b8cb6e3b0eac5df",
+      "counterpart": "`internal/workflow/prompts.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/workflow/run-workflow.ts",
+      "source_sha256": "6db03c66b0468f352b915408dd6547e05d267be2b71d02db50f1a3a285beae5f",
+      "counterpart": "`internal/workflow/run_workflow.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/workflow/schema.ts",
+      "source_sha256": "1ff13359fdbc698b06125eb2eb88ab013567cfcc10e3c8fa03e4712a53b6e10b",
+      "counterpart": "`internal/workflow/schema.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/workflow/script.ts",
+      "source_sha256": "69743b584d92477308b72899e1b5cd537da47866806939b23d6684bc19c66b80",
+      "counterpart": "`internal/workflow/script.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/workflow/service.ts",
+      "source_sha256": "5c6e1167aabb2aa06a1285a0b90fe88b5f3000bacd03b0f0c5ae15cc6bff18af",
+      "counterpart": "`internal/workflow/service.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/workflow/structured-output.ts",
+      "source_sha256": "3a5bea977b652c23a5794daefe1cd260c29a1fd6718a49517b43f94018b527dc",
+      "counterpart": "`internal/workflow/structured_output.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/workflow/types.ts",
+      "source_sha256": "851329997378ecd6242d0ec74154836e0abb89cfd3945ba15e43391754f106bd",
+      "counterpart": "`internal/workflow/types.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/workflow/wiring.ts",
+      "source_sha256": "9538b36ca17321da10dd73fbad6f510d30c2079dc0059b53a802e4ca4918f8da",
+      "counterpart": "`internal/workflow/wiring.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/workflow/workflow-tool.ts",
+      "source_sha256": "cafdf5c3f97ed7ed9d6925e59141ba48339a4c4b6f1490d1393d856f70428a0c",
+      "counterpart": "`internal/workflow/workflow_tool.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/worktree/constants.ts",
+      "source_sha256": "c9eddb7fa15a31455abf59abeed5f36cf186679fdc8ca29cd83a4f7425e4bf32",
+      "counterpart": "`internal/worktree/constants.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/worktree/index.ts",
+      "source_sha256": "a9104e341cce0c515d32c1ba08aed553ef69aa062ef3970a6e28f4bf02676825",
+      "counterpart": "`internal/worktree/agent.go`, `internal/worktree/owned.go`, `internal/worktree/filesystem.go`, `internal/worktree/changes.go`, `internal/worktree/setup.go`, `internal/worktree/env.go`",
+      "status": "Corrected"
+    },
+    {
+      "source": "src/worktree/prompts.ts",
+      "source_sha256": "48085d731e9ad528f680dcb9c02a451a33c030ceba7b8310ff94ef8ddec403af",
+      "counterpart": "`internal/worktree/prompts.go`",
+      "status": "Corrected"
+    }
+  ]
+}

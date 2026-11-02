@@ -36,11 +36,13 @@ func (m *Model) wakeNotifications() tea.Cmd {
 		return nil
 	}
 	m.streaming = true
+	m.beginInteractionRun()
 	m.prepareOutput()
 	m.planApprovalDialog = false
 	m.activityError = ""
 	ctx, cancel := context.WithCancel(m.lifeCtx)
 	m.cancelStream = cancel
 	m.agentCh = m.ag.Run(ctx, m.conversation)
+	m.steeringAgent = m.ag
 	return tea.Batch(m.listenForAgentEvents(), m.spinner.Tick)
 }

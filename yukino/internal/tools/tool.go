@@ -96,6 +96,7 @@ func CreateDefaultToolsWithWorkDir(workDir string) DefaultTools {
 	reg.Register(ef)
 	reg.Register(&BashTool{WorkDir: workDir})
 	reg.Register(&PowerShellTool{})
+	reg.Register(NewComputerUseTool(ComputerUseOptions{}))
 	reg.Register(&TaskOutputTool{})
 	reg.Register(&GlobTool{})
 	reg.Register(&GrepTool{})

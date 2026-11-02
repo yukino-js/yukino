@@ -85,6 +85,7 @@ func (m Model) runGoalCommand(args string) (tea.Model, tea.Cmd) {
 	m.conversation.AppendMessages([]conversation.Message{recorded.ToConversation()})
 
 	m.streaming = true
+	m.beginInteractionRun()
 
 	prefetchCh := m.prefetchRelevantMemories(result.Prompt)
 	m.prepareOutput()
@@ -94,6 +95,7 @@ func (m Model) runGoalCommand(args string) (tea.Model, tea.Cmd) {
 
 	conv := m.conversation
 	ag := m.ag
+	m.steeringAgent = ag
 	ag.GoalManager = m.currentGoal()
 	ag.MemoryRecallCh = prefetchCh
 	m.startingAgent = true

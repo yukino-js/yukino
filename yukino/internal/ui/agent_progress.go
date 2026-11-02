@@ -30,6 +30,9 @@ func (m *Model) applySubagentProgress(event subagent.SubAgentProgress) {
 		p = &subagentProgress{role: event.Role, status: "running"}
 		m.subagents[event.ToolCallID] = p
 	}
+	if event.Status == "running" {
+		*p = subagentProgress{role: event.Role, status: "running"}
+	}
 	if m.taskMgr != nil {
 		for _, task := range m.taskMgr.List() {
 			if task.OriginToolCallID == event.ToolCallID {
@@ -44,11 +47,21 @@ func (m *Model) applySubagentProgress(event subagent.SubAgentProgress) {
 		if p.status != "running" {
 			p.active = nil
 			p.lastTool = ""
+			if p.taskID != "" {
+				delete(m.subagents, event.ToolCallID)
+				return
+			}
 		}
 	}
 	switch e := event.Event.(type) {
 	case agent.ToolUseEvent:
 		p.lastTool = e.ToolName
+		for i, tool := range p.active {
+			if tool.id == e.ToolID {
+				p.active[i].name = e.ToolName
+				return
+			}
+		}
 		p.active = append(p.active, progressTool{id: e.ToolID, name: e.ToolName})
 	case agent.ToolResultEvent:
 		for i, t := range p.active {
@@ -81,7 +94,7 @@ func (m Model) decorateTool(tb toolBlockInfo) toolBlockInfo {
 		tb.status = p.status
 		tb.loading = p.status == "running"
 		tb.isError = p.status == "failed" || p.status == "stopped"
-		if p.output != "" {
+		if p.status != "running" {
 			tb.output = p.output
 		}
 		return tb

@@ -56,8 +56,52 @@ func (r markdownRenderer) color() string {
 }
 func (r markdownRenderer) children(n ast.Node) string {
 	var sb strings.Builder
-	for child := n.FirstChild(); child != nil; child = child.NextSibling() {
-		sb.WriteString(r.node(child))
+	for child := n.FirstChild(); child != nil; {
+		if _, ok := child.(*ast.Text); ok {
+			var value strings.Builder
+			for child != nil {
+				t, ok := child.(*ast.Text)
+				if !ok {
+					break
+				}
+				value.WriteString(r.textValue(t))
+				child = child.NextSibling()
+			}
+			sb.WriteString(r.renderText(value.String()))
+		} else {
+			sb.WriteString(r.node(child))
+			child = child.NextSibling()
+		}
+	}
+	return sb.String()
+}
+
+func (r markdownRenderer) textValue(v *ast.Text) string {
+	value := string(v.Segment.Value(r.source))
+	if v.HardLineBreak() {
+		return strings.TrimRight(value, " \t") + "\r"
+	}
+	if v.SoftLineBreak() {
+		value += "\n"
+	}
+	return value
+}
+
+func (r markdownRenderer) renderText(value string) string {
+	var sb strings.Builder
+	for len(value) > 0 {
+		match := markdownEscape.FindStringIndex(value)
+		if match == nil {
+			sb.WriteString(paint(value, r.color()))
+			break
+		}
+		sb.WriteString(paint(value[:match[0]], r.color()))
+		escaped := value[match[0]:match[1]]
+		if r.kind != "user" {
+			escaped = escaped[1:]
+		}
+		sb.WriteString(paint(escaped, r.color()))
+		value = value[match[1]:]
 	}
 	return sb.String()
 }
@@ -72,28 +116,7 @@ func (r markdownRenderer) lines(n ast.Node) string {
 func (r markdownRenderer) node(n ast.Node) string {
 	switch v := n.(type) {
 	case *ast.Text:
-		value := string(v.Segment.Value(r.source))
-		if v.HardLineBreak() {
-			value = strings.TrimRight(value, " \t") + "\r"
-		} else if v.SoftLineBreak() {
-			value += "\n"
-		}
-		var sb strings.Builder
-		for len(value) > 0 {
-			match := markdownEscape.FindStringIndex(value)
-			if match == nil {
-				sb.WriteString(paint(value, r.color()))
-				break
-			}
-			sb.WriteString(paint(value[:match[0]], r.color()))
-			escaped := value[match[0]:match[1]]
-			if r.kind != "user" {
-				escaped = escaped[1:]
-			}
-			sb.WriteString(paint(escaped, r.color()))
-			value = value[match[1]:]
-		}
-		return sb.String()
+		return r.renderText(r.textValue(v))
 	case *ast.String:
 		return paint(string(v.Value), r.color())
 	case *ast.Paragraph:

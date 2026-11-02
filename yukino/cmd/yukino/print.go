@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/yukino-js/yukino/yukino/internal/agent"
@@ -54,30 +53,6 @@ type toolCallInfo struct {
 type usageInfo struct {
 	InputTokens  int `json:"input_tokens"`
 	OutputTokens int `json:"output_tokens"`
-}
-
-func parsePrintFlags(args []string) (string, string, bool) {
-	isPrint := false
-	outputFormat := "text"
-	var prompt string
-
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "-p", "--print":
-			isPrint = true
-		case "--output-format":
-			if i+1 < len(args) {
-				outputFormat = args[i+1]
-				i++
-			}
-		default:
-			if isPrint && prompt == "" && !strings.HasPrefix(args[i], "-") {
-				prompt = args[i]
-			}
-		}
-	}
-
-	return prompt, outputFormat, isPrint
 }
 
 func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookConfig, outputFormat string) error {

@@ -113,7 +113,7 @@ func renderSelectorListRow(p selectorListRowParams) string {
 	sb.WriteString("\n")
 	if p.hasDetail {
 		sb.WriteString(pad)
-		sb.WriteString(selectorHintStyle.Render(truncateToWidth("  "+plainTerminalLine(p.detail), rowWidth, "…")))
+		sb.WriteString(selectorHintStyle().Render(truncateToWidth("  "+plainTerminalLine(p.detail), rowWidth, "…")))
 		sb.WriteString("\n")
 	}
 	result := strings.TrimSuffix(sb.String(), "\n")
@@ -164,7 +164,7 @@ func renderSelectorList(p selectorListParams) string {
 	if strings.TrimSpace(p.query) != "" {
 		status = fmt.Sprintf("%s · %d total", position, p.totalCount)
 	}
-	statusStyled := selectorHintStyle.Render(truncateToWidth(status, contentWidth, "…"))
+	statusStyled := selectorHintStyle().Render(truncateToWidth(status, contentWidth, "…"))
 	searchWidth := max(0, contentWidth-visibleWidth(status)-1)
 	searchPrefix := ""
 	if searchWidth >= 9 {
@@ -203,7 +203,7 @@ func renderSelectorList(p selectorListParams) string {
 			searchCell = style.Render(before + current + after)
 		}
 	} else {
-		searchCell = selectorHintStyle.Render(truncateToWidth(p.query, searchWidth, "…"))
+		searchCell = selectorHintStyle().Render(truncateToWidth(p.query, searchWidth, "…"))
 	}
 	cellWidth := contentWidth - visibleWidth(statusStyled)
 	if visibleWidth(searchCell) > cellWidth {

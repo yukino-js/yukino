@@ -45,9 +45,8 @@ func TestCreateToolRegistryInteractiveOrder(t *testing.T) {
 		WorkDir:         t.TempDir(),
 	})
 	names := registryToolNames(dt.Registry)
-	// The reference order (ComputerUse has no Go counterpart).
 	want := []string{
-		"Goal", "TodoWrite", "TaskOutput", "Bash", "PowerShell", "EditFile",
+		"Goal", "TodoWrite", "TaskOutput", "Bash", "PowerShell", "ComputerUse", "EditFile",
 		"EnterPlanMode", "EnterWorktree", "ExitPlanMode", "ExitWorktree",
 		"ReadFile", "ToolSearch", "McpCall", "WriteFile", "Glob", "Grep", "WebFetch",
 	}

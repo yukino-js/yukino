@@ -400,10 +400,12 @@ func (m *Model) savePartialResponse() {
 }
 
 func (m *Model) finishStreaming() {
+	m.endInteractionRun()
 	m.retryStatus = ""
 	m.fileFactsVersion++
 
 	m.streaming = false
+	m.steeringAgent = nil
 	m.cancelStream = nil
 	m.agentCh = nil
 }

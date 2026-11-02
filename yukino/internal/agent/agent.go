@@ -13,6 +13,7 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/conversation"
 	"github.com/yukino-js/yukino/yukino/internal/file_history"
 	"github.com/yukino-js/yukino/yukino/internal/goal"
+	"github.com/yukino-js/yukino/yukino/internal/history"
 	"github.com/yukino-js/yukino/yukino/internal/hooks"
 	"github.com/yukino-js/yukino/yukino/internal/llm"
 	"github.com/yukino-js/yukino/yukino/internal/permissions"
@@ -57,6 +58,86 @@ type Agent struct {
 	recallMu            sync.Mutex
 	recentToolNames     []string
 	surfacedMemPaths    map[string]struct{}
+	steeringMu          sync.Mutex
+	steeringQueue       []SteeringMessage
+}
+
+type SteeringMessage struct {
+	Text  string
+	Input history.InputEntry
+}
+
+func (a *Agent) Steer(text string, input *history.InputEntry) (*history.InputEntry, error) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil, nil
+	}
+	var entry history.InputEntry
+	if input != nil {
+		entry = *input
+	} else {
+		var sessionID *string
+		if a.SessionID != "" {
+			id := a.SessionID
+			sessionID = &id
+		}
+		var err error
+		entry, err = history.RecordInput(history.InputOptions{Text: text, Cwd: a.WorkDir, SessionID: sessionID, Source: "sdk"})
+		if err != nil {
+			return nil, err
+		}
+	}
+	a.steeringMu.Lock()
+	a.steeringQueue = append(a.steeringQueue, SteeringMessage{Text: text, Input: entry})
+	a.steeringMu.Unlock()
+	return &entry, nil
+}
+
+func (a *Agent) DrainSteering() []SteeringMessage {
+	a.steeringMu.Lock()
+	defer a.steeringMu.Unlock()
+	messages := a.steeringQueue
+	a.steeringQueue = nil
+	return messages
+}
+
+func (a *Agent) RemoveSteering(inputID string) bool {
+	a.steeringMu.Lock()
+	defer a.steeringMu.Unlock()
+	for i, message := range a.steeringQueue {
+		if message.Input.ID == inputID {
+			a.steeringQueue = slices.Delete(a.steeringQueue, i, i+1)
+			return true
+		}
+	}
+	return false
+}
+
+func (a *Agent) hasSteering() bool {
+	a.steeringMu.Lock()
+	defer a.steeringMu.Unlock()
+	return len(a.steeringQueue) > 0
+}
+
+func (a *Agent) deliverSteering(ctx context.Context, conv *conversation.Manager, ch chan AgentEvent) (int, error) {
+	delivered := 0
+	for ctx.Err() == nil {
+		a.steeringMu.Lock()
+		if len(a.steeringQueue) == 0 {
+			a.steeringMu.Unlock()
+			break
+		}
+		message := a.steeringQueue[0]
+		a.steeringQueue = a.steeringQueue[1:]
+		a.steeringMu.Unlock()
+		conv.AppendMessages([]conversation.Message{{Role: "user", Content: message.Text, UserInput: &conversation.UserInput{ID: message.Input.ID, Timestamp: message.Input.Timestamp}}})
+		if err := a.persistLastMessage(conv); err != nil {
+			return delivered, err
+		}
+		ch <- SteeringDelivered{Text: message.Text, InputID: message.Input.ID}
+		delivered++
+	}
+	return delivered, nil
 }
 
 func (a *Agent) CurrentCwd() string {
@@ -376,20 +457,19 @@ func (a *Agent) executeSingleTool(ctx context.Context, eventCh chan AgentEvent, 
 	}
 }
 
-func (a *Agent) persistLastMessage(conv *conversation.Manager) {
+func (a *Agent) persistLastMessage(conv *conversation.Manager) error {
 	if a.TranscriptPath == "" && (a.WorkDir == "" || a.SessionID == "") {
-		return
+		return nil
 	}
 	msgs := conv.GetMessages()
 	if len(msgs) == 0 {
-		return
+		return nil
 	}
 	record := session.FromConversation(msgs[len(msgs)-1])
 	if a.TranscriptPath != "" {
-		session.SaveTranscriptMessage(a.TranscriptPath, record)
-	} else {
-		session.SaveMessage(a.WorkDir, a.SessionID, record)
+		return session.SaveTranscriptMessage(a.TranscriptPath, record)
 	}
+	return session.SaveMessage(a.WorkDir, a.SessionID, record)
 }
 
 func (a *Agent) hasToolSchema(schemas []map[string]any, name string) bool {

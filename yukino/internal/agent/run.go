@@ -73,6 +73,19 @@ func (a *Agent) Run(ctx context.Context, conv *conversation.Manager) <-chan Agen
 			defer a.GoalManager.EndRun()
 		}
 		a.restoreContext(conv)
+		if a.FileHistory != nil {
+			label := "Before agent run"
+			messages := conv.GetMessages()
+			for i := len(messages) - 1; i >= 0; i-- {
+				if messages[i].Role == "user" {
+					if messages[i].ContentBlocks == nil {
+						label = messages[i].Content
+					}
+					break
+				}
+			}
+			a.FileHistory.MakeSnapshot(conv.Len(), label, a.sessionLineCount())
+		}
 		if a.GoalManager != nil {
 			a.GoalManager.BeginTurn()
 		}
@@ -91,6 +104,7 @@ func (a *Agent) Run(ctx context.Context, conv *conversation.Manager) <-chan Agen
 					canSummarize := !state.summarizingGoal &&
 						(a.Checker == nil || a.Checker.Mode() != permissions.ModePlan) &&
 						(a.ShouldContinueGoal == nil || a.ShouldContinueGoal()) &&
+						!a.hasSteering() &&
 						g != nil && g.BudgetSummaryPending
 					if !canSummarize {
 						ch <- StreamText{Text: "\n" + a.GoalManager.Format() + "\n"}
@@ -128,10 +142,11 @@ func (a *Agent) sessionFilePath() string {
 // sessionLineCount returns the session-log line coordinate for snapshots,
 // mirroring sessionLineCount(this.sessionFilePath) in the reference.
 func (a *Agent) sessionLineCount() *int {
-	if a.TranscriptPath == "" {
+	path := a.sessionFilePath()
+	if path == "" {
 		return nil
 	}
-	count, exists, err := session.SessionLineCount(a.TranscriptPath)
+	count, exists, err := session.SessionLineCount(path)
 	if err != nil || !exists {
 		return nil
 	}
@@ -258,7 +273,7 @@ func (a *Agent) runTurn(ctx context.Context, ch chan AgentEvent, conv *conversat
 	}
 	if state.summarizingGoal {
 		summary := ""
-		if (a.Checker == nil || a.Checker.Mode() != permissions.ModePlan) && (a.ShouldContinueGoal == nil || a.ShouldContinueGoal()) {
+		if (a.Checker == nil || a.Checker.Mode() != permissions.ModePlan) && (a.ShouldContinueGoal == nil || a.ShouldContinueGoal()) && !a.hasSteering() {
 			summary = a.GoalManager.TakeBudgetSummary()
 		}
 		if summary == "" {
@@ -441,6 +456,21 @@ func (a *Agent) runTurn(ctx context.Context, ch chan AgentEvent, conv *conversat
 		if state.summarizingGoal || budgetLimited {
 			return true
 		}
+		if ctx.Err() != nil {
+			ch <- LoopComplete{TotalTurns: iteration, StopReason: "interrupted"}
+			return false
+		}
+		if a.hasSteering() {
+			delivered, err := a.deliverSteering(ctx, conv, ch)
+			if err != nil {
+				state.outcome = "error"
+				ch <- ErrorEvent{Message: err.Error()}
+				return false
+			}
+			if delivered > 0 || ctx.Err() != nil {
+				return true
+			}
+		}
 		if (stopReason == "end_turn" || stopReason == "stop") && a.GoalManager != nil &&
 			(a.Checker == nil || a.Checker.Mode() != permissions.ModePlan) &&
 			(a.ShouldContinueGoal == nil || a.ShouldContinueGoal()) {
@@ -473,9 +503,10 @@ func (a *Agent) runTurn(ctx context.Context, ch chan AgentEvent, conv *conversat
 		return false
 	}
 	results := executor.ExecuteAll(ctx, a)
+	artifactSessionID := a.toolResultSessionID(conv)
 	exempt := map[string]bool{}
 	for _, call := range calls {
-		if tool_result.IsSpillReadback(call.ToolName, call.Arguments, a.CurrentCwd(), a.SessionID) {
+		if tool_result.IsSpillReadback(call.ToolName, call.Arguments, a.CurrentCwd(), artifactSessionID) {
 			exempt[call.ToolID] = true
 		}
 	}
@@ -484,7 +515,7 @@ func (a *Agent) runTurn(ctx context.Context, ch chan AgentEvent, conv *conversat
 	for _, result := range results {
 		record := conversation.ToolResultBlock{ToolUseID: result.toolID, Content: result.output, IsError: result.isError, ContentBlocks: result.contentBlocks}
 		if utf8.RuneCountInString(record.Content) > tools.MaxOutputChars && !exempt[result.toolID] {
-			replacement := tool_result.PersistLargeResult(a.SessionID, result.toolID, record.Content)
+			replacement := tool_result.PersistLargeResult(artifactSessionID, result.toolID, record.Content)
 			if replacement != record.Content {
 				tool_result.ReplaceToolResultContent(&record, replacement)
 			}
@@ -495,13 +526,16 @@ func (a *Agent) runTurn(ctx context.Context, ch chan AgentEvent, conv *conversat
 			planReady = true
 		}
 	}
-	tool_result.ApplyBudget(toolResults, a.SessionID, exempt)
+	tool_result.ApplyBudget(toolResults, artifactSessionID, exempt)
 	conv.AddToolResultsMessage(toolResults)
 	a.persistLastMessage(conv)
 	ch <- TurnComplete{Turn: iteration}
 	if ctx.Err() != nil {
 		ch <- LoopComplete{TotalTurns: iteration, StopReason: "interrupted"}
 		return false
+	}
+	if state.summarizingGoal || budgetLimited {
+		return true
 	}
 	if a.MemoryRecallCh != nil {
 		select {
@@ -517,6 +551,11 @@ func (a *Agent) runTurn(ctx context.Context, ch chan AgentEvent, conv *conversat
 	if planReady {
 		state.outcome = "completed"
 		ch <- LoopComplete{TotalTurns: iteration, PlanReady: true, StopReason: "end_turn"}
+		return false
+	}
+	if _, err := a.deliverSteering(ctx, conv, ch); err != nil {
+		state.outcome = "error"
+		ch <- ErrorEvent{Message: err.Error()}
 		return false
 	}
 	return true

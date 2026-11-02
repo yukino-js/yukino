@@ -49,8 +49,7 @@ type ToolRegistryOptions struct {
 }
 
 // CreateToolRegistry mirrors the reference createToolRegistry, registering the
-// core tool set in the reference order. ComputerUse has no Go counterpart yet
-// and is skipped (tracked as a missing tool).
+// core tool set in the reference order.
 func CreateToolRegistry(taskList *todo.TaskList, opts ToolRegistryOptions) tools.DefaultTools {
 	fileStateCache := tools.NewFileStateCache()
 	writeFile := &tools.WriteFileTool{FileStateCache: fileStateCache}
@@ -65,6 +64,7 @@ func CreateToolRegistry(taskList *todo.TaskList, opts ToolRegistryOptions) tools
 	registry.Register(&tools.TaskOutputTool{})
 	registry.Register(&tools.BashTool{WorkDir: opts.WorkDir})
 	registry.Register(&tools.PowerShellTool{})
+	registry.Register(tools.NewComputerUseTool(tools.ComputerUseOptions{}))
 	registry.Register(editFile)
 	enableModelPlanMode := opts.InteractionMode != "non-interactive"
 	if opts.EnableModelPlanMode != nil {

@@ -306,6 +306,7 @@ func (m Model) executeRewindOption() (tea.Model, tea.Cmd) {
 
 	if rebuilt {
 		m.pendingMessages = nil
+		m.steeringPending = nil
 		m.queuePaused = false
 		m.chatMessages = transcript
 		m.committedUpTo = 0

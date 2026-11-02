@@ -9,12 +9,21 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/agent"
 	"github.com/yukino-js/yukino/yukino/internal/commands"
 	"github.com/yukino-js/yukino/yukino/internal/conversation/userbash"
+	"github.com/yukino-js/yukino/yukino/internal/history"
 	"github.com/yukino-js/yukino/yukino/internal/tools"
 )
 
 var goalControl = regexp.MustCompile(`^/goal(?:\s+(status|pause|clear|complete))?$`)
 
-type foregroundSettledMsg struct{ ch <-chan agent.AgentEvent }
+type foregroundSettledMsg struct {
+	ch        <-chan agent.AgentEvent
+	delivered []agent.SteeringDelivered
+}
+
+type queuedMessage struct {
+	text  string
+	input *history.InputEntry
+}
 
 type ctrlCExpiredMsg struct{ generation int }
 
@@ -70,6 +79,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if event.ch == m.settlingCh {
 			m.settlingCh = nil
 			m.settleWaiting = false
+			for _, delivered := range event.delivered {
+				m.deliverSteering(delivered)
+			}
+			if m.ag != nil {
+				for _, message := range m.ag.DrainSteering() {
+					input := message.Input
+					m.pendingMessages = append(m.pendingMessages, queuedMessage{text: message.Text, input: &input})
+					m.removePendingSteering(input.ID)
+				}
+			}
 		}
 	case agentReadyMsg:
 		m.startingAgent = false
@@ -104,6 +123,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if next.workflowClients != nil {
 		next.workflowClients.set(next.client, next.selectedProvider)
 	}
+	if next.StartupResume != nil && next.StartupResume != "" && next.state == stateChat && next.ag != nil {
+		args, _ := next.StartupResume.(string)
+		next.StartupResume = nil
+		resumed, resumeCmd := next.handleResume(args)
+		next = resumed.(Model)
+		cmd = tea.Batch(cmd, resumeCmd)
+	}
 	next.flushUserBashRecords(true)
 	cleanupCmd := next.waitForForegroundCleanup()
 	cmd = tea.Batch(cmd, cleanupCmd)
@@ -113,9 +139,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		next.ctrlCGeneration++
 	}
 	if !next.foregroundBusy() && !next.modalActive() && next.state == stateChat && next.ag != nil && len(next.pendingMessages) > 0 && !next.queuePaused {
-		text := next.pendingMessages[0]
+		message := next.pendingMessages[0]
 		next.pendingMessages = next.pendingMessages[1:]
-		dispatched, dispatchCmd := next.dispatchInput(text)
+		dispatched, dispatchCmd := next.dispatchInput(message.text, message.input)
 		switch value := dispatched.(type) {
 		case Model:
 			next = value
@@ -123,7 +149,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			next = *value
 		}
 		if next.activityError != "" {
-			next.pendingMessages = append([]string{text}, next.pendingMessages...)
+			next.pendingMessages = append([]queuedMessage{message}, next.pendingMessages...)
 			next.queuePaused = true
 		}
 		return next, tea.Batch(cmd, dispatchCmd)
@@ -150,8 +176,21 @@ func (m Model) submitInput(text string) (tea.Model, tea.Cmd) {
 		return next, cmd
 	}
 	m.updateDismissed = true
+	if m.streaming && !m.startingAgent && m.steeringAgent != nil && !strings.HasPrefix(text, "/") {
+		input, err := history.RecordInput(history.InputOptions{Text: text, Cwd: m.getWorkDir(), SessionID: &m.sessionID, Source: "cli"})
+		if err != nil {
+			return m.inputError(err)
+		}
+		if _, err := m.steeringAgent.Steer(text, &input); err != nil {
+			return m.inputError(err)
+		}
+		m.steeringPending = append(m.steeringPending, input)
+		m.historyEntries = append(m.historyEntries, text)
+		m.clearDraft()
+		return m, nil
+	}
 	if m.foregroundBusy() && goalControl.FindStringSubmatch(text) == nil {
-		m.pendingMessages = append(m.pendingMessages, text)
+		m.pendingMessages = append(m.pendingMessages, queuedMessage{text: text})
 		m.queuePaused = false
 		m.clearDraft()
 		return m, nil
@@ -161,7 +200,7 @@ func (m Model) submitInput(text string) (tea.Model, tea.Cmd) {
 	if match := goalControl.FindStringSubmatch(text); m.foregroundBusy() && match != nil {
 		updated, cmd = m.runGoalCommand(match[1])
 	} else {
-		updated, cmd = m.dispatchInput(text)
+		updated, cmd = m.dispatchInput(text, nil)
 	}
 	var next Model
 	switch value := updated.(type) {
@@ -176,7 +215,7 @@ func (m Model) submitInput(text string) (tea.Model, tea.Cmd) {
 	return next, cmd
 }
 
-func (m Model) dispatchInput(text string) (tea.Model, tea.Cmd) {
+func (m Model) dispatchInput(text string, input *history.InputEntry) (tea.Model, tea.Cmd) {
 	m.activityError = ""
 	if strings.HasPrefix(text, "/") {
 		name, args, ok := commands.Parse(text)
@@ -188,15 +227,23 @@ func (m Model) dispatchInput(text string) (tea.Model, tea.Cmd) {
 		m.activityError = "LLM client not ready yet"
 		return m, nil
 	}
-	return m.sendMessage(text)
+	return m.sendMessage(text, input)
 }
 
 func (m *Model) recallQueued() (string, bool) {
 	if len(m.pendingMessages) == 0 {
+		if len(m.steeringPending) > 0 && m.ag != nil {
+			last := len(m.steeringPending) - 1
+			input := m.steeringPending[last]
+			if m.ag.RemoveSteering(input.ID) {
+				m.steeringPending = m.steeringPending[:last]
+				return input.Text, true
+			}
+		}
 		return "", false
 	}
 	last := len(m.pendingMessages) - 1
-	text := m.pendingMessages[last]
+	text := m.pendingMessages[last].text
 	m.pendingMessages = m.pendingMessages[:last]
 	return text, true
 }
@@ -208,8 +255,26 @@ func (m *Model) waitForForegroundCleanup() tea.Cmd {
 	m.settleWaiting = true
 	ch := m.settlingCh
 	return func() tea.Msg {
-		for range ch {
+		var delivered []agent.SteeringDelivered
+		for event := range ch {
+			if message, ok := event.(agent.SteeringDelivered); ok {
+				delivered = append(delivered, message)
+			}
 		}
-		return foregroundSettledMsg{ch: ch}
+		return foregroundSettledMsg{ch: ch, delivered: delivered}
 	}
+}
+
+func (m *Model) removePendingSteering(inputID string) {
+	for i, input := range m.steeringPending {
+		if input.ID == inputID {
+			m.steeringPending = append(m.steeringPending[:i], m.steeringPending[i+1:]...)
+			return
+		}
+	}
+}
+
+func (m *Model) deliverSteering(event agent.SteeringDelivered) {
+	m.removePendingSteering(event.InputID)
+	m.chatMessages = append(m.chatMessages, chatMessage{role: "user", content: event.Text})
 }

@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +19,7 @@ import (
 // Port of src/ui/provider-login.tsx.
 
 var loginFieldKeys = []string{"name", "protocol", "base_url", "api_key", "model", "thinking", "context_window", "max_output_tokens"}
+var loginMouseReport = regexp.MustCompile(`\[<\d+;\d+;\d+[Mm]`)
 
 var loginFieldLabels = map[string]string{
 	"name":              "Name",
@@ -100,18 +102,45 @@ func (f *providerLoginForm) value(field string) string {
 
 func (f *providerLoginForm) toInput() map[string]any {
 	input := map[string]any{
-		"name":     f.name,
-		"protocol": f.protocol,
-		"base_url": f.baseURL,
-		"api_key":  f.apiKey,
-		"model":    f.model,
-		"thinking": f.thinking,
+		"name":              f.name,
+		"protocol":          f.protocol,
+		"base_url":          f.baseURL,
+		"api_key":           f.apiKey,
+		"model":             f.model,
+		"thinking":          f.thinking,
+		"context_window":    f.contextWindow,
+		"max_output_tokens": f.maxOutputTokens,
 	}
-	if cw, err := strconv.Atoi(strings.TrimSpace(f.contextWindow)); err == nil {
-		input["context_window"] = cw
-	}
-	if mot, err := strconv.Atoi(strings.TrimSpace(f.maxOutputTokens)); err == nil {
-		input["max_output_tokens"] = mot
+	return input
+}
+
+func (m Model) loginInput() map[string]any {
+	input := m.loginForm.toInput()
+	if initial := m.loginInitial; initial != nil {
+		if initial.Reasoning != nil {
+			input["reasoning"] = *initial.Reasoning
+		}
+		if initial.ThinkingMode != "" {
+			input["thinking_mode"] = initial.ThinkingMode
+		}
+		if initial.ThinkingLevelMap != nil {
+			levels := map[string]any{}
+			for level, override := range initial.ThinkingLevelMap {
+				if override.Null {
+					levels[level] = nil
+				} else {
+					levels[level] = override.Effort
+				}
+			}
+			input["thinking_level_map"] = levels
+		}
+		for _, extra := range initial.Extra {
+			if key, ok := extra.Key.(string); ok {
+				if _, exists := input[key]; !exists {
+					input[key] = extra.Value
+				}
+			}
+		}
 	}
 	return input
 }
@@ -175,6 +204,10 @@ func (m *Model) loginRefreshDiscovery() tea.Cmd {
 		return nil
 	}
 	m.loginDiscoveryGen++
+	if m.loginDiscoveryCancel != nil {
+		m.loginDiscoveryCancel()
+		m.loginDiscoveryCancel = nil
+	}
 	m.loginCompletedConn = nil
 	m.loginDiscovery = loginDiscoveryState{status: "idle"}
 	if m.loginEditingConnection() || llm.ModelListURL(conn.protocol, conn.baseURL) == "" {
@@ -186,14 +219,14 @@ func (m *Model) loginRefreshDiscovery() tea.Cmd {
 	})
 }
 
-func (m Model) startLoginDiscovery(gen int) tea.Cmd {
+func (m Model) startLoginDiscovery(ctx context.Context, gen int) tea.Cmd {
 	cfg := llm.DiscoveryConfig{
 		Protocol: m.loginForm.protocol,
 		BaseURL:  m.loginForm.baseURL,
 		APIKey:   m.loginForm.apiKey,
 	}
 	return func() tea.Msg {
-		models, err := llm.DiscoverModels(context.Background(), cfg)
+		models, err := llm.DiscoverModels(ctx, cfg)
 		return loginDiscoveryDoneMsg{gen: gen, models: models, err: err}
 	}
 }
@@ -203,7 +236,9 @@ func (m *Model) handleLoginDiscoveryTick(msg loginDiscoveryTickMsg) (tea.Model, 
 		return m, nil
 	}
 	m.loginDiscovery = loginDiscoveryState{status: "loading"}
-	return m, m.startLoginDiscovery(msg.gen)
+	ctx, cancel := context.WithCancel(m.lifeCtx)
+	m.loginDiscoveryCancel = cancel
+	return m, m.startLoginDiscovery(ctx, msg.gen)
 }
 
 func (m *Model) handleLoginDiscoveryDone(msg loginDiscoveryDoneMsg) (tea.Model, tea.Cmd) {
@@ -260,6 +295,10 @@ func (m Model) openLoginDialog() (tea.Model, tea.Cmd) {
 func (m Model) closeLoginDialog() (tea.Model, tea.Cmd) {
 	m.loginDialog = false
 	m.loginDiscoveryGen++
+	if m.loginDiscoveryCancel != nil {
+		m.loginDiscoveryCancel()
+		m.loginDiscoveryCancel = nil
+	}
 	return m, nil
 }
 
@@ -271,6 +310,7 @@ func (m *Model) loginUpdateText(value string, nextCursor int) tea.Cmd {
 		return nil
 	}
 	var cmd tea.Cmd
+	previous := m.loginForm.value(field)
 	if target := m.loginForm.field(field); target != nil {
 		*target = value
 	}
@@ -280,7 +320,7 @@ func (m *Model) loginUpdateText(value string, nextCursor int) tea.Cmd {
 	if field == "model" {
 		m.loginModelEdited = true
 	}
-	if field == "base_url" || field == "api_key" {
+	if (field == "base_url" || field == "api_key") && previous != value {
 		cmd = m.loginRefreshDiscovery()
 	}
 	return cmd
@@ -297,27 +337,32 @@ func (m *Model) loginInsertText(text string) tea.Cmd {
 	value := m.loginForm.value(field)
 	runes := []rune(value)
 	position := min(m.loginFieldCursor, len(runes))
-	inserted := []rune(strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\n", ""))
+	inserted := []rune(strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n"), "\n", ""))
 	updated := append(append(append([]rune{}, runes[:position]...), inserted...), runes[position:]...)
 	return m.loginUpdateText(string(updated), position+len(inserted))
 }
 
-func (m Model) loginMoveField(delta int) {
+func (m *Model) loginMoveField(delta int) tea.Cmd {
+	wasEditing := m.loginEditingConnection()
 	next := (m.loginCursor + delta + len(loginFieldKeys)) % len(loginFieldKeys)
 	m.loginCursor = next
 	field := loginFieldKeys[next]
 	if field == "protocol" || field == "thinking" {
 		m.loginFieldCursor = 0
-		return
+	} else {
+		m.loginFieldCursor = len([]rune(m.loginForm.value(field)))
 	}
-	m.loginFieldCursor = len([]rune(m.loginForm.value(field)))
+	if wasEditing != m.loginEditingConnection() {
+		return m.loginRefreshDiscovery()
+	}
+	return nil
 }
 
 func (m Model) submitLogin() (tea.Model, tea.Cmd) {
 	if m.loginSubmitting {
 		return m, nil
 	}
-	input := m.loginForm.toInput()
+	input := m.loginInput()
 	provider, err := config.ParseProviderLogin(input)
 	if err != nil {
 		if validation, ok := err.(*config.LoginValidationError); ok {
@@ -348,6 +393,10 @@ func (m Model) submitLogin() (tea.Model, tea.Cmd) {
 	m.providers = append(m.providers[:0], result.Providers...)
 	m.loginDialog = false
 	m.loginDiscoveryGen++
+	if m.loginDiscoveryCancel != nil {
+		m.loginDiscoveryCancel()
+		m.loginDiscoveryCancel = nil
+	}
 
 	selected := &m.providers[0]
 	selectedIdx := 0
@@ -388,6 +437,10 @@ func (m Model) handleLoginDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.loginSubmitting {
 		return m, nil
 	}
+	if msg.Paste && len(msg.Runes) > 0 {
+		cmd := m.loginInsertText(string(msg.Runes))
+		return m, cmd
+	}
 	field := loginFieldKeys[m.loginCursor]
 	value := m.loginForm.value(field)
 	runes := []rune(value)
@@ -397,17 +450,17 @@ func (m Model) handleLoginDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		return m.closeLoginDialog()
 	case "tab":
-		m.loginMoveField(1)
-		return m, nil
+		cmd := m.loginMoveField(1)
+		return m, cmd
 	case "shift+tab":
-		m.loginMoveField(-1)
-		return m, nil
+		cmd := m.loginMoveField(-1)
+		return m, cmd
 	case "up":
-		m.loginMoveField(-1)
-		return m, nil
+		cmd := m.loginMoveField(-1)
+		return m, cmd
 	case "down":
-		m.loginMoveField(1)
-		return m, nil
+		cmd := m.loginMoveField(1)
+		return m, cmd
 	case "enter":
 		return m.submitLogin()
 	}
@@ -521,8 +574,11 @@ func (m Model) handleLoginDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	default:
-		if len(msg.Runes) > 0 {
-			cmd := m.loginInsertText(string(msg.Runes))
+		if text, ok := textForKey(msg); ok {
+			if strings.Contains(text, "\x1b") || loginMouseReport.MatchString(text) {
+				return m, nil
+			}
+			cmd := m.loginInsertText(text)
 			return m, cmd
 		}
 		return m, nil
@@ -569,9 +625,13 @@ func (m Model) renderLoginFrame(rows int) string {
 	}
 
 	var content strings.Builder
+	focusRow := 0
 	selectedBg := lipgloss.Color(Theme.SelectedBg)
 	for _, field := range loginFieldKeys {
 		selected := loginFieldKeys[m.loginCursor] == field
+		if selected {
+			focusRow = strings.Count(content.String(), "\n")
+		}
 		rawValue := m.loginDisplayValue(field)
 
 		var valueCell string
@@ -589,7 +649,7 @@ func (m Model) renderLoginFrame(rows int) string {
 				after += "…"
 			}
 			style := lipgloss.NewStyle().Foreground(normalText)
-			valueCell = style.Render(window.before+before) +
+			valueCell = style.Render(before+window.before) +
 				style.Reverse(true).Render(window.current) +
 				style.Render(after)
 		default:
@@ -610,7 +670,8 @@ func (m Model) renderLoginFrame(rows int) string {
 		if selected {
 			labelStyle = lipgloss.NewStyle().Foreground(accentColor)
 		}
-		row := labelStyle.Render(truncateToWidth(label, labelWidth, "…")) + valueCell
+		label = truncateToWidth(label, labelWidth, "…")
+		row := labelStyle.Render(label+strings.Repeat(" ", max(0, labelWidth-visibleWidth(label)))) + valueCell
 		if selected {
 			row = lipgloss.NewStyle().Background(selectedBg).Width(contentWidth).Render(row)
 		}
@@ -641,9 +702,9 @@ func (m Model) renderLoginFrame(rows int) string {
 	}
 	content.WriteString(lipgloss.NewStyle().Foreground(mutedText).Render(help))
 	content.WriteString("\n")
-	content.WriteString(selectorHintStyle.Render("type/paste any ID · Ctrl+U clear"))
+	content.WriteString(selectorHintStyle().Render("type/paste any ID · Ctrl+U clear"))
 	content.WriteString("\n")
-	content.WriteString(selectorHintStyle.Render("Home/End · Ctrl+B/F move cursor"))
+	content.WriteString(selectorHintStyle().Render("Home/End · Ctrl+B/F move cursor"))
 
 	return renderSelectorFrame(selectorFrameParams{
 		title:    "Provider login",
@@ -652,6 +713,7 @@ func (m Model) renderLoginFrame(rows int) string {
 		content:  strings.TrimSuffix(content.String(), "\n"),
 		width:    frameWidth,
 		rows:     rows,
+		focusRow: focusRow,
 	})
 }
 

@@ -175,6 +175,7 @@ func (m Model) listenForAgentEvents() tea.Cmd {
 }
 
 func (m Model) handleAgentEvent(ev agent.AgentEvent) (tea.Model, tea.Cmd) {
+	m.recordInteractionEvent(ev)
 	switch ev.(type) {
 	case agent.RetryEvent, agent.UsageEvent, agent.PermissionRequestEvent:
 	default:
@@ -239,6 +240,9 @@ func (m Model) handleAgentEvent(ev agent.AgentEvent) (tea.Model, tea.Cmd) {
 		m.totalOutput += e.OutputTokens
 		m.totalCacheRead += e.CacheReadTokens
 		m.totalCacheCreation += e.CacheCreationTokens
+	case agent.SteeringDelivered:
+		m.deliverSteering(e)
+		return m, tea.Batch(m.commitStaticOutput(), m.listenForAgentEvents())
 
 	case agent.PermissionRequestEvent:
 		m.enqueuePermission(e)
