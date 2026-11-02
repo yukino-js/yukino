@@ -25,7 +25,6 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/permissions"
 	"github.com/yukino-js/yukino/yukino/internal/prompt"
 	"github.com/yukino-js/yukino/yukino/internal/session"
-	"github.com/yukino-js/yukino/yukino/internal/skills"
 	"github.com/yukino-js/yukino/yukino/internal/subagent"
 	"github.com/yukino-js/yukino/yukino/internal/teams"
 	"github.com/yukino-js/yukino/yukino/internal/todo"
@@ -132,10 +131,7 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 		}
 	}
 
-	skillCatalog := skills.LoadCatalog(wd)
 	instructionsContent := loadPrintInstructions(wd)
-	memoryContent := memory.LoadAutoMemoryPrompt(wd)
-	skillSection := buildPrintSkillSection(skillCatalog)
 
 	env := prompt.DetectEnvironment(wd)
 	env.Model = p.Model
@@ -197,39 +193,29 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 	registry.Register(&tools.SyntheticOutputTool{})
 
 	if len(cfg.MCPServers) > 0 {
-		mcpMgr := mcp.NewManager()
-		serverConfigs := make([]mcp.ServerConfig, 0, len(cfg.MCPServers))
-		for _, c := range cfg.MCPServers {
-			serverConfigs = append(serverConfigs, mcp.ServerConfig{
-				Name:      c.Name,
-				Command:   c.Command,
-				Args:      c.Args,
-				URL:       c.URL,
-				Transport: c.Transport,
-				Headers:   c.Headers,
-				Env:       c.Env,
-			})
+		mcpMgr := mcp.NewManager(false)
+		result := mcpMgr.ConnectAll(context.Background(), cfg.MCPServers)
+		for _, connected := range result.Tools {
+			registry.Register(connected.Tool)
 		}
-		mcpMgr.LoadConfigs(serverConfigs)
-		for _, e := range mcpMgr.RegisterAllTools(context.Background(), registry) {
-			fmt.Fprintf(os.Stderr, "MCP warning: %s\n", e)
+		for _, connectError := range result.Errors {
+			fmt.Fprintf(os.Stderr, "MCP warning: %s: %s\n", connectError.ServerName, connectError.Error)
 		}
 		mcp.DecideAndApply(registry, p.BaseURL, p.Protocol, config.GetContextWindow(p), cfg.MCPLoading)
-		defer mcpMgr.Shutdown()
+		defer mcpMgr.DisconnectAll()
 	}
 
 	subProgressCh := make(chan subagent.SubAgentProgress, 32)
 	registry.Register(&subagent.AgentTool{
-		Client:        client,
-		Provider:      p,
-		MemoryContent: memoryContent,
-		Registry:      registry,
-		Protocol:      p.Protocol,
-		TaskMgr:       taskMgr,
-		ProgressCh:    subProgressCh,
-		Loader:        loader,
-		Conversation:  conv,
-		TeamMgr:       teamMgr,
+		Client:       client,
+		Provider:     p,
+		Registry:     registry,
+		Protocol:     p.Protocol,
+		TaskMgr:      taskMgr,
+		ProgressCh:   subProgressCh,
+		Loader:       loader,
+		Conversation: conv,
+		TeamMgr:      teamMgr,
 	})
 	workflow.AttachWorkflow(workflow.WorkflowServiceOptions{
 		WorkflowBackendOptions: workflow.WorkflowBackendOptions{
@@ -278,8 +264,6 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 	ag.ContextWindow = config.GetContextWindow(p)
 	ag.MaxOutputTokens = config.GetMaxOutputTokens(p)
 	ag.Instructions = instructionsContent
-	ag.MemoryContent = memoryContent
-	ag.SkillSection = skillSection
 	ag.FileHistory = fh
 	ag.SetSessionID(sessionID)
 	ag.GoalManager = goalManager
@@ -417,24 +401,4 @@ func emitJSON(v any) {
 
 func loadPrintInstructions(wd string) string {
 	return memory.LoadInstructions(wd)
-}
-
-func buildPrintSkillSection(catalog *skills.Catalog) string {
-	if catalog == nil {
-		return ""
-	}
-	metas := catalog.List()
-	if len(metas) == 0 {
-		return ""
-	}
-	var sb strings.Builder
-	sb.WriteString("## Available Skills\n\n")
-	for _, meta := range metas {
-		desc := meta.Description
-		if len(desc) > 200 {
-			desc = desc[:200] + "…"
-		}
-		sb.WriteString(fmt.Sprintf("- /%s: %s\n", meta.Name, desc))
-	}
-	return sb.String()
 }

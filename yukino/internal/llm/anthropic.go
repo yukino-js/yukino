@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -19,6 +20,19 @@ import (
 const anthropicStreamIdleTimeout = 5 * time.Minute
 
 const nativeToolSearchBeta = "advanced-tool-use-2025-11-20"
+
+var officialAnthropicHosts = map[string]bool{"api.anthropic.com": true}
+
+func isOfficialAnthropicEndpoint(baseURL string) bool {
+	if baseURL == "" {
+		return true
+	}
+	parsed, err := url.Parse(baseURL)
+	if err != nil {
+		return false
+	}
+	return officialAnthropicHosts[strings.ToLower(parsed.Hostname())]
+}
 
 func markToolsForCache(sdkTools []anthropic.ToolUnionParam) {
 	for i := len(sdkTools) - 1; i >= 0; i-- {
@@ -73,9 +87,9 @@ func newAnthropicClient(cfg *config.ProviderConfig, systemPrompt string) (*anthr
 	}, nil
 }
 
-func (c *anthropicClient) SetSystemPrompt(prompt string) {
-	c.systemPrompt = prompt
-}
+func (c *anthropicClient) SetSystemPrompt(prompt string) { c.systemPrompt = prompt }
+
+func (c *anthropicClient) Protocol() string { return "anthropic" }
 
 func (c *anthropicClient) SetMaxOutputTokens(tokens int) {
 	c.cfg.MaxOutputTokens = float64(tokens)
@@ -106,7 +120,14 @@ func (c *anthropicClient) Stream(ctx context.Context, conv *conversation.Manager
 	events := make(chan StreamEvent, 64)
 	errs := make(chan error, 1)
 
-	msgs := buildAnthropicMessages(conversation.EnsureToolPairing(conv.GetMessages()))
+	useExplicitCustomType := isOfficialAnthropicEndpoint(c.cfg.BaseURL)
+	msgs, err := buildAnthropicMessages(conversation.EnsureToolPairing(conv.GetMessages()))
+	if err != nil {
+		errs <- err
+		close(events)
+		close(errs)
+		return events, errs
+	}
 
 	var sdkTools []anthropic.ToolUnionParam
 	sendToolSearchBeta := needsToolSearchBeta(toolSchemas)
@@ -125,6 +146,9 @@ func (c *anthropicClient) Stream(ctx context.Context, conv *conversation.Manager
 		}
 		if deferLoading, _ := s["defer_loading"].(bool); deferLoading {
 			tool.DeferLoading = param.NewOpt(true)
+		}
+		if useExplicitCustomType {
+			tool.Type = anthropic.ToolTypeCustom
 		}
 		sdkTools = append(sdkTools, anthropic.ToolUnionParam{OfTool: tool})
 	}
@@ -199,8 +223,11 @@ func (c *anthropicClient) Stream(ctx context.Context, conv *conversation.Manager
 
 		var currentToolName, currentToolID, jsonAccum string
 		var thinkingAccum, thinkingSignature string
+		var redactedData string
 		inThinking := false
-		var accMessage anthropic.Message
+		inRedactedThinking := false
+		var inputTokens, outputTokens, cacheReadInputTokens, cacheCreationInputTokens int
+		stopReason := "end_turn"
 		// Terminal-event guard: a stream cut between message_start and
 		// message_stop (gateway dropping the SSE) must not be committed as a
 		// complete end_turn turn with near-zero usage.
@@ -244,31 +271,48 @@ func (c *anthropicClient) Stream(ctx context.Context, conv *conversation.Manager
 			}
 
 			event := stream.Current()
-			accMessage.Accumulate(event)
-			if mde, ok := event.AsAny().(anthropic.MessageDeltaEvent); ok {
-				if mde.Usage.InputTokens > 0 {
-					accMessage.Usage.InputTokens = mde.Usage.InputTokens
-				}
-				if mde.Usage.CacheReadInputTokens > 0 {
-					accMessage.Usage.CacheReadInputTokens = mde.Usage.CacheReadInputTokens
-				}
-				if mde.Usage.CacheCreationInputTokens > 0 {
-					accMessage.Usage.CacheCreationInputTokens = mde.Usage.CacheCreationInputTokens
-				}
-			}
 			switch ev := event.AsAny().(type) {
+			case anthropic.MessageStartEvent:
+				inputTokens = int(ev.Message.Usage.InputTokens)
+				outputTokens = int(ev.Message.Usage.OutputTokens)
+				cacheReadInputTokens = int(ev.Message.Usage.CacheReadInputTokens)
+				cacheCreationInputTokens = int(ev.Message.Usage.CacheCreationInputTokens)
+			case anthropic.MessageDeltaEvent:
+				if ev.Delta.StopReason != "" {
+					stopReason = string(ev.Delta.StopReason)
+				}
+				if ev.Usage.JSON.OutputTokens.Valid() {
+					outputTokens = int(ev.Usage.OutputTokens)
+				}
+				if ev.Usage.JSON.InputTokens.Valid() {
+					inputTokens = int(ev.Usage.InputTokens)
+				}
+				if ev.Usage.JSON.CacheReadInputTokens.Valid() {
+					cacheReadInputTokens = int(ev.Usage.CacheReadInputTokens)
+				}
+				if ev.Usage.JSON.CacheCreationInputTokens.Valid() {
+					cacheCreationInputTokens = int(ev.Usage.CacheCreationInputTokens)
+				}
 			case anthropic.MessageStopEvent:
 				sawMessageStop = true
 			case anthropic.ContentBlockStartEvent:
 				switch ev.ContentBlock.Type {
 				case "redacted_thinking":
-					events <- RedactedThinkingComplete{Data: ev.ContentBlock.Data}
+					redactedData = ev.ContentBlock.Data
+					inRedactedThinking = true
 				case "thinking":
 					inThinking = true
 					thinkingAccum = ""
 					thinkingSignature = ""
 				case "tool_use":
+					if ev.ContentBlock.ID == "" || ev.ContentBlock.Name == "" {
+						errs <- &NetworkError{Message: "Anthropic tool call started without a valid id or name"}
+						return
+					}
 					currentToolName = ev.ContentBlock.Name
+					if currentToolName == "computer" {
+						currentToolName = "ComputerUse"
+					}
 					currentToolID = ev.ContentBlock.ID
 					jsonAccum = ""
 					events <- ToolCallStart{ToolName: currentToolName, ToolID: currentToolID}
@@ -279,10 +323,14 @@ func (c *anthropicClient) Stream(ctx context.Context, conv *conversation.Manager
 					thinkingAccum += delta.Thinking
 					events <- ThinkingDelta{Text: delta.Thinking}
 				case anthropic.SignatureDelta:
-					thinkingSignature = delta.Signature
+					thinkingSignature += delta.Signature
 				case anthropic.TextDelta:
 					events <- TextDelta{Text: delta.Text}
 				case anthropic.InputJSONDelta:
+					if currentToolID == "" || currentToolName == "" {
+						errs <- &NetworkError{Message: "Anthropic tool arguments arrived before a valid tool call"}
+						return
+					}
 					jsonAccum += delta.PartialJSON
 					events <- ToolCallDelta{Text: delta.PartialJSON}
 				}
@@ -293,6 +341,10 @@ func (c *anthropicClient) Stream(ctx context.Context, conv *conversation.Manager
 						Signature: thinkingSignature,
 					}
 					inThinking = false
+				}
+				if inRedactedThinking {
+					events <- RedactedThinkingComplete{Data: redactedData}
+					inRedactedThinking = false
 				}
 				if currentToolName != "" {
 					args, parseError := ParseToolArguments(jsonAccum)
@@ -324,17 +376,12 @@ func (c *anthropicClient) Stream(ctx context.Context, conv *conversation.Manager
 			return
 		}
 
-		stopReason := string(accMessage.StopReason)
-		if stopReason == "" {
-			stopReason = "end_turn"
-		}
-		usage := UsageInfo{
-			InputTokens:         int(accMessage.Usage.InputTokens),
-			OutputTokens:        int(accMessage.Usage.OutputTokens),
-			CacheReadTokens:     int(accMessage.Usage.CacheReadInputTokens),
-			CacheCreationTokens: int(accMessage.Usage.CacheCreationInputTokens),
-		}
-		events <- StreamEnd{StopReason: stopReason, Usage: usage}
+		events <- StreamEnd{StopReason: stopReason, Usage: UsageInfo{
+			InputTokens:         inputTokens,
+			OutputTokens:        outputTokens,
+			CacheReadTokens:     cacheReadInputTokens,
+			CacheCreationTokens: cacheCreationInputTokens,
+		}}
 	}()
 
 	return events, errs
@@ -379,24 +426,30 @@ func markLastUserTailForCache(messages []anthropic.MessageParam) {
 // (text/image/document/search_result). tool_reference and unsupported blocks
 // are skipped (the reference throws; the Go builder degrades instead of
 // failing the whole request on a malformed stored session).
-func userBlocksFor(m conversation.Message) []anthropic.ContentBlockParamUnion {
+func userBlocksFor(m conversation.Message) ([]anthropic.ContentBlockParamUnion, error) {
 	if len(m.ContentBlocks) == 0 {
-		return []anthropic.ContentBlockParamUnion{anthropic.NewTextBlock(m.Content)}
+		return []anthropic.ContentBlockParamUnion{anthropic.NewTextBlock(m.Content)}, nil
 	}
 	var blocks []anthropic.ContentBlockParamUnion
 	for _, raw := range m.ContentBlocks {
 		block := conversation.NormalizeToolResultContentBlock(raw)
 		if block == nil || block["type"] == "tool_reference" {
-			continue
+			return nil, fmt.Errorf("Unsupported user content block: %s", blockTypeOrUnknown(raw))
 		}
-		if converted, ok := anthropicContentBlock(block); ok {
-			blocks = append(blocks, converted)
+		converted, ok := anthropicContentBlock(block)
+		if !ok {
+			return nil, fmt.Errorf("Unsupported user content block: %s", blockTypeOrUnknown(raw))
 		}
+		blocks = append(blocks, converted)
 	}
-	if len(blocks) == 0 {
-		blocks = append(blocks, anthropic.NewTextBlock(""))
+	return blocks, nil
+}
+
+func blockTypeOrUnknown(raw map[string]any) string {
+	if value, ok := raw["type"].(string); ok && value != "" {
+		return value
 	}
-	return blocks
+	return "unknown"
 }
 
 func anthropicContentBlock(block map[string]any) (anthropic.ContentBlockParamUnion, bool) {
@@ -518,7 +571,7 @@ func anthropicContentBlock(block map[string]any) (anthropic.ContentBlockParamUni
 	return anthropic.ContentBlockParamUnion{}, false
 }
 
-func buildAnthropicMessages(messages []conversation.Message) []anthropic.MessageParam {
+func buildAnthropicMessages(messages []conversation.Message) ([]anthropic.MessageParam, error) {
 	var result []anthropic.MessageParam
 	for _, m := range messages {
 		if m.Role == "assistant" {
@@ -571,7 +624,11 @@ func buildAnthropicMessages(messages []conversation.Message) []anthropic.Message
 				})
 			}
 			if m.HasContent() {
-				blocks = append(blocks, userBlocksFor(m)...)
+				userBlocks, err := userBlocksFor(m)
+				if err != nil {
+					return nil, err
+				}
+				blocks = append(blocks, userBlocks...)
 			}
 			result = append(result, anthropic.MessageParam{
 				Role:    anthropic.MessageParamRoleUser,
@@ -581,7 +638,10 @@ func buildAnthropicMessages(messages []conversation.Message) []anthropic.Message
 			// Anthropic messages must alternate roles. Merge every consecutive
 			// user turn, including reminders or steering immediately after
 			// tool results.
-			userBlocks := userBlocksFor(m)
+			userBlocks, err := userBlocksFor(m)
+			if err != nil {
+				return nil, err
+			}
 			if n := len(result); n > 0 && result[n-1].Role == anthropic.MessageParamRoleUser {
 				result[n-1].Content = append(result[n-1].Content, userBlocks...)
 				continue
@@ -592,7 +652,7 @@ func buildAnthropicMessages(messages []conversation.Message) []anthropic.Message
 			})
 		}
 	}
-	return result
+	return result, nil
 }
 
 func classifyAnthropicError(err error) error {

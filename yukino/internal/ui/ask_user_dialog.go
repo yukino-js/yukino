@@ -210,7 +210,7 @@ func (m Model) renderQuestionNavBar() string {
 	}
 
 	for i, q := range m.askUserQuestions {
-		header := q.Header
+		header := q.Text
 		if header == "" {
 			header = fmt.Sprintf("Q%d", i+1)
 		}
@@ -336,7 +336,7 @@ func (m Model) renderSubmitView() string {
 	lines += 2
 
 	for i, q := range m.askUserQuestions {
-		label := q.Header
+		label := q.Text
 		if label == "" {
 			label = fmt.Sprintf("Q%d", i+1)
 		}

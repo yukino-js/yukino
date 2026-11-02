@@ -14,6 +14,17 @@ type ToolResult struct {
 	Output        string
 	IsError       bool
 	ContentBlocks []map[string]any
+	McpApp        *McpAppResult
+}
+
+// McpAppResult is the rich MCP Apps metadata preserved on a tool result for
+// hosts that render the app in a panel.
+type McpAppResult struct {
+	ServerName  string         `json:"serverName"`
+	ToolName    string         `json:"toolName"`
+	ResourceURI string         `json:"resourceUri"`
+	Arguments   map[string]any `json:"arguments"`
+	Result      any            `json:"result"`
 }
 
 type McpLoadingMode string

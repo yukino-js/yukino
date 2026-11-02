@@ -1,11 +1,14 @@
 package ui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/yukino-js/yukino/yukino/internal/agent"
 	"github.com/yukino-js/yukino/yukino/internal/config"
+	"github.com/yukino-js/yukino/yukino/internal/memory"
 	"github.com/yukino-js/yukino/yukino/internal/permissions"
 )
 
@@ -58,13 +61,23 @@ func TestNewClampsOutOfRangeDefaultProvider(t *testing.T) {
 
 func TestRebuildSystemPromptGatesMemory(t *testing.T) {
 	provider := config.ProviderConfig{Name: "test", Protocol: "anthropic", Model: "m", APIKey: "k"}
+	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
+
+	memDir := memory.GetAutoMemPath(dir)
+	if err := os.MkdirAll(memDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(memDir, "topic.md"), []byte("---\nname: topic\ndescription: a saved memory\ntype: reference\n---\nbody"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	enabled := New([]config.ProviderConfig{provider}, nil, nil, nil, 0, "", true)
 	enabled.selectedProvider = &provider
+	enabled.memoryMgr = memory.NewManager(dir, nil)
 	enabled.rebuildSystemPrompt(dir)
-	if enabled.memoryContent == "" {
-		t.Error("memoryContent should be populated when enable_memory is on")
+	if !strings.Contains(enabled.memoryContent, "Active memories:") {
+		t.Errorf("memoryContent should be populated when enable_memory is on, got %q", enabled.memoryContent)
 	}
 
 	disabled := New([]config.ProviderConfig{provider}, nil, nil, nil, 0, "", false)

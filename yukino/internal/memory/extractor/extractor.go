@@ -2,322 +2,366 @@ package extractor
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/yukino-js/yukino/yukino/internal/agent"
 	"github.com/yukino-js/yukino/yukino/internal/conversation"
 	"github.com/yukino-js/yukino/yukino/internal/llm"
+	"github.com/yukino-js/yukino/yukino/internal/logger"
 	"github.com/yukino-js/yukino/yukino/internal/memory"
+	"github.com/yukino-js/yukino/yukino/internal/permissions"
+	"github.com/yukino-js/yukino/yukino/internal/storage"
 	"github.com/yukino-js/yukino/yukino/internal/tools"
 )
 
-type Deps struct {
-	MemoryDir     string
-	UserMemoryDir string
-	ProjectRoot   string
-	Client        llm.Client
-	ToolRegistry  *tools.Registry
-	Protocol      string
-	Conversation  *conversation.Manager
-	AppendSystem  func(string)
-	DebugLogf     func(format string, args ...any)
+var log = logger.CreateChildLogger("memory")
+
+type ParsedTextMemory struct {
+	Name        string
+	Type        string
+	Description string
+	Body        string
 }
 
+// Extractor implements the background memory-extraction subagent.
 type Extractor struct {
-	deps Deps
+	client llm.Client
+	cwd    string
 
-	mu                       sync.Mutex
-	inFlight                 map[*sync.WaitGroup]struct{}
-	lastMemoryMessageIdx     int
-	hasLoggedGateFailure     bool
-	inProgress               bool
-	turnsSinceLastExtraction int
-	pendingContext           *pendingExtractionCtx
+	mu         sync.Mutex
+	inProgress bool
+	pending    *string
+	cancel     context.CancelFunc
+	completion chan struct{}
+	disposed   bool
 }
 
-type pendingExtractionCtx struct{}
-
-func InitExtractMemories(deps Deps) *Extractor {
-	return &Extractor{
-		deps:     deps,
-		inFlight: make(map[*sync.WaitGroup]struct{}),
-	}
+func New(client llm.Client, cwd string) *Extractor {
+	return &Extractor{client: client, cwd: cwd}
 }
 
-func (e *Extractor) Execute(ctx context.Context) error {
-	if e == nil {
+func (e *Extractor) Extract(ctx context.Context, conversationSummary string) []string {
+	e.mu.Lock()
+	if e.disposed {
+		e.mu.Unlock()
 		return nil
 	}
-	wg := &sync.WaitGroup{}
-	wg.Add(1)
-	e.mu.Lock()
-	e.inFlight[wg] = struct{}{}
-	e.mu.Unlock()
-	defer func() {
-		wg.Done()
-		e.mu.Lock()
-		delete(e.inFlight, wg)
-		e.mu.Unlock()
-	}()
-
-	return e.executeImpl(ctx)
-}
-
-func (e *Extractor) executeImpl(ctx context.Context) error {
-	e.mu.Lock()
 	if e.inProgress {
-		e.deps.debugf("[extractMemories] extraction in progress — stashing for trailing run")
-		e.pendingContext = &pendingExtractionCtx{}
+		e.pending = &conversationSummary
 		e.mu.Unlock()
 		return nil
 	}
 	e.mu.Unlock()
-
-	return e.runExtraction(ctx, false)
+	return e.runExtraction(ctx, conversationSummary)
 }
 
-func (e *Extractor) runExtraction(ctx context.Context, isTrailingRun bool) error {
-	messages := e.deps.Conversation.GetMessages()
-	newMessageCount := countModelVisibleMessagesSince(messages, e.lastMemoryMessageIdx)
-
-	if hasMemoryWritesSince(messages, e.lastMemoryMessageIdx, e.deps.ProjectRoot) {
-		e.deps.debugf("[extractMemories] skipping — conversation already wrote to memory files")
-		e.advanceCursor(len(messages))
-		return nil
+// Dispose stops any in-flight extraction and awaits its settlement.
+func (e *Extractor) Dispose() {
+	e.mu.Lock()
+	e.disposed = true
+	e.pending = nil
+	cancel := e.cancel
+	completion := e.completion
+	e.mu.Unlock()
+	if cancel != nil {
+		cancel()
 	}
-
-	if !isTrailingRun {
-		e.turnsSinceLastExtraction++
-		if e.turnsSinceLastExtraction < 1 {
-			return nil
-		}
+	if completion != nil {
+		<-completion
 	}
-	e.turnsSinceLastExtraction = 0
+}
 
+func (e *Extractor) runExtraction(parent context.Context, conversationSummary string) []string {
+	ctx, cancel := context.WithCancel(parent)
+	done := make(chan struct{})
 	e.mu.Lock()
 	e.inProgress = true
+	e.cancel = cancel
+	e.completion = done
 	e.mu.Unlock()
-	startTime := time.Now()
 
-	defer func() {
-		e.mu.Lock()
-		e.inProgress = false
-		trailing := e.pendingContext
-		e.pendingContext = nil
-		e.mu.Unlock()
-		if trailing != nil {
-			e.deps.debugf("[extractMemories] running trailing extraction for stashed context")
-			_ = e.runExtraction(ctx, true)
+	var result []string
+	var failure error
+	func() {
+		defer close(done)
+		defer func() {
+			e.mu.Lock()
+			e.inProgress = false
+			e.cancel = nil
+			e.completion = nil
+			pending := e.pending
+			e.pending = nil
+			disposed := e.disposed
+			e.mu.Unlock()
+			cancel()
+			if pending != nil && !disposed {
+				trailing := e.runExtraction(parent, *pending)
+				result = append(result, trailing...)
+			}
+		}()
+		result, failure = e.doExtract(ctx, conversationSummary)
+		if failure != nil {
+			log.Error(map[string]any{"err": failure}, "memory extractor failed")
 		}
 	}()
-
-	e.deps.debugf("[extractMemories] starting — %d new messages, memoryDir=%s, userMemoryDir=%s",
-		newMessageCount, e.deps.MemoryDir, e.deps.UserMemoryDir)
-
-	var combinedScan []memory.MemoryHeader
-	if e.deps.UserMemoryDir != "" {
-		userScan, _ := memory.ScanMemoryFiles(ctx, e.deps.UserMemoryDir, "user")
-		combinedScan = append(combinedScan, userScan...)
+	if failure != nil {
+		return nil
 	}
-	projectScan, _ := memory.ScanMemoryFiles(ctx, e.deps.MemoryDir, "project")
-	combinedScan = append(combinedScan, projectScan...)
-	manifest := memory.FormatMemoryManifest(combinedScan)
-	extractionPrompt := BuildExtractAutoOnlyPrompt(newMessageCount, manifest, false, e.deps.UserMemoryDir, e.deps.MemoryDir)
+	return result
+}
 
-	forkedConv := buildExtractorConversation(e.deps.Conversation, extractionPrompt)
+// scanExistingMemories scans memory files and builds a manifest for LLM
+// deduplication.
+func (e *Extractor) scanExistingMemories() string {
+	dirs := []string{
+		memory.GetAutoMemPath(e.cwd),
+		memory.GetUserAutoMemPath(),
+	}
+	var entries []string
+	checker := memory.NewMemoryPermissionChecker(e.cwd, false)
+	for _, dir := range dirs {
+		if dir == "" {
+			continue
+		}
+		if !allowed(checker, "Glob", tools.CategoryRead, map[string]any{"path": dir, "pattern": "*.md"}) {
+			continue
+		}
+		info, err := os.Stat(dir)
+		if err != nil || !info.IsDir() {
+			continue
+		}
+		dirEntries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, entry := range dirEntries {
+			file := entry.Name()
+			if entry.IsDir() || !strings.HasSuffix(file, ".md") || file == memory.MemoryIndexName {
+				continue
+			}
+			filePath := filepath.Join(dir, file)
+			if !allowed(checker, "ReadFile", tools.CategoryRead, map[string]any{"file_path": filePath}) {
+				continue
+			}
+			data, err := storage.ReadPrivateFileSync(filePath)
+			if err != nil {
+				continue
+			}
+			memoryType := memory.DefaultMemoryType
+			if match := memory.FrontmatterTypeRe.FindStringSubmatch(string(data)); match != nil {
+				memoryType = strings.TrimSpace(match[1])
+			}
+			desc := ""
+			if match := memory.FrontmatterDescriptionRe.FindStringSubmatch(string(data)); match != nil {
+				desc = strings.TrimSpace(match[1])
+			}
+			entries = append(entries, fmt.Sprintf("- [%s] %s: %s", memoryType, file, desc))
+		}
+	}
+	if len(entries) == 0 {
+		return ""
+	}
+	return strings.Join(entries, "\n")
+}
+
+func (e *Extractor) doExtract(ctx context.Context, conversationSummary string) ([]string, error) {
+	extractionPrompt := memory.BuildExtractionPrompt(
+		conversationSummary,
+		e.scanExistingMemories(),
+		memory.GetUserAutoMemPath(),
+		memory.GetAutoMemPath(e.cwd),
+	)
 
 	subRegistry := memory.NewTaskToolRegistry()
+	subChecker := memory.NewMemoryPermissionChecker(e.cwd, false)
 
-	subChecker := memory.NewMemoryPermissionChecker(e.deps.ProjectRoot, false)
+	forkedConv := conversation.NewManager()
+	forkedConv.AddUserMessage(extractionPrompt)
 
-	subAgent := agent.New(e.deps.Client, subRegistry, e.deps.Protocol)
-	subAgent.MaxIterations = 5
-	subAgent.Checker = subChecker
-	subAgent.WorkDir = e.deps.ProjectRoot
+	subagent := agent.New(e.client, subRegistry, e.protocol())
+	subagent.Checker = subChecker
+	subagent.WorkDir = e.cwd
+	subagent.MaxIterations = memory.ExtractionMaxIterations
 
-	ch := subAgent.Run(ctx, forkedConv)
-	for range ch {
+	var streamedText strings.Builder
+	for event := range subagent.Run(ctx, forkedConv) {
+		switch ev := event.(type) {
+		case agent.ErrorEvent:
+			return nil, errors.New(ev.Message)
+		case agent.StreamText:
+			streamedText.WriteString(ev.Text)
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 
-	e.advanceCursor(len(messages))
-
-	writtenPaths := extractWrittenPaths(forkedConv.GetMessages())
-	e.deps.debugf("[extractMemories] finished in %s, %d files written: %v",
-		time.Since(startTime), len(writtenPaths), writtenPaths)
-
+	writtenPaths := memory.ExtractWrittenPaths(forkedConv.GetMessages())
 	var memoryPaths []string
-	for _, p := range writtenPaths {
-		if filepath.Base(p) == memory.AutoMemEntrypointName {
+	for _, path := range writtenPaths {
+		if filepath.Base(path) != memory.MemoryIndexName {
+			memoryPaths = append(memoryPaths, path)
+		}
+	}
+	var saved []string
+	if len(memoryPaths) > 0 {
+		for _, path := range memoryPaths {
+			saved = append(saved, strings.TrimSuffix(filepath.Base(path), ".md"))
+		}
+	} else {
+		saved = e.persistTextMemories(streamedText.String())
+	}
+	if len(saved) > 0 {
+		manager := memory.NewManager(e.cwd, subChecker)
+		manager.RebuildIndex()
+	}
+	return saved, nil
+}
+
+// persistTextMemories parses structured MEMORY_NAME/... text blocks and
+// persists them by type. Returns written memory names (without extensions).
+func (e *Extractor) persistTextMemories(text string) []string {
+	memories := parseTextMemoryBlocks(text)
+	if len(memories) == 0 {
+		return nil
+	}
+	var saved []string
+	for _, mem := range memories {
+		dir := e.dirForMemoryType(mem.Type)
+		filePath := filepath.Join(dir, mem.Name+".md")
+		if !allowed(memory.NewMemoryPermissionChecker(e.cwd, false), "WriteFile", tools.CategoryWrite, map[string]any{"file_path": filePath}) {
 			continue
 		}
-		memoryPaths = append(memoryPaths, p)
-	}
-
-	if len(memoryPaths) > 0 && e.deps.AppendSystem != nil {
-		var names []string
-		for _, p := range memoryPaths {
-			names = append(names, filepath.Base(p))
+		content := formatMemoryFile(mem)
+		err := storage.WithFileSyncLock(filePath, func() error {
+			if err := storage.MkdirPrivateSync(dir); err != nil {
+				return err
+			}
+			if _, statErr := os.Stat(filePath); statErr == nil {
+				if !allowed(memory.NewMemoryPermissionChecker(e.cwd, false), "ReadFile", tools.CategoryRead, map[string]any{"file_path": filePath}) {
+					return nil
+				}
+				existing, readErr := storage.ReadPrivateFileSync(filePath)
+				if readErr == nil && string(existing) != content {
+					log.Warn(map[string]any{"filePath": filePath}, "memory text fallback: refusing to overwrite an existing memory file")
+				}
+				return nil
+			}
+			temporary := fmt.Sprintf("%s.%d.mem-tmp", filePath, os.Getpid())
+			defer os.Remove(temporary)
+			if err := storage.WritePrivateFileSync(temporary, []byte(content), os.O_WRONLY|os.O_CREATE|os.O_EXCL); err != nil {
+				return err
+			}
+			if err := os.Rename(temporary, filePath); err != nil {
+				return err
+			}
+			saved = append(saved, mem.Name)
+			return nil
+		})
+		if err != nil {
+			log.Error(map[string]any{"err": err}, "memory text fallback write failed")
 		}
-		e.deps.AppendSystem(fmt.Sprintf("Memory saved: %s", strings.Join(names, ", ")))
 	}
-
-	return nil
+	return saved
 }
 
-func (e *Extractor) Drain(timeoutMs int) error {
-	if e == nil {
+func parseTextMemoryBlocks(text string) []ParsedTextMemory {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" || trimmed == memory.NoneSentinel {
 		return nil
 	}
-	if timeoutMs < 0 {
-		timeoutMs = 60000
-	}
-
-	e.mu.Lock()
-	wgs := make([]*sync.WaitGroup, 0, len(e.inFlight))
-	for wg := range e.inFlight {
-		wgs = append(wgs, wg)
-	}
-	e.mu.Unlock()
-
-	if len(wgs) == 0 {
-		return nil
-	}
-
-	done := make(chan struct{})
-	go func() {
-		for _, wg := range wgs {
-			wg.Wait()
-		}
-		close(done)
-	}()
-	select {
-	case <-done:
-		return nil
-	case <-time.After(time.Duration(timeoutMs) * time.Millisecond):
-		return nil
-	}
-}
-
-func (e *Extractor) advanceCursor(to int) {
-	e.mu.Lock()
-	if to > e.lastMemoryMessageIdx {
-		e.lastMemoryMessageIdx = to
-	}
-	e.mu.Unlock()
-}
-
-func countModelVisibleMessagesSince(messages []conversation.Message, sinceIdx int) int {
-	if sinceIdx < 0 || sinceIdx > len(messages) {
-		return countModelVisible(messages)
-	}
-	n := 0
-	for _, m := range messages[sinceIdx:] {
-		if isModelVisibleMessage(m) {
-			n++
+	var memories []ParsedTextMemory
+	for _, block := range memory.TextBlockSeparatorRe.Split(trimmed, -1) {
+		if mem, ok := parseTextMemoryBlock(block); ok {
+			memories = append(memories, mem)
 		}
 	}
-	return n
+	return memories
 }
 
-func countModelVisible(messages []conversation.Message) int {
-	n := 0
-	for _, m := range messages {
-		if isModelVisibleMessage(m) {
-			n++
-		}
-	}
-	return n
-}
-
-func isModelVisibleMessage(m conversation.Message) bool {
-	return m.Role == "user" || m.Role == "assistant"
-}
-
-func hasMemoryWritesSince(messages []conversation.Message, sinceIdx int, projectRoot string) bool {
-	if sinceIdx < 0 {
-		sinceIdx = 0
-	}
-	if sinceIdx >= len(messages) {
-		return false
-	}
-	for _, m := range messages[sinceIdx:] {
-		if m.Role != "assistant" {
-			continue
-		}
-		for _, tu := range m.ToolUses {
-			fp := getWrittenFilePath(tu)
-			if fp == "" {
-				continue
+// parseTextMemoryBlock parses a single block; MEMORY_BODY supports multiple
+// lines.
+func parseTextMemoryBlock(block string) (ParsedTextMemory, bool) {
+	var mem ParsedTextMemory
+	var bodyLines []string
+	inBody := false
+	for _, line := range strings.Split(block, "\n") {
+		nameMatch := memory.MemoryNameRe.FindStringSubmatch(line)
+		typeMatch := memory.MemoryTypeRe.FindStringSubmatch(line)
+		descMatch := memory.MemoryDescRe.FindStringSubmatch(line)
+		bodyMatch := memory.MemoryBodyRe.FindStringSubmatch(line)
+		switch {
+		case nameMatch != nil:
+			if mem.Name != "" {
+				mem.Type = ""
+				mem.Description = ""
+				mem.Body = ""
+				bodyLines = nil
 			}
-			if memory.IsAutoMemPath(fp, projectRoot) {
-				return true
+			mem.Name = strings.TrimSpace(nameMatch[1])
+			inBody = false
+		case typeMatch != nil:
+			mem.Type = strings.TrimSpace(typeMatch[1])
+			inBody = false
+		case descMatch != nil:
+			mem.Description = strings.TrimSpace(descMatch[1])
+			inBody = false
+		case bodyMatch != nil:
+			if mem.Body != "" || len(bodyLines) > 0 {
+				bodyLines = nil
 			}
+			mem.Body = bodyMatch[1]
+			inBody = true
+		case inBody:
+			bodyLines = append(bodyLines, line)
 		}
 	}
-	return false
+	if mem.Body != "" {
+		mem.Body = strings.Join(append([]string{mem.Body}, bodyLines...), "\n")
+	} else {
+		mem.Body = strings.Join(bodyLines, "\n")
+	}
+	mem.Body = strings.TrimRight(mem.Body, " \t\r\n")
+	if !memory.MemoryNamePattern.MatchString(mem.Name) || strings.TrimSpace(mem.Body) == "" {
+		return ParsedTextMemory{}, false
+	}
+	if mem.Type == "" {
+		mem.Type = memory.DefaultMemoryType
+	}
+	return mem, true
 }
 
-func getWrittenFilePath(tu conversation.ToolUseBlock) string {
-	if tu.ToolName != "WriteFile" && tu.ToolName != "EditFile" {
-		return ""
+func (e *Extractor) dirForMemoryType(memoryType string) string {
+	switch strings.ToLower(memoryType) {
+	case "user", "feedback":
+		return memory.GetUserAutoMemPath()
+	default:
+		return memory.GetAutoMemPath(e.cwd)
 	}
-	fp, ok := tu.Arguments["file_path"].(string)
-	if !ok {
-		return ""
-	}
-	return fp
 }
 
-func extractWrittenPaths(messages []conversation.Message) []string {
-	var paths []string
-	seen := make(map[string]struct{})
-	for _, m := range messages {
-		if m.Role != "assistant" {
-			continue
-		}
-		for _, tu := range m.ToolUses {
-			fp := getWrittenFilePath(tu)
-			if fp == "" {
-				continue
-			}
-			if _, ok := seen[fp]; ok {
-				continue
-			}
-			seen[fp] = struct{}{}
-			paths = append(paths, fp)
-		}
-	}
-	return paths
+// formatMemoryFile formats frontmatter (name/description/type) + body.
+func formatMemoryFile(mem ParsedTextMemory) string {
+	return "---\n" +
+		"name: " + strconv.Quote(mem.Name) + "\n" +
+		"description: " + strconv.Quote(mem.Description) + "\n" +
+		"type: " + strconv.Quote(mem.Type) + "\n" +
+		"---\n\n" + mem.Body + "\n"
 }
 
-func buildExtractorConversation(parent *conversation.Manager, prompt string) *conversation.Manager {
-	forked := conversation.NewManager()
-	for _, msg := range parent.GetMessages() {
-		switch msg.Role {
-		case "assistant":
-			if len(msg.ToolUses) > 0 {
-				forked.AddAssistantMessageWithTools(msg.Content, msg.ToolUses)
-			} else {
-				forked.AddAssistantMessage(msg.Content)
-			}
-		default:
-			if len(msg.ToolResults) > 0 {
-				forked.AddToolResultsMessage(msg.ToolResults)
-			} else {
-				forked.AddUserMessage(msg.Content)
-			}
-		}
+func (e *Extractor) protocol() string {
+	if provider, ok := e.client.(interface{ Protocol() string }); ok {
+		return provider.Protocol()
 	}
-	forked.AddUserMessage(prompt)
-	return forked
+	return "anthropic"
 }
 
-func (d Deps) debugf(format string, args ...any) {
-	if d.DebugLogf != nil {
-		d.DebugLogf(format, args...)
-	}
+func allowed(checker *permissions.Checker, name string, category tools.ToolCategory, args map[string]any) bool {
+	return checker != nil && checker.CheckNamed(name, category, args).Effect == permissions.Allow
 }

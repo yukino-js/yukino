@@ -37,3 +37,20 @@ const ExitWorktreeDescription = "Exit this agent's active EnterWorktree session 
 const WorktreeSlugDescription = "Optional worktree identifier and branch suffix, using letters, digits, hyphens, or underscores. A random slug is generated when omitted."
 const WorktreeActionDescription = `"keep" preserves the worktree and branch; "remove" deletes both.`
 const WorktreeDiscardChangesDescription = "Explicitly allow discarding uncommitted files and new commits, or removing when changes cannot be verified. Confirm with the user before setting true. Only applies to remove."
+
+const AskUserQuestionDescription = `
+  Ask the user 1 to 4 single-choice or multiple-choices questions and wait for their answers. Each question needs 2 to 4 options; an "Other" option for custom input is added automatically.
+  Set multiSelect=true when the user may choose multiple options, or false for one mutually exclusive choice. Ask only for missing information that changes the task; do not re-request authorization already given.
+  `
+
+const AskUserQuestionsDescription = "question"
+const AskUserQuestionTextDescription = "The question to ask"
+const AskUserOptionsDescription = "options"
+const AskUserOptionLabelDescription = "label"
+const AskUserOptionDescriptionDescription = "description"
+const AskUserMultiSelectDescription = "Set to true for multiple-choice, false for single-choice"
+
+const SyntheticOutputDescription = "Return structured output in JSON format. Use this tool to return your final response " +
+	"as structured data in non-interactive or coordinator mode sessions."
+
+const SyntheticOutputOutputDescription = "The structured result: an object, an array, or a plain string"

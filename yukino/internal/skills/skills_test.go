@@ -5,297 +5,135 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
-func TestLoadFromDirectory(t *testing.T) {
-	dir := t.TempDir()
-
-	skillDir := filepath.Join(dir, "test-skill")
-	os.MkdirAll(skillDir, 0o755)
-	os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(`---
-name: test-skill
-description: A test skill for unit testing
----
-
-# Test Skill
-
-Do the thing.
-`), 0o644)
-
-	catalog, err := LoadFromDirectory(dir)
-	if err != nil {
-		t.Fatalf("LoadFromDirectory failed: %v", err)
-	}
-
-	metas := catalog.List()
-	if len(metas) != 1 {
-		t.Fatalf("expected 1 skill, got %d", len(metas))
-	}
-	if metas[0].Name != "test-skill" {
-		t.Fatalf("expected name 'test-skill', got '%s'", metas[0].Name)
-	}
-
-	skill := catalog.Get("test-skill")
-	if skill == nil {
-		t.Fatal("Get returned nil")
-	}
-	if skill.PromptBody == "" {
-		t.Fatal("PromptBody is empty")
-	}
-	t.Logf("Skill body: %s", skill.PromptBody)
-}
-
-func TestLoadYukinoSkills(t *testing.T) {
-	wd, _ := os.Getwd()
-	for {
-		if _, err := os.Stat(filepath.Join(wd, ".yukino", "skills")); err == nil {
-			break
-		}
-		parent := filepath.Dir(wd)
-		if parent == wd {
-			break
-		}
-		wd = parent
-	}
-
-	skillsDir := filepath.Join(wd, ".yukino", "skills")
-	if _, err := os.Stat(skillsDir); os.IsNotExist(err) {
-		t.Skip("No .yukino/skills directory found")
-	}
-
-	catalog, err := LoadFromDirectory(skillsDir)
-	if err != nil {
-		t.Fatalf("Failed to load skills: %v", err)
-	}
-
-	metas := catalog.List()
-	t.Logf("Loaded %d skill(s) from %s", len(metas), skillsDir)
-	for _, m := range metas {
-		t.Logf("  - %s: %s", m.Name, m.Description)
-		s := catalog.Get(m.Name)
-		if s != nil {
-			t.Logf("    Body: %d chars", len(s.PromptBody))
-		}
-	}
-
-	if len(metas) == 0 {
-		t.Fatal("Expected at least 1 skill")
-	}
-}
-
-func TestSkillRenderPlaceholder(t *testing.T) {
-	s := &Skill{
-		PromptBody: "Greet $ARGUMENTS warmly.",
-	}
-	if got := s.Render("Alice"); got != "Greet Alice warmly." {
-		t.Errorf("placeholder substitution failed: %q", got)
-	}
-}
-
-func TestSkillRenderAppendsWhenNoPlaceholder(t *testing.T) {
-	s := &Skill{PromptBody: "Plain body."}
-	got := s.Render("extra args")
-	if !strings.Contains(got, "Plain body.") {
-		t.Errorf("body missing: %q", got)
-	}
-	if !strings.Contains(got, "## User Request") {
-		t.Errorf("user request header missing: %q", got)
-	}
-	if !strings.Contains(got, "extra args") {
-		t.Errorf("args missing: %q", got)
-	}
-}
-
-func TestSkillRenderNoArgsReturnsBody(t *testing.T) {
-	s := &Skill{PromptBody: "just the body"}
-	if got := s.Render(""); got != "just the body" {
-		t.Errorf("expected body unchanged, got %q", got)
-	}
-}
-
-func TestLoadSkillsMergesPriority(t *testing.T) {
-	work := t.TempDir()
-	yukinoDir := filepath.Join(work, ".yukino", "skills", "shared")
-	if err := os.MkdirAll(yukinoDir, 0o755); err != nil {
+func writeSkill(t *testing.T, dir, name, content string) string {
+	t.Helper()
+	skillDir := filepath.Join(dir, name)
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	os.WriteFile(filepath.Join(yukinoDir, "SKILL.md"), []byte(`---
-name: shared
-description: project skill from .yukino
----
-yukino body`), 0o644)
-
-	catalog := LoadSkills(work)
-	got := catalog.Get("shared")
-	if got == nil {
-		t.Fatal("merged catalog missing 'shared'")
+	path := filepath.Join(skillDir, SkillFileName)
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(got.PromptBody, "yukino body") {
-		t.Errorf("expected yukino body; got body=%q", got.PromptBody)
+	return path
+}
+
+func TestParseSkillFile(t *testing.T) {
+	skill, _, ok := ParseSkillFile("---\nname: commit\ndescription: make commits\nmode: fork\nmodel: haiku\nfork_context: recent\n---\n\nBody text\n")
+	if !ok {
+		t.Fatal("expected valid skill")
+	}
+	if skill.Meta.Name != "commit" || skill.Meta.Description != "make commits" || skill.Meta.Mode != "fork" || skill.Meta.Model != "haiku" || skill.Meta.ForkContext != "recent" {
+		t.Fatalf("meta = %+v", skill.Meta)
+	}
+	if skill.Body != "Body text" {
+		t.Fatalf("body = %q", skill.Body)
+	}
+
+	contextSkill, _, ok := ParseSkillFile("---\nname: x\ncontext: fork\n---\nbody")
+	if !ok || contextSkill.Meta.Mode != "fork" {
+		t.Fatalf("context: fork should resolve to fork mode: %+v ok=%v", contextSkill.Meta, ok)
+	}
+
+	for _, content := range []string{
+		"no frontmatter",
+		"---\ndescription: no name\n---\nbody",
+		"---\nname: \"\"\n---\nbody",
+		"---\nname: x\nmode: bogus\n---\nbody",
+		"---\nname: x\nfork_context: bogus\n---\nbody",
+	} {
+		if _, _, ok := ParseSkillFile(content); ok {
+			t.Errorf("expected invalid skill for %q", content)
+		}
 	}
 }
 
-func TestLoadSkillsForkMode(t *testing.T) {
-	dir := t.TempDir()
-	skillDir := filepath.Join(dir, ".yukino", "skills", "reviewer")
-	os.MkdirAll(skillDir, 0o755)
-	os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(`---
-name: reviewer
-description: skill that runs in fork mode
-mode: fork
-fork_context: recent
----
-body`), 0o644)
+func TestCatalogScansAndOverrides(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cwd := t.TempDir()
 
-	catalog := LoadSkills(dir)
-	s := catalog.Get("reviewer")
-	if s == nil {
-		t.Fatal("skill not loaded")
-	}
-	if !s.Meta.IsFork() {
-		t.Errorf("expected fork mode")
-	}
-	if s.Meta.ForkContext != "recent" {
-		t.Errorf("ForkContext = %q, want recent", s.Meta.ForkContext)
-	}
-}
+	writeSkill(t, filepath.Join(home, AgentsDirName, SkillsDirName), "shared", "---\nname: shared\ndescription: user\n---\nuser body")
+	writeSkill(t, filepath.Join(home, ".yukino", SkillsDirName), "yukino-skill", "---\nname: yukino-skill\n---\nbody")
+	writeSkill(t, filepath.Join(cwd, AgentsDirName, SkillsDirName), "shared", "---\nname: shared\ndescription: project\n---\nproject body")
+	writeSkill(t, filepath.Join(cwd, AgentsDirName, SkillsDirName), "nested", "---\nname: nested\n---\nbody")
 
-func TestSkillRenderIgnoresMode(t *testing.T) {
-	forked := &Skill{
-		Meta:       SkillMeta{Name: "audit-deps", Context: "fork"},
-		PromptBody: "Inspect go.mod and flag risky pins.",
-	}
-	if got := forked.Render(""); got != "Inspect go.mod and flag risky pins." {
-		t.Errorf("fork skill render = %q, want the raw body", got)
-	}
-
-	inline := &Skill{
-		Meta:       SkillMeta{Name: "plain", Context: ""},
-		PromptBody: "just do it",
-	}
-	if got := inline.Render(""); got != "just do it" {
-		t.Errorf("inline render should be raw body, got: %q", got)
-	}
-}
-
-func TestLoadSkillsContextFork(t *testing.T) {
-	dir := t.TempDir()
-	skillDir := filepath.Join(dir, ".yukino", "skills", "forky")
-	os.MkdirAll(skillDir, 0o755)
-	os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(`---
-name: forky
-description: skill that runs in a subagent
-context: fork
----
-body content`), 0o644)
-
-	catalog := LoadSkills(dir)
-	s := catalog.Get("forky")
-	if s == nil {
-		t.Fatal("skill not loaded")
-	}
-	if s.Meta.Context != "fork" {
-		t.Errorf("Context parse failed: got %q want %q", s.Meta.Context, "fork")
-	}
-}
-
-func TestSkillIntegration(t *testing.T) {
-	dir := t.TempDir()
-
-	s1Dir := filepath.Join(dir, "greeting")
-	os.MkdirAll(s1Dir, 0o755)
-	os.WriteFile(filepath.Join(s1Dir, "SKILL.md"), []byte(`---
-name: greeting
-description: Generate a friendly greeting message
----
-
-# Greeting Skill
-
-Say hello to the user in a friendly way.
-`), 0o644)
-
-	s2Dir := filepath.Join(dir, "summarize")
-	os.MkdirAll(s2Dir, 0o755)
-	os.WriteFile(filepath.Join(s2Dir, "SKILL.md"), []byte(`---
-name: summarize
-description: Summarize text content concisely
----
-
-# Summarize Skill
-
-Provide a concise summary of the given text.
-`), 0o644)
-
-	catalog, err := LoadFromDirectory(dir)
-	if err != nil {
-		t.Fatalf("LoadFromDirectory failed: %v", err)
-	}
-
+	catalog := LoadCatalog(cwd)
 	metas := catalog.List()
-	if len(metas) != 2 {
-		t.Fatalf("expected 2 skills, got %d", len(metas))
+	if len(metas) != 3 {
+		t.Fatalf("List() = %+v, want 3 skills", metas)
 	}
+	shared := catalog.Get("shared")
+	if shared == nil || shared.Body != "project body" {
+		t.Fatalf("project skill should override user skill: %+v", shared)
+	}
+	if catalog.Get("yukino-skill") == nil || catalog.Get("nested") == nil {
+		t.Fatal("missing scanned skills")
+	}
+}
 
-	for _, name := range []string{"greeting", "summarize"} {
-		s := catalog.Get(name)
-		if s == nil {
-			t.Fatalf("skill %q not found", name)
-		}
-		if s.PromptBody == "" {
-			t.Fatalf("skill %q has empty body", name)
-		}
-		if s.SourceDir == "" {
-			t.Fatalf("skill %q has empty SourceDir", name)
-		}
+func TestCatalogSkipsDotDirectoriesWithoutSkill(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cwd := t.TempDir()
+	dir := filepath.Join(cwd, AgentsDirName, SkillsDirName)
+	if err := os.MkdirAll(filepath.Join(dir, ".hidden"), 0o755); err != nil {
+		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(dir, ".hidden", "SKILL.md"), []byte("---\nname: hidden\n---\nbody"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeSkill(t, dir, "visible", "---\nname: visible\n---\nbody")
+	catalog := LoadCatalog(cwd)
+	if !catalog.Has("hidden") || !catalog.Has("visible") {
+		t.Fatalf("expected both skills, got %+v", catalog.List())
+	}
+}
 
-	var sb strings.Builder
-	sb.WriteString("## Available Skills\n\n")
-	sb.WriteString("Skills are installed at: " + dir + "\n")
-	sb.WriteString("When creating new skills, always place them under this directory as <skill-name>/SKILL.md.\n\n")
-	sb.WriteString("The following skills are available. When the user invokes /<name>, follow that skill's instructions.\n\n")
-	for _, meta := range metas {
-		desc := meta.Description
-		if len(desc) > 200 {
-			desc = desc[:200] + "…"
-		}
-		sb.WriteString("- /" + meta.Name + ": " + desc + "\n")
+func TestCatalogHotReload(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cwd := t.TempDir()
+	path := writeSkill(t, filepath.Join(cwd, AgentsDirName, SkillsDirName), "hot", "---\nname: hot\n---\nfirst")
+	catalog := LoadCatalog(cwd)
+	if catalog.Get("hot").Body != "first" {
+		t.Fatal("initial body")
 	}
-	prompt := sb.String()
+	differentMtime := time.Now().Add(2 * time.Minute)
+	if err := os.WriteFile(path, []byte("---\nname: hot\n---\nsecond"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, differentMtime, differentMtime); err != nil {
+		t.Fatal(err)
+	}
+	if body := catalog.Get("hot").Body; body != "second" {
+		t.Fatalf("hot reload body = %q, want second", body)
+	}
+}
 
-	if !strings.Contains(prompt, "Skills are installed at: "+dir) {
-		t.Fatal("system prompt missing skills directory path")
+func TestSkillPromptRoundTrip(t *testing.T) {
+	skill := &Skill{Meta: SkillMeta{Name: "a&b"}, Body: "Use $ARGUMENTS here", SourceDir: "/tmp/<dir>"}
+	prompt := BuildSkillPrompt(skill, "x < y & z")
+	parsed, ok := ParseSkillPrompt(prompt)
+	if !ok {
+		t.Fatal("ParseSkillPrompt failed")
 	}
-	if !strings.Contains(prompt, "creating new skills") {
-		t.Fatal("system prompt missing creation guidance")
+	if parsed.Name != "a&b" || parsed.Directory != "/tmp/<dir>" || parsed.Body != "Use x < y & z here" || parsed.Args != "x < y & z" {
+		t.Fatalf("parsed = %+v", parsed)
 	}
-	if !strings.Contains(prompt, "/greeting") {
-		t.Fatal("system prompt missing /greeting command")
-	}
-	if !strings.Contains(prompt, "/summarize") {
-		t.Fatal("system prompt missing /summarize command")
-	}
+}
 
-	skill := catalog.Get("greeting")
-	body := skill.PromptBody
-
-	result := body
-	if !strings.Contains(result, "Greeting Skill") {
-		t.Fatal("handler without args should return skill body")
+func TestBuildSkillSection(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cwd := t.TempDir()
+	writeSkill(t, filepath.Join(cwd, AgentsDirName, SkillsDirName), "one", "---\nname: one\ndescription: first skill\n---\nbody")
+	catalog := LoadCatalog(cwd)
+	section := BuildSkillSection(catalog)
+	if !strings.Contains(section, "<skill><name>one</name><description>first skill</description><mode>inline</mode></skill>") {
+		t.Fatalf("section = %q", section)
 	}
-
-	args := "say hi to Alice"
-	result = body + "\n\n## User Request\n\n" + args
-	if !strings.Contains(result, "## User Request") {
-		t.Fatal("handler with args should include User Request section")
+	if !strings.Contains(section, "<skills-directory>") {
+		t.Fatalf("section missing skills directory: %q", section)
 	}
-	if !strings.Contains(result, "say hi to Alice") {
-		t.Fatal("handler with args should include the user's args")
-	}
-	if !strings.Contains(result, "Greeting Skill") {
-		t.Fatal("handler with args should still include skill body")
-	}
-
-	t.Logf("System prompt snippet:\n%s", prompt)
-	t.Logf("Handler output (with args):\n%s", result)
 }

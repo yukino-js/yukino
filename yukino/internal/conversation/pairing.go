@@ -2,11 +2,7 @@ package conversation
 
 import "strings"
 
-const (
-	InterruptedToolResult      = "Tool execution was interrupted. The tool may or may not have completed; verify before relying on its effects."
-	RejectedToolResult         = "The user rejected this tool use. Nothing was changed (for file edits, the new content was NOT written)."
-	rejectedWithFeedbackPrefix = " To tell you how to proceed, the user said:\n"
-)
+const rejectedWithFeedbackPrefix = " To tell you how to proceed, the user said:\n"
 
 func RejectedToolResultWithFeedback(feedback string) string {
 	feedback = strings.TrimSpace(feedback)

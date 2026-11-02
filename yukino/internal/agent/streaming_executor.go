@@ -100,7 +100,7 @@ func (se *StreamingExecutor) observeTool(ctx context.Context, agent *Agent, tc t
 }
 
 func (se *StreamingExecutor) emitResult(r toolExecResult) {
-	se.eventCh <- ToolResultEvent{ToolID: r.toolID, ToolName: r.toolName, Output: r.output, IsError: r.isError, Elapsed: r.elapsed, ContentBlocks: r.contentBlocks}
+	se.eventCh <- ToolResultEvent{ToolID: r.toolID, ToolName: r.toolName, Output: r.output, IsError: r.isError, Elapsed: r.elapsed, ContentBlocks: r.contentBlocks, McpApp: r.mcpApp}
 }
 
 func partitionToolCalls(entries []toolCallEntry, registry *tools.Registry) []toolBatch {

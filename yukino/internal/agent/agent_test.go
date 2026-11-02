@@ -119,22 +119,6 @@ func getToolResults(events []AgentEvent) []ToolResultEvent {
 	return results
 }
 
-func buildSkillListing(skillsDir string, catalog *skills.Catalog) string {
-	var sb strings.Builder
-	sb.WriteString("## Available Skills\n\n")
-	sb.WriteString(fmt.Sprintf("Skills are installed at: %s\n", skillsDir))
-	sb.WriteString("When creating new skills, always place them under this directory as <skill-name>/SKILL.md.\n\n")
-	sb.WriteString("The following skills are available. When the user invokes /<name>, follow that skill's instructions.\n\n")
-	for _, meta := range catalog.List() {
-		desc := meta.Description
-		if len(desc) > 200 {
-			desc = desc[:200] + "…"
-		}
-		sb.WriteString(fmt.Sprintf("- /%s: %s\n", meta.Name, desc))
-	}
-	return sb.String()
-}
-
 func runConversationRound(ag *Agent, conv *conversation.Manager, userMsg string) (string, []AgentEvent) {
 	conv.AddUserMessage(userMsg)
 	events := collectEvents(ag.Run(context.Background(), conv))
@@ -318,8 +302,9 @@ func TestMultiRoundConversation(t *testing.T) {
 func TestFrontendDesignSkillFullSession(t *testing.T) {
 
 	workDir := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
 
-	dir := t.TempDir()
+	dir := filepath.Join(workDir, ".agents", "skills")
 	skillDir := filepath.Join(dir, "frontend-design")
 	os.MkdirAll(skillDir, 0o755)
 	os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(`---
@@ -338,9 +323,9 @@ Create high-quality frontend code. Follow these principles:
 Output files directly using WriteFile.
 `), 0o644)
 
-	catalog, _ := skills.LoadFromDirectory(dir)
+	catalog := skills.LoadCatalog(workDir)
 	skill := catalog.Get("frontend-design")
-	skillBody := skill.PromptBody
+	skillBody := skill.Body
 
 	outputFile := filepath.Join(workDir, "login.html")
 
@@ -488,7 +473,8 @@ Output files directly using WriteFile.
 func TestSkillCreatorOutputsToCorrectDirectory(t *testing.T) {
 
 	workDir := t.TempDir()
-	skillsDir := filepath.Join(workDir, ".yukino", "skills")
+	t.Setenv("HOME", t.TempDir())
+	skillsDir := filepath.Join(workDir, ".agents", "skills")
 	os.MkdirAll(skillsDir, 0o755)
 
 	creatorDir := filepath.Join(skillsDir, "skill-creator")
@@ -504,8 +490,8 @@ New skills MUST be created under the .yukino/skills/ directory.
 The full path should be .yukino/skills/<skill-name>/SKILL.md.
 `), 0o644)
 
-	catalog, _ := skills.LoadFromDirectory(skillsDir)
-	skillListing := buildSkillListing(skillsDir, catalog)
+	catalog := skills.LoadCatalog(workDir)
+	skillListing := skills.BuildSkillSection(catalog)
 	skill := catalog.Get("skill-creator")
 
 	newSkillDir := filepath.Join(skillsDir, "git-helper")
@@ -569,11 +555,11 @@ Help the user with git operations:
 	ag := New(client, reg, "anthropic")
 	conv := conversation.NewManager()
 
-	if !strings.Contains(skillListing, skillsDir) {
-		t.Fatalf("system prompt missing skills dir: %s", skillsDir)
+	if !strings.Contains(skillListing, "<skills-directory>") {
+		t.Fatal("system prompt missing skills directory")
 	}
 
-	text1, _ := runConversationRound(ag, conv, skill.PromptBody+"\n\n## User Request\n\ncreate a new skill")
+	text1, _ := runConversationRound(ag, conv, skill.Body+"\n\n## User Request\n\ncreate a new skill")
 	t.Logf("Agent (round 1): %s", text1)
 	if !strings.Contains(text1, "skill") {
 		t.Errorf("agent should ask about the skill, got: %s", text1)
@@ -586,16 +572,13 @@ Help the user with git operations:
 		t.Fatalf("skill file not created at expected path: %s", newSkillFile)
 	}
 
-	updatedCatalog, err := skills.LoadFromDirectory(skillsDir)
-	if err != nil {
-		t.Fatalf("failed to reload skills: %v", err)
-	}
+	updatedCatalog := skills.LoadCatalog(workDir)
 
 	gitHelper := updatedCatalog.Get("git-helper")
 	if gitHelper == nil {
 		t.Fatal("git-helper skill not found after creation")
 	}
-	if !strings.Contains(gitHelper.PromptBody, "rebase") {
+	if !strings.Contains(gitHelper.Body, "rebase") {
 		t.Error("git-helper body should mention rebase")
 	}
 	if !strings.Contains(gitHelper.Meta.Description, "git") {
@@ -607,7 +590,7 @@ Help the user with git operations:
 		t.Errorf("skill was INCORRECTLY created at project root: %s", rootSkillFile)
 	}
 
-	t.Logf("New skill loaded successfully: name=%s, body=%d chars", gitHelper.Meta.Name, len(gitHelper.PromptBody))
+	t.Logf("New skill loaded successfully: name=%s, body=%d chars", gitHelper.Meta.Name, len(gitHelper.Body))
 
 	allSkills := updatedCatalog.List()
 	if len(allSkills) != 2 {
@@ -748,7 +731,7 @@ app.listen(3000);
 func TestRealSkillsLoadAndRunSimulation(t *testing.T) {
 	wd, _ := os.Getwd()
 	for {
-		if _, err := os.Stat(filepath.Join(wd, ".yukino", "skills")); err == nil {
+		if _, err := os.Stat(filepath.Join(wd, ".agents", "skills")); err == nil {
 			break
 		}
 		parent := filepath.Dir(wd)
@@ -757,23 +740,23 @@ func TestRealSkillsLoadAndRunSimulation(t *testing.T) {
 		}
 		wd = parent
 	}
-	skillsDir := filepath.Join(wd, ".yukino", "skills")
+	skillsDir := filepath.Join(wd, ".agents", "skills")
 	if _, err := os.Stat(skillsDir); os.IsNotExist(err) {
-		t.Skip("No .yukino/skills directory")
+		t.Skip("No .agents/skills directory")
 	}
 
-	catalog, _ := skills.LoadFromDirectory(skillsDir)
+	catalog := skills.LoadCatalog(wd)
 	metas := catalog.List()
 	t.Logf("Loaded %d real skills", len(metas))
 
-	skillListing := buildSkillListing(skillsDir, catalog)
+	skillListing := skills.BuildSkillSection(catalog)
 
-	if !strings.Contains(skillListing, "Skills are installed at:") {
+	if !strings.Contains(skillListing, "<skills-directory>") {
 		t.Error("system prompt missing skill path")
 	}
 	for _, meta := range metas {
-		if !strings.Contains(skillListing, "/"+meta.Name) {
-			t.Errorf("system prompt missing /%s", meta.Name)
+		if !strings.Contains(skillListing, "<name>"+meta.Name+"</name>") {
+			t.Errorf("system prompt missing %s", meta.Name)
 		}
 	}
 
@@ -783,12 +766,12 @@ func TestRealSkillsLoadAndRunSimulation(t *testing.T) {
 			t.Errorf("skill %q returned nil from Get", meta.Name)
 			continue
 		}
-		if skill.PromptBody == "" {
+		if skill.Body == "" {
 			t.Errorf("skill %q has empty body", meta.Name)
 			continue
 		}
 
-		prompt := skill.PromptBody + "\n\n## User Request\n\ntest request for " + meta.Name
+		prompt := skill.Body + "\n\n## User Request\n\ntest request for " + meta.Name
 		if !strings.Contains(prompt, "## User Request") {
 			t.Errorf("skill %q prompt missing user request section", meta.Name)
 		}

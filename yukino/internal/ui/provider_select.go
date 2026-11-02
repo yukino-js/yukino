@@ -86,7 +86,7 @@ func (m *Model) activateInitialProvider(p *config.ProviderConfig) tea.Cmd {
 		at.ParentChecker = ag.Checker
 	}
 	m.wireSkillsToAgent()
-	m.memoryExtractor = m.installMemoryExtractor(ag, wd, p.Protocol)
+	m.memoryTasks = m.installMemoryTasks(ag, wd)
 	entries, err := history.LoadInputTexts()
 	if err != nil {
 		m.chatMessages = append(m.chatMessages, chatMessage{role: "error", content: "Unable to load input history: " + err.Error()})

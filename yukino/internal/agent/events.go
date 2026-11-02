@@ -3,9 +3,9 @@ package agent
 import (
 	"time"
 
-	"github.com/yukino-js/yukino/yukino/internal/session"
-
 	"github.com/yukino-js/yukino/yukino/internal/permissions"
+	"github.com/yukino-js/yukino/yukino/internal/session"
+	"github.com/yukino-js/yukino/yukino/internal/tools"
 )
 
 type AgentEvent interface{ agentEvent() }
@@ -25,6 +25,7 @@ type ToolResultEvent struct {
 	IsError       bool
 	Elapsed       time.Duration
 	ContentBlocks []map[string]any
+	McpApp        *tools.McpAppResult
 }
 type TurnComplete struct{ Turn int }
 type LoopComplete struct {

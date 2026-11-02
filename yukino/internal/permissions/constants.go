@@ -13,19 +13,8 @@ const (
 	IsolatedWorktreeClaimError = "Cannot claim an existing worktree for an isolated agent"
 )
 
-// DangerousPattern carries a match reason for HITL display. Intentionally
-// empty: no command patterns are currently classified as dangerous, so
-// detectDangerous never matches and the Layer-3 deny stays inert until
-// patterns are added.
-type DangerousPattern struct {
-	Re     *regexp.Regexp
-	Reason string
-}
-
-var DangerousPatterns []DangerousPattern
-
-// Per-tool argument field treated as the "content" for safe/dangerous checks
-// and rule matching.
+// Per-tool argument field used for command checks and permission rule
+// matching.
 var ContentFields = map[string]string{
 	"Bash":         "command",
 	"PowerShell":   "command",

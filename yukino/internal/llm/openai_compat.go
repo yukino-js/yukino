@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -57,6 +58,8 @@ func (c *openaiCompatClient) SetSystemPrompt(prompt string) {
 	c.systemPrompt = prompt
 }
 
+func (c *openaiCompatClient) Protocol() string { return "openai-compat" }
+
 func (c *openaiCompatClient) SetMaxOutputTokens(tokens int) {
 	c.maxOutputTokens = tokens
 }
@@ -100,12 +103,13 @@ func (c *openaiCompatClient) Stream(ctx context.Context, conv *conversation.Mana
 		name, _ := s["name"].(string)
 		desc, _ := s["description"].(string)
 		params, _ := s["parameters"].(map[string]any)
+		strict, _ := s["strict"].(bool)
 		tools = append(tools, openai.ChatCompletionToolParam{
 			Function: shared.FunctionDefinitionParam{
 				Name:        name,
 				Description: param.NewOpt(desc),
 				Parameters:  shared.FunctionParameters(params),
-				Strict:      param.NewOpt(false),
+				Strict:      param.NewOpt(strict),
 			},
 		})
 	}
@@ -371,59 +375,168 @@ func userMessageParam(m conversation.Message) openai.ChatCompletionMessageParamU
 }
 
 func buildChatCompletionMessages(systemPrompt string, messages []conversation.Message) []openai.ChatCompletionMessageParamUnion {
-	var result []openai.ChatCompletionMessageParamUnion
-
-	if systemPrompt != "" {
-		result = append(result, openai.SystemMessage(systemPrompt))
-	}
+	result := []openai.ChatCompletionMessageParamUnion{openai.SystemMessage(systemPrompt)}
 
 	for _, m := range messages {
-		if m.Role == "assistant" {
-			var reasoning string
-			for _, tb := range m.ThinkingBlocks {
+		reasoning := ""
+		for _, tb := range m.ThinkingBlocks {
+			if tb.Type == "thinking" {
 				reasoning += tb.Thinking
 			}
+		}
+		assistantText := m.ContentText()
 
-			if len(m.ToolUses) > 0 {
-				assistant := openai.ChatCompletionAssistantMessageParam{}
-				if m.Content != "" {
-					assistant.Content.OfString = param.NewOpt(m.Content)
-				}
-				for _, tu := range m.ToolUses {
-					argsJSON, _ := json.Marshal(tu.Arguments)
-					assistant.ToolCalls = append(assistant.ToolCalls, openai.ChatCompletionMessageToolCallParam{
-						ID: tu.ToolUseID,
-						Function: openai.ChatCompletionMessageToolCallFunctionParam{
-							Name:      tu.ToolName,
-							Arguments: string(argsJSON),
-						},
-					})
-				}
-				if reasoning != "" {
-					assistant.SetExtraFields(map[string]any{"reasoning_content": reasoning})
-				}
-				result = append(result, openai.ChatCompletionMessageParamUnion{OfAssistant: &assistant})
-			} else if m.Content != "" || reasoning != "" {
-				assistant := openai.ChatCompletionAssistantMessageParam{}
-				if m.Content != "" {
-					assistant.Content.OfString = param.NewOpt(m.Content)
-				}
-				if reasoning != "" {
-					assistant.SetExtraFields(map[string]any{"reasoning_content": reasoning})
-				}
-				result = append(result, openai.ChatCompletionMessageParamUnion{OfAssistant: &assistant})
+		if len(m.ToolUses) > 0 {
+			assistant := openai.ChatCompletionAssistantMessageParam{}
+			if assistantText != "" {
+				assistant.Content.OfString = param.NewOpt(assistantText)
 			}
+			for _, tu := range m.ToolUses {
+				argsJSON, _ := json.Marshal(tu.Arguments)
+				assistant.ToolCalls = append(assistant.ToolCalls, openai.ChatCompletionMessageToolCallParam{
+					ID: tu.ToolUseID,
+					Function: openai.ChatCompletionMessageToolCallFunctionParam{
+						Name:      tu.ToolName,
+						Arguments: string(argsJSON),
+					},
+				})
+			}
+			if reasoning != "" {
+				assistant.SetExtraFields(map[string]any{"reasoning_content": reasoning})
+			}
+			result = append(result, openai.ChatCompletionMessageParamUnion{OfAssistant: &assistant})
 		} else if len(m.ToolResults) > 0 {
+			var pendingRichParts []openai.ChatCompletionContentPartUnionParam
 			for _, tr := range m.ToolResults {
 				result = append(result, openai.ToolMessage(tr.Content, tr.ToolUseID))
+				pendingRichParts = append(pendingRichParts, collectRichParts(tr)...)
 			}
 			if m.HasContent() {
-				result = append(result, userMessageParam(m))
+				content := userPartsFor(m)
+				if content.OfString.Valid() {
+					pendingRichParts = append(pendingRichParts, openai.ChatCompletionContentPartUnionParam{
+						OfText: &openai.ChatCompletionContentPartTextParam{Text: content.OfString.Value},
+					})
+				} else {
+					pendingRichParts = append(pendingRichParts, content.OfArrayOfContentParts...)
+				}
 			}
+			if len(pendingRichParts) > 0 {
+				result = append(result, openai.ChatCompletionMessageParamUnion{
+					OfUser: &openai.ChatCompletionUserMessageParam{
+						Content: openai.ChatCompletionUserMessageParamContentUnion{OfArrayOfContentParts: pendingRichParts},
+					},
+				})
+			}
+		} else if m.Role == "assistant" {
+			assistant := openai.ChatCompletionAssistantMessageParam{}
+			assistant.Content.OfString = param.NewOpt(assistantText)
+			if reasoning != "" {
+				assistant.SetExtraFields(map[string]any{"reasoning_content": reasoning})
+			}
+			result = append(result, openai.ChatCompletionMessageParamUnion{OfAssistant: &assistant})
+		} else if m.Role == "system" {
+			result = append(result, openai.SystemMessage(m.ContentText()))
 		} else {
 			result = append(result, userMessageParam(m))
 		}
 	}
 
 	return result
+}
+
+// collectRichParts preserves tool-result images and documents as Chat
+// Completions parts, prefixed with a marker naming the tool call.
+func collectRichParts(tr conversation.ToolResultBlock) []openai.ChatCompletionContentPartUnionParam {
+	if len(tr.ContentBlocks) == 0 {
+		return nil
+	}
+	var rich []openai.ChatCompletionContentPartUnionParam
+	for _, raw := range tr.ContentBlocks {
+		block := conversation.NormalizeToolResultContentBlock(raw)
+		if block == nil {
+			continue
+		}
+		if url := imageDataURL(block); url != "" {
+			rich = append(rich, openai.ChatCompletionContentPartUnionParam{
+				OfImageURL: &openai.ChatCompletionContentPartImageParam{
+					ImageURL: openai.ChatCompletionContentPartImageImageURLParam{URL: url},
+				},
+			})
+			continue
+		}
+		rich = append(rich, documentForChat(block)...)
+	}
+	if len(rich) == 0 {
+		return nil
+	}
+	return append([]openai.ChatCompletionContentPartUnionParam{{
+		OfText: &openai.ChatCompletionContentPartTextParam{Text: "[Rich content returned by tool call " + tr.ToolUseID + "]"},
+	}}, rich...)
+}
+
+// documentForChat carries a document as an inline base64 file; every accepted
+// source produces explicit parts, and an unrepresentable URL source becomes a
+// diagnostic text part rather than being silently dropped.
+func documentForChat(block map[string]any) []openai.ChatCompletionContentPartUnionParam {
+	if block["type"] != "document" {
+		return nil
+	}
+	source, _ := block["source"].(map[string]any)
+	if source == nil {
+		return nil
+	}
+	title, _ := block["title"].(string)
+	if title == "" {
+		title = "tool-result"
+	}
+	filePart := func(data, filename string) []openai.ChatCompletionContentPartUnionParam {
+		if data == "" {
+			return nil
+		}
+		return []openai.ChatCompletionContentPartUnionParam{openai.FileContentPart(openai.ChatCompletionContentPartFileFileParam{
+			FileData: param.NewOpt(data),
+			Filename: param.NewOpt(filename),
+		})}
+	}
+	switch source["type"] {
+	case "base64":
+		data, _ := source["data"].(string)
+		return filePart(data, title+".pdf")
+	case "text":
+		data, _ := source["data"].(string)
+		if data == "" {
+			return nil
+		}
+		return filePart(base64.StdEncoding.EncodeToString([]byte(data)), title+".txt")
+	case "url":
+		url, _ := source["url"].(string)
+		if url == "" {
+			url = "unknown"
+		}
+		return []openai.ChatCompletionContentPartUnionParam{{
+			OfText: &openai.ChatCompletionContentPartTextParam{Text: "[Document source \"url\" (" + url + ") is not supported by Chat Completions and was not fetched.]"},
+		}}
+	case "content":
+		content, _ := source["content"].([]map[string]any)
+		var parts []openai.ChatCompletionContentPartUnionParam
+		for _, sub := range content {
+			if url := imageDataURL(sub); url != "" {
+				parts = append(parts, openai.ChatCompletionContentPartUnionParam{
+					OfImageURL: &openai.ChatCompletionContentPartImageParam{
+						ImageURL: openai.ChatCompletionContentPartImageImageURLParam{URL: url},
+					},
+				})
+				continue
+			}
+			if sub["type"] == "text" {
+				text, _ := sub["text"].(string)
+				parts = append(parts, openai.ChatCompletionContentPartUnionParam{
+					OfText: &openai.ChatCompletionContentPartTextParam{Text: text},
+				})
+			}
+		}
+		return parts
+	}
+	return nil
 }

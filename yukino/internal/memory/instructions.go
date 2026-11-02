@@ -9,8 +9,6 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/storage"
 )
 
-const AgentsFileName = "AGENTS.md"
-
 type InstructionSource struct {
 	Path    string
 	Content string
@@ -56,6 +54,9 @@ func DiscoverInstructions(workDir string) []InstructionSource {
 func addSource(out *[]InstructionSource, seen map[string]bool, filePath string) {
 	abs, err := filepath.Abs(filePath)
 	if err != nil || seen[abs] {
+		if err != nil {
+			log.Error(map[string]any{"err": err}, "memory operation failed")
+		}
 		return
 	}
 	if _, err := os.Stat(abs); err != nil {
@@ -63,6 +64,7 @@ func addSource(out *[]InstructionSource, seen map[string]bool, filePath string) 
 	}
 	data, err := os.ReadFile(abs)
 	if err != nil {
+		log.Error(map[string]any{"err": err}, "memory operation failed")
 		return
 	}
 	seen[abs] = true
@@ -74,6 +76,7 @@ func addSource(out *[]InstructionSource, seen map[string]bool, filePath string) 
 func projectInstructionDirs(workDir string) []string {
 	abs, err := filepath.Abs(workDir)
 	if err != nil {
+		log.Error(map[string]any{"err": err}, "memory operation failed")
 		return []string{workDir}
 	}
 	root := findGitRoot(abs)

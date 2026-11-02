@@ -40,7 +40,12 @@ func (m Model) buildCommandContext(args string) *commands.Context {
 			if m.memoryMgr == nil {
 				return nil
 			}
-			return m.memoryMgr.GetMemories()
+			memories := m.memoryMgr.GetMemories()
+			names := make([]string, 0, len(memories))
+			for _, memory := range memories {
+				names = append(names, memory.Name)
+			}
+			return names
 		},
 		TokenCount: func() (int, int) {
 			return m.totalInput, m.totalOutput
@@ -127,10 +132,11 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 	case "skills":
 		if strings.TrimSpace(args) == "reload" {
 			if m.skillCatalog != nil {
-				wd, _ := os.Getwd()
-				m.skillCatalog.Reload(wd)
+				m.skillCatalog.Reload()
 				for _, meta := range m.skillCatalog.List() {
-					m.registerSkillCommand(meta.Name)
+					if m.cmdRegistry.Find(meta.Name) == nil {
+						m.registerSkillCommand(meta.Name)
+					}
 				}
 			}
 		}
@@ -311,11 +317,10 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(
 			tea.Println(commitText),
 			func() tea.Msg {
-				skill, err := m.skillCatalog.GetFull(skillName)
-				if err != nil && skill == nil {
-					return forkSkillDoneMsg{name: skillName, err: err}
+				skill := m.skillCatalog.Get(skillName)
+				if skill == nil {
+					return forkSkillDoneMsg{name: skillName, err: fmt.Errorf("unknown skill: %s", skillName)}
 				}
-				m.ActivateSkill(skill.Meta.Name, skill.PromptBody)
 				result, runErr := skills.RunFork(context.Background(), skill, skillArgs, m)
 				return forkSkillDoneMsg{name: skillName, result: result, err: runErr}
 			},
@@ -410,7 +415,7 @@ func (m Model) buildMemoryStatus(args string) string {
 		sub = fields[0]
 	}
 	wd, _ := os.Getwd()
-	mgr := memory.NewManager(wd)
+	mgr := memory.NewManager(wd, nil)
 	if sub == "clear" {
 		mgr.Clear()
 		return "All memories cleared."
@@ -421,7 +426,7 @@ func (m Model) buildMemoryStatus(args string) string {
 	}
 	lines := make([]string, 0, len(mems))
 	for _, mem := range mems {
-		lines = append(lines, "  "+mem)
+		lines = append(lines, fmt.Sprintf("  [%s] %s — %s", mem.Type, mem.Name, mem.Description))
 	}
 	return fmt.Sprintf("Memories (%d):\n%s", len(mems), strings.Join(lines, "\n"))
 }

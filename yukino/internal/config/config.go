@@ -504,12 +504,6 @@ func validateProviders(cfg *AppConfig) error {
 		if len(missing) > 0 {
 			return &ConfigError{Message: fmt.Sprintf("Provider #%d: missing fields: %s", i+1, strings.Join(missing, ", "))}
 		}
-		if !ValidProtocols[p.Protocol] {
-			return &ConfigError{Message: fmt.Sprintf(
-				"Provider #%d: invalid protocol '%s', MUST be one of: %s",
-				i+1, p.Protocol, strings.Join([]string{"anthropic", "openai", "openai-compat"}, ", "),
-			)}
-		}
 		if previous, dup := baseURLs[p.BaseURL]; dup {
 			return &ConfigError{Message: fmt.Sprintf(
 				"Provider #%d: duplicate base_url '%s' (already used by provider #%d).",

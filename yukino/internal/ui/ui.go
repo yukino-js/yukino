@@ -16,8 +16,7 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/llm"
 	"github.com/yukino-js/yukino/yukino/internal/mcp"
 	"github.com/yukino-js/yukino/yukino/internal/memory"
-	"github.com/yukino-js/yukino/yukino/internal/memory/consolidation"
-	"github.com/yukino-js/yukino/yukino/internal/memory/extractor"
+	"github.com/yukino-js/yukino/yukino/internal/memory/background"
 	"github.com/yukino-js/yukino/yukino/internal/permissions"
 	"github.com/yukino-js/yukino/yukino/internal/session"
 	"github.com/yukino-js/yukino/yukino/internal/skills"
@@ -99,13 +98,12 @@ type Model struct {
 	instructionsContent string
 	memoryContent       string
 
-	mcpConfigs        []config.MCPServerConfig
-	mcpMgr            *mcp.Manager
-	mcpConnecting     bool
-	mcpInstructions   string
-	mcpInstructionsOK bool
-	mcpServerInfo     string
-	hookConfigs       []config.HookConfig
+	mcpConfigs    []config.MCPServerConfig
+	mcpMgr        *mcp.Manager
+	mcpConnecting bool
+	mcpAnnounced  map[string]bool
+	mcpServerInfo string
+	hookConfigs   []config.HookConfig
 
 	historyEntries []string
 	historyIndex   int
@@ -149,8 +147,7 @@ type Model struct {
 	taskMgr            *subagent.TaskManager
 	todoList           *todo.TaskList
 	memoryMgr          *memory.Manager
-	memoryExtractor    *extractor.Extractor
-	memoryConsolidator *consolidation.Consolidator
+	memoryTasks        *background.Tasks
 	teamMgr            *teams.TeamManager
 
 	sandboxDialog         bool
@@ -261,6 +258,7 @@ func New(providers []config.ProviderConfig, mcpConfigs []config.MCPServerConfig,
 		providers:          providers,
 		todoList:           initialTodos,
 		mcpConfigs:         mcpConfigs,
+		mcpAnnounced:       map[string]bool{},
 		hookConfigs:        hookConfigs,
 		sandboxCfg:         sCfg,
 		state:              stateProviderSelect,
@@ -393,10 +391,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cancelStream()
 			}
 			if m.mcpMgr != nil {
-				m.mcpMgr.Shutdown()
+				m.mcpMgr.DisconnectAll()
 			}
-			if m.memoryExtractor != nil {
-				_ = m.memoryExtractor.Drain(5000)
+			if m.memoryTasks != nil {
+				m.memoryTasks.Dispose()
 			}
 			return m, tea.Quit
 		}
@@ -469,52 +467,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case mcpReadyMsg:
 		m.mcpConnecting = false
-		m.mcpMgr = msg.result.Mgr
-		for _, t := range msg.result.Tools {
-			m.registry.Register(t)
+		m.mcpMgr = msg.mgr
+		for _, connected := range msg.result.Tools {
+			m.registry.Register(connected.Tool)
 		}
 		var mcpPrintLines []string
-		for _, errMsg := range msg.result.Errors {
+		for _, connectError := range msg.result.Errors {
 			m.chatMessages = append(m.chatMessages, chatMessage{
 				role:    "error",
-				content: errMsg,
+				content: connectError.ServerName + ": " + connectError.Error,
 			})
-			mcpPrintLines = append(mcpPrintLines, errorStyle.Render("✖ "+errMsg))
+			mcpPrintLines = append(mcpPrintLines, errorStyle.Render("✖ "+connectError.ServerName+": "+connectError.Error))
 		}
 		if p := m.selectedProvider; p != nil {
 			mcp.DecideAndApply(m.registry, p.BaseURL, p.Protocol, config.GetContextWindow(p), m.MCPLoading)
 		}
 		registered := len(msg.result.Tools)
 		if registered > 0 {
-			m.mcpServerInfo = fmt.Sprintf("Connected to %d MCP server(s), %d tools registered", len(m.mcpConfigs)-len(msg.result.Errors), registered)
+			m.mcpServerInfo = fmt.Sprintf("Connected to %d MCP server(s), %d tools registered", len(msg.result.Servers), registered)
 		}
+		mcp.SyncMcpInstructions(m.conversation, m.mcpAnnounced, m.mcpMgr)
 		m.committedUpTo = len(m.chatMessages)
-		if len(msg.result.Servers) > 0 {
-			toolsByServer := make(map[string][]string)
-			for _, t := range msg.result.Tools {
-				toolName := t.Name()
-				for _, srv := range msg.result.Servers {
-					if strings.HasPrefix(toolName, mcp.MCPToolNamePrefix(srv.Name)) {
-						toolsByServer[srv.Name] = append(toolsByServer[srv.Name], toolName)
-						break
-					}
-				}
-			}
-
-			var mcpParts []string
-			for _, srv := range msg.result.Servers {
-				var sb strings.Builder
-				sb.WriteString(fmt.Sprintf("## %s\n", srv.Name))
-				if srv.Instructions != "" {
-					sb.WriteString(srv.Instructions + "\n")
-				}
-				if toolNames, ok := toolsByServer[srv.Name]; ok && len(toolNames) > 0 {
-					sb.WriteString("\nAvailable tools: " + strings.Join(toolNames, ", "))
-				}
-				mcpParts = append(mcpParts, sb.String())
-			}
-			m.mcpInstructions = "# MCP Server Instructions\n\nThe following MCP servers are connected. Use their tools when the user asks.\n\n" + strings.Join(mcpParts, "\n\n")
-		}
 		m.updateViewport()
 		if len(mcpPrintLines) > 0 {
 			return m, tea.Println(strings.Join(mcpPrintLines, "\n"))

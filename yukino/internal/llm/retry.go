@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"regexp"
@@ -67,4 +68,20 @@ func minDuration(a, b time.Duration) time.Duration {
 		return a
 	}
 	return b
+}
+
+// WaitForLLMRetry sleeps for milliseconds, resolving early with the context
+// error when the caller aborts.
+func WaitForLLMRetry(ctx context.Context, delay time.Duration) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }

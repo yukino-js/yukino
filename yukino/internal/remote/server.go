@@ -8,7 +8,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -29,7 +28,7 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/llm"
 	"github.com/yukino-js/yukino/yukino/internal/mcp"
 	"github.com/yukino-js/yukino/yukino/internal/memory"
-	extractor "github.com/yukino-js/yukino/yukino/internal/memory/extractor"
+	"github.com/yukino-js/yukino/yukino/internal/memory/background"
 	"github.com/yukino-js/yukino/yukino/internal/permissions"
 	"github.com/yukino-js/yukino/yukino/internal/prompt"
 	"github.com/yukino-js/yukino/yukino/internal/sandbox"
@@ -39,6 +38,7 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/teams"
 	"github.com/yukino-js/yukino/yukino/internal/todo"
 	"github.com/yukino-js/yukino/yukino/internal/tools"
+	"github.com/yukino-js/yukino/yukino/internal/utils"
 	"github.com/yukino-js/yukino/yukino/internal/workflow"
 )
 
@@ -115,18 +115,19 @@ type Server struct {
 	pendingAskMu sync.Mutex
 	pendingAsks  map[string]chan tools.QuestionResponse
 
-	cmdRegistry     *commands.Registry
-	skillCatalog    *skills.Catalog
-	taskMgr         *subagent.TaskManager
-	todoList        *todo.TaskList
-	memoryMgr       *memory.Manager
-	memoryExtractor *extractor.Extractor
-	teamMgr         *teams.TeamManager
-	mcpMgr          *mcp.Manager
+	cmdRegistry  *commands.Registry
+	skillCatalog *skills.Catalog
+	taskMgr      *subagent.TaskManager
+	todoList     *todo.TaskList
+	memoryMgr    *memory.Manager
+	memoryTasks  *background.Tasks
+	teamMgr      *teams.TeamManager
+	mcpMgr       *mcp.Manager
 
 	instructionsContent   string
 	memoryContent         string
-	mcpInstructions       string
+	mcpAnnounced          map[string]bool
+	mcpApps               *remoteMcpApps
 	enableCoordinatorMode bool
 	// memoryEnabled mirrors config.yaml `enable_memory:`; gates injection,
 	// extraction, and consolidation. Defaults to true.
@@ -150,6 +151,8 @@ func NewServer(providers []config.ProviderConfig, mcpConfigs []config.MCPServerC
 		conns:                 make(map[*websocket.Conn]struct{}),
 		pendingPerms:          make(map[string]chan<- agent.PermissionReply),
 		pendingAsks:           make(map[string]chan tools.QuestionResponse),
+		mcpAnnounced:          map[string]bool{},
+		mcpApps:               newRemoteMcpApps(),
 	}
 }
 
@@ -188,9 +191,48 @@ func (s *Server) Run() error {
 // Stop tears the server down: closes the HTTP/WS listener and disposes the
 // tool registry (MCP children, background tasks). Run returns nil once the
 // server has stopped.
+func (s *Server) mcpAppHandle() mcpAppHandle {
+	handle := mcpAppHandle{SessionID: s.sessionID, Cwd: mustGetwd(), MCPManager: s.mcpMgr}
+	if s.ag != nil {
+		handle.Checker = s.ag.Checker
+		handle.Hooks = s.ag.Hooks
+		handle.ToolFilter = s.ag.ToolNameFilter
+	}
+	return handle
+}
+
+func (s *Server) handleMcpAppRequest(ws *websocket.Conn, request mcp.McpAppRequest) {
+	ctx, cancel := context.WithTimeout(context.Background(), PendingRequestTimeoutMS*time.Millisecond)
+	defer cancel()
+	if s.mcpApps == nil {
+		s.sendTo(ws, wsMessage{Type: "mcp_app_response", Data: map[string]any{"requestId": request.RequestID, "error": MCPAppAgentDisconnected}})
+		return
+	}
+	result, err := s.mcpApps.Request(ctx, request, s.mcpAppHandle(), s.requestPermissionViaWS)
+	if err != nil {
+		s.sendTo(ws, wsMessage{Type: "mcp_app_response", Data: map[string]any{"requestId": request.RequestID, "error": err.Error()}})
+		return
+	}
+	s.sendTo(ws, wsMessage{Type: "mcp_app_response", Data: map[string]any{"requestId": request.RequestID, "result": result}})
+}
+
+func (s *Server) sendTo(ws *websocket.Conn, msg wsMessage) {
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+	_ = ws.WriteMessage(websocket.TextMessage, data)
+}
+
 func (s *Server) Stop() {
 	if s.httpServer != nil {
 		_ = s.httpServer.Close()
+	}
+	if s.memoryTasks != nil {
+		s.memoryTasks.Dispose()
+	}
+	if s.mcpApps != nil {
+		s.mcpApps.Clear()
 	}
 	if s.registry != nil {
 		_ = s.registry.Dispose()
@@ -253,6 +295,20 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 			json.Unmarshal(msg.Data, &data)
 			s.handlePermissionResponse(data)
 
+		case "mcp_app_request":
+			var data struct {
+				RequestID string         `json:"requestId"`
+				AppID     string         `json:"appId"`
+				Method    string         `json:"method"`
+				Params    map[string]any `json:"params"`
+			}
+			if json.Unmarshal(msg.Data, &data) == nil {
+				request := mcp.McpAppRequest{RequestID: data.RequestID, AppID: data.AppID, Method: data.Method, Params: data.Params}
+				if mcp.ValidMcpAppRequest(request) {
+					go s.handleMcpAppRequest(conn, request)
+				}
+			}
+
 		case "ask_user_response":
 			var data askUserResponseData
 			json.Unmarshal(msg.Data, &data)
@@ -290,11 +346,8 @@ func (s *Server) initAgent() error {
 	s.skillCatalog = skills.LoadCatalog(wd)
 	s.instructionsContent = loadCustomInstructions(wd)
 	s.memoryContent = ""
-	if s.memoryEnabled {
-		s.memoryContent = memory.LoadAutoMemoryPrompt(wd)
-	}
 
-	skillSection := buildSkillSection(s.skillCatalog, wd)
+	skillSection := skills.BuildSkillSection(s.skillCatalog)
 
 	env := prompt.DetectEnvironment(wd)
 	env.Model = p.Model
@@ -359,7 +412,7 @@ func (s *Server) initAgent() error {
 
 	s.wireSkillsToAgent(wd)
 	if s.memoryEnabled {
-		s.memoryExtractor = installMemExtractor(ag, wd, p.Protocol, client, s.registry, s.conv)
+		s.memoryTasks = installMemoryTasks(ag, wd, client, s.conv)
 	}
 
 	return nil
@@ -381,7 +434,8 @@ func (s *Server) registerTools(client llm.Client, p *config.ProviderConfig, wd s
 	// enable_memory: false keeps the index out of the conversation and nothing
 	// is injected, extracted, or consolidated automatically.
 	if s.memoryEnabled {
-		s.memoryMgr = memory.NewManager(wd)
+		s.memoryMgr = memory.NewManager(wd, nil)
+		s.memoryContent = s.memoryMgr.BuildSystemReminder()
 	}
 	loader := subagent.NewAgentLoader()
 	loader.LoadAll()
@@ -436,56 +490,18 @@ func (s *Server) initMCPServers() {
 	if len(s.mcpConfigs) == 0 {
 		return
 	}
-	mgr := mcp.NewManager()
-	var serverConfigs []mcp.ServerConfig
-	for _, c := range s.mcpConfigs {
-		serverConfigs = append(serverConfigs, mcp.ServerConfig{
-			Name:      c.Name,
-			Command:   c.Command,
-			Args:      c.Args,
-			URL:       c.URL,
-			Transport: c.Transport,
-			Headers:   c.Headers,
-			Env:       c.Env,
-		})
+	mgr := mcp.NewManager(true)
+	result := mgr.ConnectAll(context.Background(), s.mcpConfigs)
+	s.mcpMgr = mgr
+	for _, connected := range result.Tools {
+		s.registry.Register(connected.Tool)
 	}
-	mgr.LoadConfigs(serverConfigs)
-	result := mgr.ConnectAll(context.Background())
-	s.mcpMgr = result.Mgr
-	for _, t := range result.Tools {
-		s.registry.Register(t)
-	}
-	for _, errMsg := range result.Errors {
-		log.Printf("MCP error: %s", errMsg)
+	for _, connectError := range result.Errors {
+		log.Printf("MCP error: %s: %s", connectError.ServerName, connectError.Error)
 	}
 	if len(s.providers) > 0 {
 		p := s.activeProvider()
 		mcp.DecideAndApply(s.registry, p.BaseURL, p.Protocol, config.GetContextWindow(p), s.MCPLoading)
-	}
-	if len(result.Servers) > 0 {
-		toolsByServer := make(map[string][]string)
-		for _, t := range result.Tools {
-			toolName := t.Name()
-			for _, srv := range result.Servers {
-				if strings.HasPrefix(toolName, mcp.MCPToolNamePrefix(srv.Name)) {
-					toolsByServer[srv.Name] = append(toolsByServer[srv.Name], toolName)
-					break
-				}
-			}
-		}
-		var mcpParts []string
-		for _, srv := range result.Servers {
-			var sb strings.Builder
-			sb.WriteString(fmt.Sprintf("## %s\n", srv.Name))
-			if srv.Instructions != "" {
-				sb.WriteString(srv.Instructions + "\n")
-			}
-			if toolNames, ok := toolsByServer[srv.Name]; ok && len(toolNames) > 0 {
-				sb.WriteString("\nAvailable tools: " + strings.Join(toolNames, ", "))
-			}
-			mcpParts = append(mcpParts, sb.String())
-		}
-		s.mcpInstructions = "# MCP Server Instructions\n\nThe following MCP servers are connected. Use their tools when the user asks.\n\n" + strings.Join(mcpParts, "\n\n")
 	}
 }
 
@@ -524,9 +540,8 @@ func (s *Server) handleUserMessage(content string) {
 	}
 	s.conv.AppendMessages([]conversation.Message{recorded.ToConversation()})
 
-	if s.mcpInstructions != "" {
-		s.conv.AddSystemReminder(s.mcpInstructions)
-		s.mcpInstructions = ""
+	if s.mcpMgr != nil {
+		mcp.SyncMcpInstructions(s.conv, s.mcpAnnounced, s.mcpMgr)
 	}
 
 	s.agentCh = s.ag.Run(ctx, s.conv)
@@ -632,9 +647,8 @@ func (s *Server) handleSlashCommand(input string) {
 			return
 		}
 		s.conv.AppendMessages([]conversation.Message{recorded.ToConversation()})
-		if s.mcpInstructions != "" {
-			s.conv.AddSystemReminder(s.mcpInstructions)
-			s.mcpInstructions = ""
+		if s.mcpMgr != nil {
+			mcp.SyncMcpInstructions(s.conv, s.mcpAnnounced, s.mcpMgr)
 		}
 		s.ag.GoalManager = s.goal()
 		s.agentCh = s.ag.Run(c, s.conv)
@@ -710,9 +724,8 @@ func (s *Server) handleSlashCommand(input string) {
 			s.conv.AppendMessages([]conversation.Message{recorded.ToConversation()})
 		}
 
-		if s.mcpInstructions != "" {
-			s.conv.AddSystemReminder(s.mcpInstructions)
-			s.mcpInstructions = ""
+		if s.mcpMgr != nil {
+			mcp.SyncMcpInstructions(s.conv, s.mcpAnnounced, s.mcpMgr)
 		}
 
 		if cmd.Agent != "" {
@@ -748,10 +761,15 @@ func (s *Server) buildCommandContext(args string) *commands.Context {
 		},
 		ToolCount: func() int { return len(s.registry.ListTools()) },
 		MemoryList: func() []string {
-			if s.memoryMgr == nil {
+			if s.memoryMgr == nil || !s.memoryEnabled {
 				return nil
 			}
-			return s.memoryMgr.GetMemories()
+			memories := s.memoryMgr.GetMemories()
+			names := make([]string, 0, len(memories))
+			for _, memory := range memories {
+				names = append(names, memory.Name)
+			}
+			return names
 		},
 	}
 }
@@ -875,11 +893,14 @@ func (s *Server) handleResume(args string) {
 	s.send(wsMessage{Type: "command_done", Data: nil})
 }
 
+var agentEventLogger = AgentEventLogger{}
+
 func (s *Server) consumeAgentEvents() {
 	streamBuf := ""
 	startTime := time.Now()
 
 	for ev := range s.agentCh {
+		agentEventLogger.OnEvent(ev)
 		switch e := ev.(type) {
 		case agent.StreamText:
 			streamBuf += e.Text
@@ -900,13 +921,31 @@ func (s *Server) consumeAgentEvents() {
 				s.send(wsMessage{Type: "stream_end", Data: map[string]string{"text": streamBuf}})
 				streamBuf = ""
 			}
-			s.send(wsMessage{Type: "tool_result", Data: map[string]any{
+			data := map[string]any{
 				"toolId":   e.ToolID,
 				"toolName": e.ToolName,
 				"output":   e.Output,
 				"isError":  e.IsError,
 				"elapsed":  e.Elapsed.Seconds(),
-			}})
+			}
+			if e.McpApp != nil {
+				data["mcpApp"] = e.McpApp
+				s.mcpApps.Register(mcp.McpAppToolResult{
+					ToolID:   e.ToolID,
+					ToolName: e.ToolName,
+					Output:   e.Output,
+					IsError:  e.IsError,
+					Elapsed:  e.Elapsed.Seconds(),
+					McpApp: &mcp.McpApp{
+						ServerName:  e.McpApp.ServerName,
+						ToolName:    e.McpApp.ToolName,
+						ResourceURI: e.McpApp.ResourceURI,
+						Arguments:   e.McpApp.Arguments,
+						Result:      e.McpApp.Result,
+					},
+				}, s.mcpAppHandle())
+			}
+			s.send(wsMessage{Type: "tool_result", Data: data})
 
 		case agent.PermissionRequestEvent:
 			id := fmt.Sprintf("perm_%d", time.Now().UnixNano())
@@ -1048,6 +1087,9 @@ func (s *Server) handleAskUserResponse(data askUserResponseData) {
 }
 
 func (s *Server) send(msg wsMessage) {
+	if msg.Type == "clear" && s.mcpApps != nil {
+		s.mcpApps.Clear()
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if len(s.conns) == 0 {
@@ -1065,16 +1107,86 @@ func (s *Server) wireSkillsToAgent(wd string) {
 	if s.skillCatalog == nil || s.ag == nil {
 		return
 	}
+	s.wireSkillCommands()
 	s.registry.Register(&skills.LoadSkillTool{
-		Catalog: s.skillCatalog,
-		Host:    s,
+		Catalog:  s.skillCatalog,
+		Host:     s,
+		ForkHost: s,
 	})
+	s.registry.Register(&skills.InstallSkillTool{
+		Cwd:         wd,
+		Catalog:     s.skillCatalog,
+		OnInstalled: s.wireSkillCommands,
+	})
+}
+
+func (s *Server) wireSkillCommands() {
+	for _, meta := range s.skillCatalog.List() {
+		if s.cmdRegistry.Find(meta.Name) != nil {
+			continue
+		}
+		command := &commands.Command{Name: meta.Name, Description: meta.Description + " [skill]", IsSkill: true}
+		if meta.IsFork() {
+			command.Type = commands.TypeSkillFork
+			command.Handler = func(*commands.Context) string { return "" }
+		} else {
+			captured := meta.Name
+			command.Type = commands.TypePrompt
+			command.Handler = func(ctx *commands.Context) string {
+				skill := s.skillCatalog.Get(captured)
+				if skill == nil {
+					return fmt.Sprintf("[skill error] unknown skill: %s", captured)
+				}
+				return skills.RunInline(skill, ctx.Args, s)
+			}
+		}
+		s.cmdRegistry.Register(command)
+	}
 }
 
 func (s *Server) ActivateSkill(name, body string) {
 	if s.ag != nil {
 		s.ag.ActivateSkill(name, body)
 	}
+}
+
+func (s *Server) SnapshotParentMessages(count int) string {
+	messages := s.conv.GetMessages()
+	if len(messages) > count {
+		messages = messages[len(messages)-count:]
+	}
+	lines := make([]string, 0, len(messages))
+	for _, message := range messages {
+		content := any(message.Content)
+		if len(message.ContentBlocks) > 0 {
+			content = message.ContentBlocks
+		}
+		lines = append(lines, message.Role+": "+utils.ContentToText(content))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (s *Server) RunSubagent(ctx context.Context, prompt string) (string, error) {
+	if s.client == nil || s.ag == nil {
+		return "", errors.New("RunSubagent: agent is not ready")
+	}
+	spec := subagent.BuiltinSpecs["general-purpose"]
+	definition := &subagent.AgentDefinition{
+		AgentType:       spec.Name,
+		WhenToUse:       spec.Description,
+		Tools:           spec.Tools,
+		DisallowedTools: spec.DisallowedTools,
+		SystemPrompt:    spec.SystemPromptOverride,
+		MaxTurns:        spec.MaxTurns,
+		Model:           spec.Model,
+		PermissionMode:  spec.PermissionMode,
+		ReadOnly:        spec.ReadOnly,
+		Background:      spec.Background,
+		Worktree:        spec.Worktree,
+		InitialPrompt:   spec.InitialPrompt,
+	}
+	wd, _ := os.Getwd()
+	return subagent.SpawnSubagent(ctx, definition, prompt, s.client, s.registry, s.activeProvider(), wd, nil, nil, "", s.ag.Checker, subagent.SubagentRunOptions{Background: false})
 }
 
 func (s *Server) SetToolFilter(allow func(name string) bool) {
@@ -1128,44 +1240,14 @@ func loadCustomInstructions(wd string) string {
 	return memory.LoadInstructions(wd)
 }
 
-func buildSkillSection(catalog *skills.Catalog, wd string) string {
-	if catalog == nil {
-		return ""
-	}
-	metas := catalog.List()
-	if len(metas) == 0 {
-		return ""
-	}
-	skillsDir := filepath.Join(wd, ".yukino", "skills")
-	var sb strings.Builder
-	sb.WriteString("## Available Skills\n\n")
-	sb.WriteString(fmt.Sprintf("Skills are installed at: %s\n", skillsDir))
-	sb.WriteString("When creating new skills, always place them under this directory as <skill-name>/SKILL.md.\n\n")
-	for _, meta := range metas {
-		desc := meta.Description
-		if len(desc) > 200 {
-			desc = desc[:200] + "…"
-		}
-		sb.WriteString(fmt.Sprintf("- /%s: %s\n", meta.Name, desc))
-	}
-	return sb.String()
-}
-
-func installMemExtractor(ag *agent.Agent, wd, protocol string, client llm.Client, registry *tools.Registry, conv *conversation.Manager) *extractor.Extractor {
-	extr := extractor.InitExtractMemories(extractor.Deps{
-		MemoryDir:     memory.GetAutoMemPath(wd),
-		UserMemoryDir: memory.GetUserAutoMemPath(),
-		ProjectRoot:   wd,
-		Client:        client,
-		ToolRegistry:  registry,
-		Protocol:      protocol,
-		Conversation:  conv,
-		AppendSystem:  func(s string) { conv.AddSystemReminder(s) },
+func installMemoryTasks(ag *agent.Agent, wd string, client llm.Client, conv *conversation.Manager) *background.Tasks {
+	tasks := background.New(client, wd, background.Callbacks{
+		AppendSystem: func(s string) { conv.AddSystemReminder(s) },
 	})
-	ag.OnLoopComplete = func(_ *conversation.Manager) {
-		_ = extr.Execute(context.Background())
+	ag.OnLoopComplete = func(loopConv *conversation.Manager) {
+		tasks.Run(loopConv)
 	}
-	return extr
+	return tasks
 }
 
 func newAgentHookRunner(client llm.Client) func(prompt string, ctx hooks.HookContext) (string, error) {
@@ -1271,7 +1353,7 @@ func (s *Server) buildMemoryStatus(args string) string {
 		sub = fields[0]
 	}
 	wd, _ := os.Getwd()
-	mgr := memory.NewManager(wd)
+	mgr := memory.NewManager(wd, nil)
 	if sub == "clear" {
 		mgr.Clear()
 		return "All memories cleared."
@@ -1282,7 +1364,7 @@ func (s *Server) buildMemoryStatus(args string) string {
 	}
 	lines := make([]string, 0, len(mems))
 	for _, mem := range mems {
-		lines = append(lines, "  "+mem)
+		lines = append(lines, fmt.Sprintf("  [%s] %s — %s", mem.Type, mem.Name, mem.Description))
 	}
 	return fmt.Sprintf("Memories (%d):\n%s", len(mems), strings.Join(lines, "\n"))
 }

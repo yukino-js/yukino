@@ -2,7 +2,6 @@ package memory
 
 import (
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/yukino-js/yukino/yukino/internal/permissions"
@@ -10,9 +9,6 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/tools"
 	"github.com/yukino-js/yukino/yukino/internal/utils"
 )
-
-var memoryTaskTools = map[string]bool{"ReadFile": true, "Grep": true, "Glob": true, "WriteFile": true, "EditFile": true}
-var memoryGlobEscape = regexp.MustCompile(`\\|[{(][^})]*/|(?:^|/)\.\.(?:/|$)`)
 
 func NewMemoryPermissionChecker(cwd string, allowProjectReads bool) *permissions.Checker {
 	checker := permissions.NewChecker(permissions.NewPathSandbox(cwd), permissions.NewRuleEngine(cwd), permissions.ModeDefault)
@@ -69,7 +65,7 @@ func NewMemoryPermissionChecker(cwd string, allowProjectReads bool) *permissions
 		if explicit := checker.CheckExplicitRules(name, args); explicit != nil && explicit.Effect != permissions.Allow {
 			return deny("Background memory cannot approve: " + explicit.Reason)
 		}
-		if !memoryTaskTools[name] || category == tools.CategoryCommand {
+		if !MemoryTaskTools[name] || category == tools.CategoryCommand {
 			return deny("Background memory tasks only support scoped file operations")
 		}
 		requested := args["file_path"]
@@ -95,13 +91,13 @@ func NewMemoryPermissionChecker(cwd string, allowProjectReads bool) *permissions
 		}
 		if name == "Glob" {
 			pattern, _ := args["pattern"].(string)
-			if pattern == "" || memoryGlobEscape.MatchString(pattern) {
+			if pattern == "" || GlobEscapeRe.MatchString(pattern) {
 				return deny("Glob pattern escapes the memory task scope")
 			}
 			absolute := utils.ResolveToolPath(target, pattern)
 			prefix := absolute
-			if magic := strings.IndexAny(absolute, "*?{[("); magic >= 0 {
-				prefix = absolute[:strings.LastIndex(absolute[:magic], "/")+1]
+			if magic := GlobMagicRe.FindStringIndex(absolute); magic != nil {
+				prefix = absolute[:strings.LastIndex(absolute[:magic[0]], "/")+1]
 			}
 			if !checker.CanReadSearchPath(prefix) {
 				return deny("Glob pattern escapes the memory task scope")

@@ -14,10 +14,7 @@ type SyntheticOutputTool struct {
 func (t *SyntheticOutputTool) Name() string           { return "SyntheticOutput" }
 func (t *SyntheticOutputTool) Category() ToolCategory { return CategoryRead }
 
-func (t *SyntheticOutputTool) Description() string {
-	return "Return structured output in JSON format. Use this tool to return your final response " +
-		"as structured data in non-interactive or coordinator mode sessions."
-}
+func (t *SyntheticOutputTool) Description() string { return SyntheticOutputDescription }
 
 func (t *SyntheticOutputTool) Schema() map[string]any {
 	return map[string]any{
@@ -27,7 +24,7 @@ func (t *SyntheticOutputTool) Schema() map[string]any {
 			"type": "object",
 			"properties": map[string]any{
 				"output": map[string]any{
-					"description": "The structured result: an object, an array, or a plain string",
+					"description": SyntheticOutputOutputDescription,
 				},
 			},
 			"required": []string{"output"},
@@ -38,7 +35,7 @@ func (t *SyntheticOutputTool) Schema() map[string]any {
 func (t *SyntheticOutputTool) Execute(ctx context.Context, args map[string]any) ToolResult {
 	output, ok := args["output"]
 	if !ok {
-		return ToolResult{Output: "Error: output is required", IsError: true}
+		return ToolResult{Output: OutputRequiredError, IsError: true}
 	}
 
 	if err := t.validateSchema(output); err != "" {
@@ -66,33 +63,68 @@ func (t *SyntheticOutputTool) validateSchema(data any) string {
 	if t.JSONSchema == nil {
 		return ""
 	}
-
+	describe := func() string {
+		switch data.(type) {
+		case []any:
+			return "array"
+		case nil:
+			return "object"
+		case string:
+			return "string"
+		case float64, int, int64:
+			return "number"
+		case bool:
+			return "boolean"
+		default:
+			return "object"
+		}
+	}
 	if expected, ok := t.JSONSchema["type"].(string); ok {
 		switch expected {
 		case "object":
 			if _, isMap := data.(map[string]any); !isMap {
-				return fmt.Sprintf("Expected object, got %T", data)
+				return "Expected object, got " + describe()
 			}
 		case "array":
 			if _, isSlice := data.([]any); !isSlice {
-				return fmt.Sprintf("Expected array, got %T", data)
+				return "Expected array, got " + describe()
 			}
 		case "string":
 			if _, isString := data.(string); !isString {
-				return fmt.Sprintf("Expected string, got %T", data)
+				return "Expected string, got " + describe()
+			}
+		case "number":
+			switch data.(type) {
+			case float64, int, int64:
+			default:
+				return "Expected number, got " + describe()
+			}
+		case "boolean":
+			if _, isBool := data.(bool); !isBool {
+				return "Expected boolean, got " + describe()
+			}
+		case "null":
+			if data != nil {
+				return "Expected null, got " + describe()
 			}
 		}
 	}
 
-	required, hasRequired := t.JSONSchema["required"].([]any)
-	obj, isObj := data.(map[string]any)
-	if hasRequired && isObj {
-		var missing []string
-		for _, key := range required {
-			name, _ := key.(string)
-			if name == "" {
-				continue
+	var required []string
+	switch values := t.JSONSchema["required"].(type) {
+	case []any:
+		for _, value := range values {
+			if name, ok := value.(string); ok {
+				required = append(required, name)
 			}
+		}
+	case []string:
+		required = values
+	}
+	obj, isObj := data.(map[string]any)
+	if len(required) > 0 && isObj {
+		var missing []string
+		for _, name := range required {
 			if _, present := obj[name]; !present {
 				missing = append(missing, name)
 			}
@@ -101,6 +133,5 @@ func (t *SyntheticOutputTool) validateSchema(data any) string {
 			return "Missing required fields: " + strings.Join(missing, ", ")
 		}
 	}
-
 	return ""
 }

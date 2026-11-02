@@ -73,7 +73,7 @@ const (
 // DarkTheme is Catppuccin Mocha, matching palettes.js dark.
 var DarkTheme = ThemePalette{
 	Accent:             "#94e2d5",
-	Border:             "#585b70",
+	Border:             "#45475a",
 	BorderAccent:       "#94e2d5",
 	BorderMuted:        "#313244",
 	Success:            "#a6e3a1",
@@ -94,7 +94,7 @@ var DarkTheme = ThemePalette{
 	ToolErrorBg:        "#181825",
 	ToolTitle:          "#cdd6f4",
 	ToolOutput:         "#bac2de",
-	MdHeading:          "#cdd6f4",
+	MdHeading:          "#cba6f7",
 	MdLink:             "#89b4fa",
 	MdLinkURL:          "#a6adc8",
 	MdCode:             "#94e2d5",
@@ -134,7 +134,7 @@ var DarkTheme = ThemePalette{
 // LightTheme is Catppuccin Latte, matching palettes.js light.
 var LightTheme = ThemePalette{
 	Accent:             "#179299",
-	Border:             "#acb0be",
+	Border:             "#bcc0cc",
 	BorderAccent:       "#179299",
 	BorderMuted:        "#ccd0da",
 	Success:            "#40a02b",
@@ -155,7 +155,7 @@ var LightTheme = ThemePalette{
 	ToolErrorBg:        "#e6e9ef",
 	ToolTitle:          "#4c4f69",
 	ToolOutput:         "#5c5f77",
-	MdHeading:          "#4c4f69",
+	MdHeading:          "#8839ef",
 	MdLink:             "#1e66f5",
 	MdLinkURL:          "#6c6f85",
 	MdCode:             "#179299",

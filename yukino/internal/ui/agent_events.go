@@ -29,7 +29,10 @@ type agentReadyMsg struct {
 
 type mailboxPollMsg struct{}
 
-type mcpReadyMsg struct{ result mcp.ConnectResult }
+type mcpReadyMsg struct {
+	result mcp.ConnectResult
+	mgr    *mcp.Manager
+}
 
 type compactDoneMsg struct {
 	message string

@@ -7,17 +7,12 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/storage"
 )
 
-const (
-	AutoMemEntrypointName = "MEMORY.md"
-	MemoryDirName         = "memory"
-)
-
 func GetAutoMemPath(projectRoot string) string {
 	dir, err := storage.ProjectPath(projectRoot, MemoryDirName)
 	if err != nil {
 		return ""
 	}
-	return dir + string(filepath.Separator)
+	return dir
 }
 
 func GetAutoMemEntrypoint(projectRoot string) string {
@@ -25,34 +20,28 @@ func GetAutoMemEntrypoint(projectRoot string) string {
 	if dir == "" {
 		return ""
 	}
-	return filepath.Join(dir, AutoMemEntrypointName)
+	return filepath.Join(dir, MemoryIndexName)
+}
+
+func GetUserAutoMemPath() string {
+	return storage.YukinoPath(MemoryDirName)
+}
+
+func GetUserAutoMemEntrypoint() string {
+	return filepath.Join(GetUserAutoMemPath(), MemoryIndexName)
 }
 
 func IsAutoMemPath(absolutePath, projectRoot string) bool {
 	abs := filepath.Clean(absolutePath)
-	if dir := GetAutoMemPath(projectRoot); dir != "" {
-		if strings.HasPrefix(abs+string(filepath.Separator), dir) {
-			return true
+	for _, dir := range []string{GetAutoMemPath(projectRoot), GetUserAutoMemPath()} {
+		if dir == "" {
+			continue
 		}
-	}
-	if dir := GetUserAutoMemPath(); dir != "" {
-		if strings.HasPrefix(abs+string(filepath.Separator), dir) {
+		if abs == filepath.Clean(dir) || strings.HasPrefix(abs, filepath.Clean(dir)+string(filepath.Separator)) {
 			return true
 		}
 	}
 	return false
-}
-
-func GetUserAutoMemPath() string {
-	return storage.YukinoPath(MemoryDirName) + string(filepath.Separator)
-}
-
-func GetUserAutoMemEntrypoint() string {
-	dir := GetUserAutoMemPath()
-	if dir == "" {
-		return ""
-	}
-	return filepath.Join(dir, AutoMemEntrypointName)
 }
 
 func IsUserAutoMemPath(absolutePath string) bool {
@@ -61,5 +50,5 @@ func IsUserAutoMemPath(absolutePath string) bool {
 		return false
 	}
 	abs := filepath.Clean(absolutePath)
-	return strings.HasPrefix(abs+string(filepath.Separator), dir)
+	return abs == filepath.Clean(dir) || strings.HasPrefix(abs, filepath.Clean(dir)+string(filepath.Separator))
 }

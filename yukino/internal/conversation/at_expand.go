@@ -16,25 +16,10 @@ import (
 
 var atExpandLog = logger.CreateChildLogger("at-expand")
 
-const (
-	MaxInlineBytes      = 100_000
-	MaxInlineTotalBytes = 300_000
-	MaxAtRefs           = 32
-	// Files larger than this are never read, even for a narrow line range.
-	MaxRangeFileBytes = 10_000_000
-)
-
-// An @ref may carry a #L3 or #L3-10 line-range suffix (inserted via the IDE
-// integration).
-var atRefLineRangeRe = regexp.MustCompile(`^(.+)#L(\d+)(?:-L?(\d+))?$`)
-
-// Clipboard images and paths containing spaces use quoted mentions.
-var atRefRe = regexp.MustCompile("(?:^|[\\s(（])(?:'@([^']+)'|\"@([^\"]+)\"|@\"([^\"]+)\"|@'([^']+)'|@([^\\s#,;，；。！？、()（）<>\"'`]+(?:#L\\d+(?:-L?\\d+)?)?))")
-
 var hanRunRe = regexp.MustCompile(`\p{Han}+`)
 
 func collectAtRefs(text, cwd string) []string {
-	matches := atRefRe.FindAllStringSubmatchIndex(text, -1)
+	matches := AtRefRe.FindAllStringSubmatchIndex(text, -1)
 	if len(matches) > MaxAtRefs {
 		matches = matches[:MaxAtRefs]
 	}
@@ -83,7 +68,7 @@ func pathExists(ref, cwd string) bool {
 }
 
 func parseRef(ref string) (path string, lineStart, lineEnd int, hasRange bool) {
-	match := atRefLineRangeRe.FindStringSubmatch(ref)
+	match := AtRefLineRangeRe.FindStringSubmatch(ref)
 	if match == nil {
 		return ref, 0, 0, false
 	}
@@ -149,7 +134,11 @@ func ExpandAtRefs(text, cwd string) string {
 			p = filepath.Join(cwd, p)
 		}
 		info, err := os.Stat(p)
-		if err != nil || !info.Mode().IsRegular() {
+		if err != nil {
+			atExpandLog.Error(map[string]any{"err": err}, "@-mention expansion failed")
+			continue
+		}
+		if !info.Mode().IsRegular() {
 			continue
 		}
 		if hasRange {
@@ -158,6 +147,7 @@ func ExpandAtRefs(text, cwd string) string {
 			}
 			data, err := os.ReadFile(p)
 			if err != nil {
+				atExpandLog.Error(map[string]any{"err": err}, "@-mention expansion failed")
 				continue
 			}
 			snippet := sliceLines(string(data), lineStart, lineEnd)
@@ -171,6 +161,7 @@ func ExpandAtRefs(text, cwd string) string {
 		}
 		data, err := os.ReadFile(p)
 		if err != nil {
+			atExpandLog.Error(map[string]any{"err": err}, "@-mention expansion failed")
 			continue
 		}
 		appendBlock(fmt.Sprintf("\n\n<file path=%q>\n%s\n</file>", ref, string(data)))
@@ -217,7 +208,11 @@ func ExpandAtRefsWithImages(text, cwd string) (string, []map[string]any) {
 			p = filepath.Join(cwd, p)
 		}
 		info, err := os.Stat(p)
-		if err != nil || !info.Mode().IsRegular() {
+		if err != nil {
+			atExpandLog.Error(map[string]any{"err": err}, "@-mention expansion failed")
+			continue
+		}
+		if !info.Mode().IsRegular() {
 			continue
 		}
 		if images.IsImagePath(p) {
@@ -255,6 +250,7 @@ func ExpandAtRefsWithImages(text, cwd string) (string, []map[string]any) {
 			}
 			data, err := os.ReadFile(p)
 			if err != nil {
+				atExpandLog.Error(map[string]any{"err": err}, "@-mention expansion failed")
 				continue
 			}
 			snippet := sliceLines(string(data), lineStart, lineEnd)
@@ -268,6 +264,7 @@ func ExpandAtRefsWithImages(text, cwd string) (string, []map[string]any) {
 		}
 		data, err := os.ReadFile(p)
 		if err != nil {
+			atExpandLog.Error(map[string]any{"err": err}, "@-mention expansion failed")
 			continue
 		}
 		appendBlock(fmt.Sprintf("\n\n<file path=%q>\n%s\n</file>", ref, string(data)))

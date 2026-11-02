@@ -2,19 +2,17 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 )
 
 type QuestionOption struct {
 	Label       string `json:"label"`
-	Description string `json:"description"`
+	Description string `json:"description,omitempty"`
 }
 
 type Question struct {
 	Text        string           `json:"question"`
-	Header      string           `json:"header"`
 	Options     []QuestionOption `json:"options"`
 	MultiSelect bool             `json:"multiSelect"`
 }
@@ -38,16 +36,7 @@ type AskUserRequest struct {
 
 func (t *AskUserQuestionTool) Name() string { return "AskUserQuestion" }
 
-func (t *AskUserQuestionTool) Description() string {
-	return `Ask the user a question with structured multiple-choice options. Use this to:
-- Gather user preferences or requirements
-- Clarify ambiguous instructions
-- Get decisions on implementation choices
-- Offer choices about direction to take
-
-Each question has 2-4 options. An "Other" option for custom input is automatically provided.
-Use multiSelect: true when choices are not mutually exclusive.`
-}
+func (t *AskUserQuestionTool) Description() string { return AskUserQuestionDescription }
 
 func (t *AskUserQuestionTool) Category() ToolCategory { return CategoryRead }
 
@@ -59,40 +48,39 @@ func (t *AskUserQuestionTool) Schema() map[string]any {
 			"type": "object",
 			"properties": map[string]any{
 				"questions": map[string]any{
-					"type": "array",
+					"type":        "array",
+					"description": AskUserQuestionsDescription,
+					"minItems":    1,
+					"maxItems":    4,
 					"items": map[string]any{
 						"type": "object",
 						"properties": map[string]any{
 							"question": map[string]any{
 								"type":        "string",
-								"description": "The question to ask the user",
-							},
-							"header": map[string]any{
-								"type":        "string",
-								"description": "Short label (max 12 chars)",
+								"description": AskUserQuestionTextDescription,
 							},
 							"options": map[string]any{
-								"type": "array",
+								"type":        "array",
+								"description": AskUserOptionsDescription,
+								"minItems":    2,
+								"maxItems":    4,
 								"items": map[string]any{
 									"type": "object",
 									"properties": map[string]any{
-										"label":       map[string]any{"type": "string", "description": "Option display text (1-5 words)"},
-										"description": map[string]any{"type": "string", "description": "What this option means"},
+										"label":       map[string]any{"type": "string", "description": AskUserOptionLabelDescription},
+										"description": map[string]any{"type": "string", "description": AskUserOptionDescriptionDescription},
 									},
-									"required": []string{"label", "description"},
+									"required": []string{"label"},
 								},
-								"minItems": 2,
-								"maxItems": 4,
 							},
 							"multiSelect": map[string]any{
-								"type":    "boolean",
-								"default": false,
+								"type":        "boolean",
+								"description": AskUserMultiSelectDescription,
 							},
 						},
-						"required": []string{"question", "header", "options", "multiSelect"},
+						"required":             []string{"question", "options", "multiSelect"},
+						"additionalProperties": false,
 					},
-					"minItems": 1,
-					"maxItems": 4,
 				},
 			},
 			"required": []string{"questions"},
@@ -101,51 +89,96 @@ func (t *AskUserQuestionTool) Schema() map[string]any {
 }
 
 func (t *AskUserQuestionTool) Execute(ctx context.Context, args map[string]any) ToolResult {
-	questionsRaw, ok := args["questions"]
+	questionsRaw, exists := args["questions"]
+	if !exists {
+		return ToolResult{Output: "Invalid arguments: questions is required", IsError: true}
+	}
+	list, ok := questionsRaw.([]any)
 	if !ok {
-		return ToolResult{Output: "Error: questions is required", IsError: true}
+		return ToolResult{Output: "Invalid arguments: questions must be an array", IsError: true}
 	}
-
-	questionsJSON, err := json.Marshal(questionsRaw)
-	if err != nil {
-		return ToolResult{Output: fmt.Sprintf("Error: invalid questions format: %s", err), IsError: true}
-	}
-
 	var questions []Question
-	if err := json.Unmarshal(questionsJSON, &questions); err != nil {
-		return ToolResult{Output: fmt.Sprintf("Error: invalid questions format: %s", err), IsError: true}
+	seen := map[string]bool{}
+	for _, raw := range list {
+		entry, ok := raw.(map[string]any)
+		if !ok {
+			return ToolResult{Output: "Invalid arguments: question must be an object", IsError: true}
+		}
+		for key := range entry {
+			if key != "question" && key != "options" && key != "multiSelect" {
+				return ToolResult{Output: "Invalid arguments: unknown question field " + key, IsError: true}
+			}
+		}
+		text, ok := entry["question"].(string)
+		if !ok {
+			return ToolResult{Output: "Invalid arguments: question must be a string", IsError: true}
+		}
+		if seen[text] {
+			return ToolResult{Output: "Invalid arguments: duplicate question " + text, IsError: true}
+		}
+		seen[text] = true
+		multiSelect, ok := entry["multiSelect"].(bool)
+		if !ok {
+			return ToolResult{Output: "Invalid arguments: multiSelect must be a boolean", IsError: true}
+		}
+		optionsRaw, ok := entry["options"].([]any)
+		if !ok {
+			return ToolResult{Output: "Invalid arguments: options must be an array", IsError: true}
+		}
+		question := Question{Text: text, MultiSelect: multiSelect}
+		for _, optionRaw := range optionsRaw {
+			option, ok := optionRaw.(map[string]any)
+			if !ok {
+				return ToolResult{Output: "Invalid arguments: option must be an object", IsError: true}
+			}
+			label, ok := option["label"].(string)
+			if !ok {
+				return ToolResult{Output: "Invalid arguments: option label must be a string", IsError: true}
+			}
+			description := ""
+			if value, present := option["description"]; present {
+				var isString bool
+				description, isString = value.(string)
+				if !isString {
+					return ToolResult{Output: "Invalid arguments: option description must be a string", IsError: true}
+				}
+			}
+			question.Options = append(question.Options, QuestionOption{Label: label, Description: description})
+		}
+		questions = append(questions, question)
 	}
 
-	if len(questions) == 0 || len(questions) > 4 {
-		return ToolResult{Output: "Error: must have 1-4 questions", IsError: true}
+	if len(questions) < 1 || len(questions) > 4 {
+		return ToolResult{Output: QuestionCountError, IsError: true}
 	}
-
-	for _, q := range questions {
-		if len(q.Options) < 2 || len(q.Options) > 4 {
-			return ToolResult{Output: fmt.Sprintf("Error: question '%s' must have 2-4 options", q.Text), IsError: true}
+	for _, question := range questions {
+		if len(question.Options) < 2 || len(question.Options) > 4 {
+			return ToolResult{Output: fmt.Sprintf("Error: question '%s' must have 2-4 options", question.Text), IsError: true}
 		}
 	}
-
+	if ctx.Err() != nil {
+		return ToolResult{Output: OperationInterruptedError, IsError: true}
+	}
 	if t.RequestCh == nil {
 		return ToolResult{Output: "Error: AskUserQuestion not available in this context", IsError: true}
 	}
 
-	respCh := make(chan QuestionResponse, 1)
-	t.RequestCh <- AskUserRequest{
-		Questions:  questions,
-		ResponseCh: respCh,
-	}
+	responseCh := make(chan QuestionResponse, 1)
+	t.RequestCh <- AskUserRequest{Questions: questions, ResponseCh: responseCh}
 
 	select {
-	case resp := <-respCh:
+	case response := <-responseCh:
+		if len(response.Answers) == 0 {
+			return ToolResult{Output: "User cancelled or did not answer the questions.", IsError: true}
+		}
 		var parts []string
-		for q, a := range resp.Answers {
-			parts = append(parts, fmt.Sprintf("%q = %q", q, a))
+		for _, question := range questions {
+			if answer, ok := response.Answers[question.Text]; ok {
+				parts = append(parts, fmt.Sprintf("\"%s\" = \"%s\"", question.Text, answer))
+			}
 		}
-		return ToolResult{
-			Output: fmt.Sprintf("User has answered your questions: %s. You can now continue with the user's answers in mind.", strings.Join(parts, ", ")),
-		}
+		return ToolResult{Output: "User has answered your questions: " + strings.Join(parts, ", ") + ". You can now continue with the user's answers"}
 	case <-ctx.Done():
-		return ToolResult{Output: "Question cancelled", IsError: true}
+		return ToolResult{Output: OperationInterruptedError, IsError: true}
 	}
 }

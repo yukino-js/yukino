@@ -11,6 +11,8 @@ const (
 	MaxTraversedEntries       = 10000
 	MaxTraversalDepth         = 25
 	OperationInterruptedError = "Error: operation interrupted"
+	OutputRequiredError       = "Error: output is required"
+	QuestionCountError        = "Error: must have 1-4 questions"
 	CommandInterruptedError   = "Error: command interrupted"
 	FileNotReadError          = "Error: file has not been read yet, read it first before editing."
 	FileDeletedError          = "Error: file was deleted or is no longer accessible; read it again before editing."

@@ -2,165 +2,203 @@ package consolidation
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"os"
 	"path/filepath"
-	"strings"
+	"sync"
 	"time"
 
 	"github.com/yukino-js/yukino/yukino/internal/agent"
 	"github.com/yukino-js/yukino/yukino/internal/conversation"
 	"github.com/yukino-js/yukino/yukino/internal/llm"
+	"github.com/yukino-js/yukino/yukino/internal/logger"
 	"github.com/yukino-js/yukino/yukino/internal/memory"
 	"github.com/yukino-js/yukino/yukino/internal/session"
 	"github.com/yukino-js/yukino/yukino/internal/storage"
-	"github.com/yukino-js/yukino/yukino/internal/tools"
 )
 
-const (
-	defaultMinHours    = 24
-	defaultMinSessions = 5
-	scanThrottleMs     = 10 * 60 * 1000
-)
+var log = logger.CreateChildLogger("memory")
 
-type Deps struct {
-	MemoryDir     string
-	UserMemoryDir string
-	ProjectRoot   string
-	Client        llm.Client
-	ToolRegistry  *tools.Registry
-	Protocol      string
-	Conversation  *conversation.Manager
-	AppendSystem  func(string)
-	DebugLogf     func(string, ...any)
-}
-
+// Consolidator implements background memory consolidation. Once both the time
+// gate (>=24h since the last pass) and the session gate (>=5 sessions modified
+// since then) are satisfied, it forks a subagent to consolidate memories.
 type Consolidator struct {
-	deps        Deps
-	lastScanAt  int64
-	minHours    int
-	minSessions int
+	client       llm.Client
+	cwd          string
+	lastScanAt   int64
+	minHours     int
+	minSessions  int
+	appendSystem func(string)
+
+	mu         sync.Mutex
+	cancel     context.CancelFunc
+	completion chan struct{}
+	disposed   bool
 }
 
-func NewConsolidator(deps Deps) *Consolidator {
-	return &Consolidator{
-		deps:        deps,
-		minHours:    defaultMinHours,
-		minSessions: defaultMinSessions,
+type Options struct {
+	MinHours     int
+	MinSessions  int
+	AppendSystem func(string)
+}
+
+func New(client llm.Client, cwd string, opts Options) *Consolidator {
+	minHours := opts.MinHours
+	if minHours == 0 {
+		minHours = memory.DefaultMinHours
 	}
-}
-
-func (c *Consolidator) SetThresholds(minHours, minSessions int) {
-	c.minHours = minHours
-	c.minSessions = minSessions
+	minSessions := opts.MinSessions
+	if minSessions == 0 {
+		minSessions = memory.DefaultMinSessions
+	}
+	return &Consolidator{client: client, cwd: cwd, minHours: minHours, minSessions: minSessions, appendSystem: opts.AppendSystem}
 }
 
 func (c *Consolidator) MaybeRun(ctx context.Context) {
 	if c == nil {
 		return
 	}
-	if _, err := os.Stat(strings.TrimRight(c.deps.MemoryDir, string(filepath.Separator))); os.IsNotExist(err) {
+	c.mu.Lock()
+	disposed := c.disposed
+	c.mu.Unlock()
+	if disposed {
 		return
 	}
-
-	lastAt, err := ReadLastConsolidatedAt(c.deps.MemoryDir)
-	if err != nil {
-		c.debugf("[consolidation] ReadLastConsolidatedAt failed: %v", err)
+	memDir := memory.GetAutoMemPath(c.cwd)
+	if memDir == "" {
 		return
 	}
-	hoursSince := float64(time.Now().UnixMilli()-lastAt) / 3_600_000
+	if info, err := os.Stat(memDir); err != nil || !info.IsDir() {
+		return
+	}
+	lastAt := readLastConsolidatedAt(memDir)
+	hoursSince := float64(time.Now().UnixMilli()-lastAt) / float64(memory.MillisecondsPerHour)
 	if hoursSince < float64(c.minHours) {
 		return
 	}
-
 	now := time.Now().UnixMilli()
-	if now-c.lastScanAt < scanThrottleMs {
-		c.debugf("[consolidation] scan throttle — last scan %ds ago", (now-c.lastScanAt)/1000)
+	if now-c.lastScanAt < memory.ScanThrottleMS {
 		return
 	}
 	c.lastScanAt = now
 
-	sessionIDs := listSessionsSince(c.deps.ProjectRoot, lastAt)
+	sessionIDs := listSessionsSince(c.cwd, lastAt)
 	if len(sessionIDs) < c.minSessions {
-		c.debugf("[consolidation] skip — %d sessions since last consolidation, need %d",
-			len(sessionIDs), c.minSessions)
 		return
 	}
 
-	priorMtime, err := TryAcquireLock(c.deps.MemoryDir)
-	if err != nil {
-		c.debugf("[consolidation] lock acquire failed: %v", err)
-		return
-	}
-	if priorMtime == -1 {
-		c.debugf("[consolidation] lock held by another process")
+	releaseLock, err := storage.TryAcquireFileSyncLock(filepath.Join(memDir, memory.RunningLockFile))
+	if err != nil || releaseLock == nil {
 		return
 	}
 
-	c.debugf("[consolidation] firing — %.1fh since last, %d sessions to review",
-		hoursSince, len(sessionIDs))
+	c.mu.Lock()
+	if c.disposed || c.cancel != nil {
+		c.mu.Unlock()
+		_ = releaseLock()
+		return
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	c.cancel = cancel
+	c.completion = done
+	c.mu.Unlock()
 
-	go c.run(ctx, sessionIDs, priorMtime)
-}
-
-func (c *Consolidator) run(ctx context.Context, sessionIDs []string, priorMtime int64) {
-	defer func() {
-		if r := recover(); r != nil {
-			c.debugf("[consolidation] panic: %v", r)
-			RollbackLock(c.deps.MemoryDir, priorMtime)
+	go func() {
+		defer close(done)
+		defer func() {
+			if err := releaseLock(); err != nil {
+				log.Error(map[string]any{"err": err}, "failed to release consolidation lock")
+			}
+		}()
+		c.mu.Lock()
+		disposed := c.disposed
+		c.mu.Unlock()
+		if err := c.run(runCtx, memDir, sessionIDs); err != nil {
+			log.Error(map[string]any{"err": err}, "memory consolidation failed")
+			return
+		}
+		if !disposed {
+			markConsolidationSucceeded(memDir)
 		}
 	}()
+}
 
-	transcriptDir, err := storage.GetSessionsDir(c.deps.ProjectRoot)
-	if err != nil {
-		c.debugf("[consolidation] cannot resolve sessions dir: %v", err)
-		return
+// Dispose stops any in-flight consolidation and awaits its settlement.
+func (c *Consolidator) Dispose() {
+	c.mu.Lock()
+	c.disposed = true
+	cancel := c.cancel
+	completion := c.completion
+	c.mu.Unlock()
+	if cancel != nil {
+		cancel()
 	}
-	prompt := BuildConsolidationPrompt(
-		c.deps.MemoryDir, c.deps.UserMemoryDir,
-		transcriptDir, sessionIDs,
-	)
+	if completion != nil {
+		<-completion
+	}
+}
+
+func (c *Consolidator) run(ctx context.Context, memDir string, sessionIDs []string) error {
+	transcriptDir, err := storage.GetSessionsDir(c.cwd)
+	if err != nil {
+		return err
+	}
+	prompt := memory.BuildConsolidationPrompt(memDir, memory.GetUserAutoMemPath(), transcriptDir, sessionIDs)
+
+	subRegistry := memory.NewTaskToolRegistry()
+	subChecker := memory.NewMemoryPermissionChecker(c.cwd, true)
 
 	conv := conversation.NewManager()
 	conv.AddUserMessage(prompt)
 
-	subRegistry := memory.NewTaskToolRegistry()
+	subagent := agent.New(c.client, subRegistry, protocolOf(c.client))
+	subagent.MaxIterations = memory.ConsolidationMaxIterations
+	subagent.Checker = subChecker
+	subagent.WorkDir = c.cwd
 
-	subChecker := memory.NewMemoryPermissionChecker(c.deps.ProjectRoot, true)
-
-	subAgent := agent.New(c.deps.Client, subRegistry, c.deps.Protocol)
-	subAgent.MaxIterations = 15
-	subAgent.Checker = subChecker
-	subAgent.WorkDir = c.deps.ProjectRoot
-
-	startTime := time.Now()
-	ch := subAgent.Run(ctx, conv)
-	for range ch {
+	for event := range subagent.Run(ctx, conv) {
+		if ev, ok := event.(agent.ErrorEvent); ok {
+			return errors.New(ev.Message)
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 
-	writtenPaths := extractWrittenPaths(conv.GetMessages())
-	c.debugf("[consolidation] finished in %s, %d files touched: %v",
-		time.Since(startTime), len(writtenPaths), writtenPaths)
-
+	writtenPaths := memory.ExtractWrittenPaths(conv.GetMessages())
 	var memoryPaths []string
-	for _, p := range writtenPaths {
-		if filepath.Base(p) == memory.AutoMemEntrypointName {
-			continue
+	for _, path := range writtenPaths {
+		if filepath.Base(path) != memory.MemoryIndexName {
+			memoryPaths = append(memoryPaths, path)
 		}
-		memoryPaths = append(memoryPaths, p)
 	}
-
-	if len(memoryPaths) > 0 && c.deps.AppendSystem != nil {
-		var names []string
-		for _, p := range memoryPaths {
-			names = append(names, filepath.Base(p))
+	if len(memoryPaths) > 0 && c.appendSystem != nil {
+		names := make([]string, 0, len(memoryPaths))
+		for _, path := range memoryPaths {
+			names = append(names, filepath.Base(path))
 		}
-		c.deps.AppendSystem(fmt.Sprintf("Memory improved: %s", strings.Join(names, ", ")))
+		c.appendSystem(memory.BuildMemoryImprovedReminder(names))
+	}
+	return nil
+}
+
+func readLastConsolidatedAt(memDir string) int64 {
+	info, err := os.Stat(filepath.Join(memDir, memory.LockFile))
+	if err != nil {
+		return 0
+	}
+	return info.ModTime().UnixMilli()
+}
+
+func markConsolidationSucceeded(memDir string) {
+	if err := storage.WritePrivateFileSync(filepath.Join(memDir, memory.LockFile), nil, os.O_WRONLY|os.O_CREATE|os.O_TRUNC); err != nil {
+		log.Error(map[string]any{"err": err}, "failed to update consolidation timestamp")
 	}
 }
 
-func listSessionsSince(projectRoot string, sinceMs int64) []string {
-	sessions := session.ListSessions(projectRoot)
+func listSessionsSince(cwd string, sinceMs int64) []string {
+	sessions := session.ListSessions(cwd)
 	since := time.UnixMilli(sinceMs)
 	var ids []string
 	for _, s := range sessions {
@@ -171,33 +209,9 @@ func listSessionsSince(projectRoot string, sinceMs int64) []string {
 	return ids
 }
 
-func extractWrittenPaths(messages []conversation.Message) []string {
-	var paths []string
-	seen := make(map[string]struct{})
-	for _, m := range messages {
-		if m.Role != "assistant" {
-			continue
-		}
-		for _, tu := range m.ToolUses {
-			if tu.ToolName != "WriteFile" && tu.ToolName != "EditFile" {
-				continue
-			}
-			fp, ok := tu.Arguments["file_path"].(string)
-			if !ok || fp == "" {
-				continue
-			}
-			if _, exists := seen[fp]; exists {
-				continue
-			}
-			seen[fp] = struct{}{}
-			paths = append(paths, fp)
-		}
+func protocolOf(client llm.Client) string {
+	if provider, ok := client.(interface{ Protocol() string }); ok {
+		return provider.Protocol()
 	}
-	return paths
-}
-
-func (c *Consolidator) debugf(format string, args ...any) {
-	if c.deps.DebugLogf != nil {
-		c.deps.DebugLogf(format, args...)
-	}
+	return "anthropic"
 }

@@ -3,7 +3,6 @@ package a2a
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -21,7 +20,7 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/llm"
 	"github.com/yukino-js/yukino/yukino/internal/mcp"
 	"github.com/yukino-js/yukino/yukino/internal/memory"
-	extractor "github.com/yukino-js/yukino/yukino/internal/memory/extractor"
+	"github.com/yukino-js/yukino/yukino/internal/memory/background"
 	"github.com/yukino-js/yukino/yukino/internal/permissions"
 	"github.com/yukino-js/yukino/yukino/internal/prompt"
 	"github.com/yukino-js/yukino/yukino/internal/session"
@@ -30,6 +29,7 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/teams"
 	"github.com/yukino-js/yukino/yukino/internal/todo"
 	"github.com/yukino-js/yukino/yukino/internal/tools"
+	"github.com/yukino-js/yukino/yukino/internal/utils"
 	"github.com/yukino-js/yukino/yukino/internal/workflow"
 )
 
@@ -64,14 +64,15 @@ type agentRuntime struct {
 	taskMgr        *subagent.TaskManager
 	todoList       *todo.TaskList
 	memoryMgr      *memory.Manager
+	memoryTasks    *background.Tasks
 	memoryEnabled  bool
 	contextWindow  int
 
 	enableCoordinatorMode bool
 
-	mcpMgr           *mcp.Manager
-	mcpInstructions  string
-	mcpAnnouncedOnce bool
+	mcpMgr       *mcp.Manager
+	mcpAnnounced map[string]bool
+	currentAgent *agent.Agent
 
 	mu       sync.Mutex
 	cancel   context.CancelFunc
@@ -102,9 +103,6 @@ func CreateA2aRuntime(cwd string, sessionID string) (Runtime, error) {
 	}
 	cfg = config.WithProjectMcpServers(cfg, cwd)
 	provider := config.ResolveDefaultProvider(cfg.Providers, cfg.DefaultProvider)
-	if provider == nil {
-		return nil, errors.New(NoProviderError)
-	}
 	if err := hooks.Validate(cfg.Hooks); err != nil {
 		return nil, err
 	}
@@ -121,10 +119,11 @@ func CreateA2aRuntime(cwd string, sessionID string) (Runtime, error) {
 		skillCatalog:          skills.LoadCatalog(cwd),
 		activeSkills:          map[string]string{},
 		teamMgr:               teams.NewTeamManager(cwd),
-		memoryMgr:             memory.NewManager(cwd),
+		memoryMgr:             memory.NewManager(cwd, nil),
 		memoryEnabled:         cfg.MemoryEnabled(),
 		contextWindow:         config.GetContextWindow(provider),
 		enableCoordinatorMode: cfg.EnableCoordinatorMode,
+		mcpAnnounced:          map[string]bool{},
 	}
 	r.teamMgr.CoordinatorMode = cfg.EnableCoordinatorMode
 	_ = history.RegisterProject(cwd)
@@ -174,6 +173,9 @@ func CreateA2aRuntime(cwd string, sessionID string) (Runtime, error) {
 	tools.AttachBackgroundTaskManager(r.registry, r.taskMgr)
 	manager := r.taskMgr
 	r.registry.AddCleanup(func() error { return manager.StopAll(context.Background()) })
+	r.registry.Register(&skills.LoadSkillTool{Catalog: r.skillCatalog, Host: r, ForkHost: r})
+	r.registry.Register(&skills.InstallSkillTool{Cwd: cwd, Catalog: r.skillCatalog})
+
 	r.registry.Register(&teams.TeamCreateTool{TeamMgr: r.teamMgr})
 	r.registry.Register(&teams.TeamDeleteTool{TeamMgr: r.teamMgr})
 	r.registry.Register(&teams.TeamListTool{TeamMgr: r.teamMgr})
@@ -205,29 +207,16 @@ func CreateA2aRuntime(cwd string, sessionID string) (Runtime, error) {
 	})
 
 	if len(cfg.MCPServers) > 0 {
-		mgr := mcp.NewManager()
-		var serverConfigs []mcp.ServerConfig
-		for _, c := range cfg.MCPServers {
-			serverConfigs = append(serverConfigs, mcp.ServerConfig{
-				Name:      c.Name,
-				Command:   c.Command,
-				Args:      c.Args,
-				URL:       c.URL,
-				Transport: c.Transport,
-				Headers:   c.Headers,
-				Env:       c.Env,
-			})
-		}
-		mgr.LoadConfigs(serverConfigs)
-		result := mgr.ConnectAll(context.Background())
-		r.mcpMgr = result.Mgr
-		for _, tool := range result.Tools {
-			r.registry.Register(tool)
+		mgr := mcp.NewManager(false)
+		result := mgr.ConnectAll(context.Background(), cfg.MCPServers)
+		r.mcpMgr = mgr
+		for _, connected := range result.Tools {
+			r.registry.Register(connected.Tool)
 		}
 		if len(result.Tools) > 0 {
 			mcp.DecideAndApply(r.registry, provider.BaseURL, provider.Protocol, r.contextWindow, cfg.MCPLoading)
 		}
-		r.mcpInstructions = buildMcpInstructions(result)
+		mcp.SyncMcpInstructions(r.conv, r.mcpAnnounced, mgr)
 	}
 
 	r.checker = permissions.NewChecker(
@@ -329,15 +318,11 @@ func (r *agentRuntime) runAgent(ctx context.Context, out chan<- agent.AgentEvent
 	}
 	r.conv.AddUserMessage(text)
 
-	r.mu.Lock()
-	if r.mcpInstructions != "" && !r.mcpAnnouncedOnce {
-		r.conv.AddSystemReminder(r.mcpInstructions)
-		r.mcpAnnouncedOnce = true
-	}
-	r.mu.Unlock()
-
 	ag := agent.New(r.client, r.registry, r.provider.Protocol)
 	ag.WorkDir = r.cwd
+	r.mu.Lock()
+	r.currentAgent = ag
+	r.mu.Unlock()
 	ag.ContextWindow = r.contextWindow
 	ag.MaxOutputTokens = config.GetMaxOutputTokens(r.provider)
 	ag.InstructionsFn = func() string { return memory.LoadInstructions(r.cwd) }
@@ -347,9 +332,9 @@ func (r *agentRuntime) runAgent(ctx context.Context, out chan<- agent.AgentEvent
 		}
 		return r.memoryMgr.BuildSystemReminder()
 	}
-	ag.SkillSection = buildSkillSection(r.skillCatalog, r.cwd)
+	ag.SkillSection = skills.BuildSkillSection(r.skillCatalog)
 	ag.SkillDeltaFn = func() string {
-		section := buildSkillSection(r.skillCatalog, r.cwd)
+		section := skills.BuildSkillSection(r.skillCatalog)
 		if section != "" && !r.conv.HasReminderContaining(section) {
 			return section
 		}
@@ -378,18 +363,11 @@ func (r *agentRuntime) runAgent(ctx context.Context, out chan<- agent.AgentEvent
 		ag.ActivateSkill(name, body)
 	}
 	if r.memoryEnabled {
-		extr := extractor.InitExtractMemories(extractor.Deps{
-			MemoryDir:     memory.GetAutoMemPath(r.cwd),
-			UserMemoryDir: memory.GetUserAutoMemPath(),
-			ProjectRoot:   r.cwd,
-			Client:        r.client,
-			ToolRegistry:  r.registry,
-			Protocol:      r.provider.Protocol,
-			Conversation:  r.conv,
-			AppendSystem:  func(s string) { r.conv.AddSystemReminder(s) },
+		r.memoryTasks = background.New(r.client, r.cwd, background.Callbacks{
+			AppendSystem: func(s string) { r.conv.AddSystemReminder(s) },
 		})
-		ag.OnLoopComplete = func(_ *conversation.Manager) {
-			_ = extr.Execute(context.Background())
+		ag.OnLoopComplete = func(loopConv *conversation.Manager) {
+			r.memoryTasks.Run(loopConv)
 		}
 	}
 
@@ -409,6 +387,52 @@ func (r *agentRuntime) Abort() {
 }
 
 // Dispose releases the runtime's resources.
+
+func (r *agentRuntime) ActivateSkill(name, body string) {
+	r.activeSkills[name] = body
+	r.mu.Lock()
+	agentRef := r.currentAgent
+	r.mu.Unlock()
+	if agentRef != nil {
+		agentRef.ActivateSkill(name, body)
+	}
+}
+
+func (r *agentRuntime) SnapshotParentMessages(count int) string {
+	messages := r.conv.GetMessages()
+	if len(messages) > count {
+		messages = messages[len(messages)-count:]
+	}
+	lines := make([]string, 0, len(messages))
+	for _, message := range messages {
+		content := any(message.Content)
+		if len(message.ContentBlocks) > 0 {
+			content = message.ContentBlocks
+		}
+		lines = append(lines, message.Role+": "+utils.ContentToText(content))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (r *agentRuntime) RunSubagent(ctx context.Context, prompt string) (string, error) {
+	spec := subagent.BuiltinSpecs["general-purpose"]
+	definition := &subagent.AgentDefinition{
+		AgentType:       spec.Name,
+		WhenToUse:       spec.Description,
+		Tools:           spec.Tools,
+		DisallowedTools: spec.DisallowedTools,
+		SystemPrompt:    spec.SystemPromptOverride,
+		MaxTurns:        spec.MaxTurns,
+		Model:           spec.Model,
+		PermissionMode:  spec.PermissionMode,
+		ReadOnly:        spec.ReadOnly,
+		Background:      spec.Background,
+		Worktree:        spec.Worktree,
+		InitialPrompt:   spec.InitialPrompt,
+	}
+	return subagent.SpawnSubagent(ctx, definition, prompt, r.client, r.registry, r.provider, r.cwd, nil, nil, "", r.checker, subagent.SubagentRunOptions{Background: false})
+}
+
 func (r *agentRuntime) Dispose() error {
 	r.mu.Lock()
 	if r.disposed {
@@ -420,64 +444,13 @@ func (r *agentRuntime) Dispose() error {
 		r.cancel()
 	}
 	r.mu.Unlock()
+	if r.memoryTasks != nil {
+		r.memoryTasks.Dispose()
+	}
 	if r.registry != nil {
 		return r.registry.Dispose()
 	}
 	return nil
-}
-
-// buildMcpInstructions formats connected MCP server guidance, mirroring the
-// remote server's announcement text.
-func buildMcpInstructions(result mcp.ConnectResult) string {
-	if len(result.Servers) == 0 {
-		return ""
-	}
-	toolsByServer := make(map[string][]string)
-	for _, tool := range result.Tools {
-		toolName := tool.Name()
-		for _, srv := range result.Servers {
-			if strings.HasPrefix(toolName, mcp.MCPToolNamePrefix(srv.Name)) {
-				toolsByServer[srv.Name] = append(toolsByServer[srv.Name], toolName)
-				break
-			}
-		}
-	}
-	var parts []string
-	for _, srv := range result.Servers {
-		var sb strings.Builder
-		sb.WriteString("## " + srv.Name + "\n")
-		if srv.Instructions != "" {
-			sb.WriteString(srv.Instructions + "\n")
-		}
-		if toolNames, ok := toolsByServer[srv.Name]; ok && len(toolNames) > 0 {
-			sb.WriteString("\nAvailable tools: " + strings.Join(toolNames, ", "))
-		}
-		parts = append(parts, sb.String())
-	}
-	return "# MCP Server Instructions\n\nThe following MCP servers are connected. Use their tools when the user asks.\n\n" + strings.Join(parts, "\n\n")
-}
-
-// buildSkillSection renders the available-skills prompt section.
-func buildSkillSection(catalog *skills.Catalog, wd string) string {
-	if catalog == nil {
-		return ""
-	}
-	metas := catalog.List()
-	if len(metas) == 0 {
-		return ""
-	}
-	var sb strings.Builder
-	sb.WriteString("## Available Skills\n\n")
-	sb.WriteString(fmt.Sprintf("Skills are installed at: %s\n", wd+"/.yukino/skills"))
-	sb.WriteString("When creating new skills, always place them under this directory as <skill-name>/SKILL.md.\n\n")
-	for _, meta := range metas {
-		desc := meta.Description
-		if runes := []rune(desc); len(runes) > 200 {
-			desc = string(runes[:200]) + "…"
-		}
-		sb.WriteString(fmt.Sprintf("- /%s: %s\n", meta.Name, desc))
-	}
-	return sb.String()
 }
 
 // agentHookRunner runs a hook's agent prompt through the LLM client.

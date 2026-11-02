@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -17,8 +16,8 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/llm"
 	"github.com/yukino-js/yukino/yukino/internal/mcp"
 	"github.com/yukino-js/yukino/yukino/internal/memory"
-	"github.com/yukino-js/yukino/yukino/internal/memory/consolidation"
-	"github.com/yukino-js/yukino/yukino/internal/memory/extractor"
+	"github.com/yukino-js/yukino/yukino/internal/memory/background"
+	"github.com/yukino-js/yukino/yukino/internal/permissions"
 	"github.com/yukino-js/yukino/yukino/internal/prompt"
 	"github.com/yukino-js/yukino/yukino/internal/session"
 	"github.com/yukino-js/yukino/yukino/internal/skills"
@@ -26,6 +25,7 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/teams"
 	"github.com/yukino-js/yukino/yukino/internal/todo"
 	"github.com/yukino-js/yukino/yukino/internal/tools"
+	"github.com/yukino-js/yukino/yukino/internal/utils"
 )
 
 func (m *Model) drainTaskNotifications() []string {
@@ -90,7 +90,7 @@ func (m *Model) registerAgentTools(client llm.Client, providerCfg *config.Provid
 	// manager is created so nothing scans, rebuilds MEMORY.md, or injects
 	// reminders.
 	if m.memoryEnabled {
-		m.memoryMgr = memory.NewManager(wd)
+		m.memoryMgr = memory.NewManager(wd, nil)
 	}
 
 	loader := subagent.NewAgentLoader()
@@ -138,21 +138,8 @@ func (m *Model) initMCPServersCmd() tea.Cmd {
 	configs := m.mcpConfigs
 
 	return func() tea.Msg {
-		mgr := mcp.NewManager()
-		var serverConfigs []mcp.ServerConfig
-		for _, c := range configs {
-			serverConfigs = append(serverConfigs, mcp.ServerConfig{
-				Name:      c.Name,
-				Command:   c.Command,
-				Args:      c.Args,
-				URL:       c.URL,
-				Transport: c.Transport,
-				Headers:   c.Headers,
-				Env:       c.Env,
-			})
-		}
-		mgr.LoadConfigs(serverConfigs)
-		return mcpReadyMsg{result: mgr.ConnectAll(context.Background())}
+		mgr := mcp.NewManager(false)
+		return mcpReadyMsg{result: mgr.ConnectAll(context.Background(), configs), mgr: mgr}
 	}
 }
 
@@ -177,14 +164,21 @@ func (m *Model) wireSkillsToAgent() {
 		m.registerSkillCommand(meta.Name)
 	}
 	m.registry.Register(&skills.LoadSkillTool{
-		Catalog:  m.skillCatalog,
-		Host:     m,
-		ForkHost: m,
-	})
-	m.registry.Register(&skills.InstallSkillTool{
 		Catalog: m.skillCatalog,
-		OnInstalled: func(name string) {
-			m.registerSkillCommand(name)
+		Host:    m,
+	})
+	wd, _ := os.Getwd()
+	m.registry.Register(&skills.InstallSkillTool{
+		Cwd:     wd,
+		Catalog: m.skillCatalog,
+		OnInstalled: func() {
+			// Only rewire the slash commands; newly installed skills are
+			// delivered by skillDelta on the next turn.
+			for _, meta := range m.skillCatalog.List() {
+				if m.cmdRegistry.Find(meta.Name) == nil {
+					m.registerSkillCommand(meta.Name)
+				}
+			}
 		},
 	})
 }
@@ -213,16 +207,11 @@ func (m *Model) registerSkillCommand(name string) {
 		cmd.Type = commands.TypePrompt
 		captured := name
 		cmd.Handler = func(ctx *commands.Context) string {
-			skill, err := m.skillCatalog.GetFull(captured)
-			if err != nil && skill == nil {
-				return fmt.Sprintf("[skill error] %v", err)
+			skill := m.skillCatalog.Get(captured)
+			if skill == nil {
+				return fmt.Sprintf("[skill error] unknown skill: %s", captured)
 			}
-			body, runErr := skills.RunInline(context.Background(), skill, ctx.Args, m)
-			if runErr != nil {
-				return fmt.Sprintf("[skill error] %v", runErr)
-			}
-			m.ActivateSkill(skill.Meta.Name, body)
-			return body
+			return skills.RunInline(skill, ctx.Args, m)
 		}
 	}
 	m.cmdRegistry.Register(cmd)
@@ -235,8 +224,7 @@ func (m *Model) refreshSkillsIfNeeded() {
 	if !m.skillCatalog.NeedsReload() {
 		return
 	}
-	wd, _ := os.Getwd()
-	m.skillCatalog.Reload(wd)
+	m.skillCatalog.Reload()
 	for _, meta := range m.skillCatalog.List() {
 		m.registerSkillCommand(meta.Name)
 	}
@@ -270,8 +258,8 @@ func (m *Model) skillDelta() string {
 func (m *Model) rebuildSystemPrompt(wd string) string {
 	m.instructionsContent = m.loadCustomInstructions(wd)
 	m.memoryContent = ""
-	if m.memoryEnabled {
-		m.memoryContent = memory.LoadAutoMemoryPrompt(wd)
+	if m.memoryEnabled && m.memoryMgr != nil {
+		m.memoryContent = m.memoryMgr.BuildSystemReminder()
 	}
 	env := prompt.DetectEnvironment(wd)
 	if m.selectedProvider != nil {
@@ -281,28 +269,7 @@ func (m *Model) rebuildSystemPrompt(wd string) string {
 }
 
 func (m *Model) buildSkillSection(wd string) string {
-	if m.skillCatalog == nil {
-		return ""
-	}
-	metas := m.skillCatalog.List()
-	if len(metas) == 0 {
-		return ""
-	}
-	skillsDir := filepath.Join(wd, ".yukino", "skills")
-	var sb strings.Builder
-	sb.WriteString("## Available Skills\n\n")
-	sb.WriteString(fmt.Sprintf("Skills are installed at: %s\n", skillsDir))
-	sb.WriteString("When creating new skills, always place them under this directory as <skill-name>/SKILL.md.\n\n")
-	sb.WriteString("Only Skill names and one-line descriptions are listed below. To activate a Skill on demand call the LoadSkill tool with {name: \"<skill-name>\"}. After activation the Skill's full SOP gets pinned to the environment context, and any tools the Skill declares get registered. Users can also invoke a Skill directly with /<name>.\n\n")
-	sb.WriteString("If the user pastes a Skill URL (skills.sh, github.com tree URL, or raw SKILL.md URL) and asks to install / add / get it, call the InstallSkill tool with {url: \"<url>\"} — the new Skill becomes available immediately afterwards.\n\n")
-	for _, meta := range metas {
-		desc := meta.Description
-		if len(desc) > 200 {
-			desc = desc[:200] + "…"
-		}
-		sb.WriteString(fmt.Sprintf("- /%s: %s\n", meta.Name, desc))
-	}
-	return sb.String()
+	return skills.BuildSkillSection(m.skillCatalog)
 }
 
 func (m Model) ActivateSkill(name, body string) {
@@ -322,162 +289,99 @@ func (m Model) ToolRegistry() *tools.Registry {
 	return m.registry
 }
 
-func (m Model) SnapshotParentMessages() []conversation.Message {
+func (m Model) SnapshotParentMessages(count int) string {
 	if m.conversation == nil {
-		return nil
+		return ""
 	}
-	src := m.conversation.GetMessages()
-	out := make([]conversation.Message, len(src))
-	copy(out, src)
-	return out
+	messages := m.conversation.GetMessages()
+	if len(messages) > count {
+		messages = messages[len(messages)-count:]
+	}
+	lines := make([]string, 0, len(messages))
+	for _, message := range messages {
+		content := any(message.Content)
+		if len(message.ContentBlocks) > 0 {
+			content = message.ContentBlocks
+		}
+		lines = append(lines, "["+message.Role+"] "+utils.ContentToText(content))
+	}
+	return strings.Join(lines, "\n")
 }
 
-func (m Model) RunSubAgent(ctx context.Context, body string, seed []conversation.Message, _ string) (string, error) {
+func (m Model) RunSubagent(ctx context.Context, prompt string) (string, error) {
 	if m.client == nil {
-		return "", fmt.Errorf("RunSubAgent: no llm client (provider not selected)")
+		return "", fmt.Errorf("RunSubagent: no llm client (provider not selected)")
 	}
-	subConv := conversation.NewManager()
-	for _, msg := range seed {
-		switch msg.Role {
-		case "user":
-			subConv.AddUserMessage(msg.Content)
-		case "assistant":
-			subConv.AddAssistantMessage(msg.Content)
-		}
+	spec := subagent.BuiltinSpecs["general-purpose"]
+	definition := &subagent.AgentDefinition{
+		AgentType:       spec.Name,
+		WhenToUse:       spec.Description,
+		Tools:           spec.Tools,
+		DisallowedTools: spec.DisallowedTools,
+		SystemPrompt:    spec.SystemPromptOverride,
+		MaxTurns:        spec.MaxTurns,
+		Model:           spec.Model,
+		PermissionMode:  spec.PermissionMode,
+		ReadOnly:        spec.ReadOnly,
+		Background:      spec.Background,
+		Worktree:        spec.Worktree,
+		InitialPrompt:   spec.InitialPrompt,
 	}
-	subConv.AddUserMessage(body)
-
-	subAgent := agent.New(m.client, m.registry, "")
-	if m.selectedProvider != nil {
-		subAgent.Protocol = m.selectedProvider.Protocol
-		subAgent.ContextWindow = config.GetContextWindow(m.selectedProvider)
-		subAgent.MaxOutputTokens = config.GetMaxOutputTokens(m.selectedProvider)
+	var checker *permissions.Checker
+	if m.ag != nil {
+		checker = m.ag.Checker
 	}
-	subAgent.MaxIterations = 50
-
-	var output strings.Builder
-	ch := subAgent.Run(ctx, subConv)
-	for ev := range ch {
-		switch e := ev.(type) {
-		case agent.StreamText:
-			output.WriteString(e.Text)
-		case agent.ErrorEvent:
-			return output.String(), fmt.Errorf("%s", e.Message)
-		}
-	}
-	return output.String(), nil
+	cwd, _ := os.Getwd()
+	return subagent.SpawnSubagent(ctx, definition, prompt, m.client, m.registry, m.selectedProvider, cwd, nil, nil, "", checker, subagent.SubagentRunOptions{Background: false})
 }
 
 func (m *Model) loadCustomInstructions(wd string) string {
 	return memory.LoadInstructions(wd)
 }
 
-func (m *Model) installMemoryExtractor(ag *agent.Agent, wd, protocol string) *extractor.Extractor {
+func (m *Model) installMemoryTasks(ag *agent.Agent, wd string) *background.Tasks {
 	if m.client == nil || m.conversation == nil || !m.memoryEnabled {
 		return nil
 	}
 	conv := m.conversation
-	extr := extractor.InitExtractMemories(extractor.Deps{
-		MemoryDir:     memory.GetAutoMemPath(wd),
-		UserMemoryDir: memory.GetUserAutoMemPath(),
-		ProjectRoot:   wd,
-		Client:        m.client,
-		ToolRegistry:  m.registry,
-		Protocol:      protocol,
-		Conversation:  conv,
-		AppendSystem:  func(s string) { conv.AddSystemReminder(s) },
+	tasks := background.New(m.client, wd, background.Callbacks{
+		OnSaved: func(saved []string) {
+			if len(saved) > 0 {
+				conv.AddSystemReminder("Memory saved: " + strings.Join(saved, ", "))
+			}
+		},
+		AppendSystem: func(s string) { conv.AddSystemReminder(s) },
 	})
-
-	consolidator := consolidation.NewConsolidator(consolidation.Deps{
-		MemoryDir:     memory.GetAutoMemPath(wd),
-		UserMemoryDir: memory.GetUserAutoMemPath(),
-		ProjectRoot:   wd,
-		Client:        m.client,
-		ToolRegistry:  m.registry,
-		Protocol:      protocol,
-		Conversation:  conv,
-		AppendSystem:  func(s string) { conv.AddSystemReminder(s) },
-	})
-	m.memoryConsolidator = consolidator
-
-	ag.OnLoopComplete = func(_ *conversation.Manager) {
-		_ = extr.Execute(context.Background())
-		consolidator.MaybeRun(context.Background())
+	ag.OnLoopComplete = func(loopConv *conversation.Manager) {
+		tasks.Run(loopConv)
 	}
-	return extr
+	return tasks
 }
 
 func (m *Model) prefetchRelevantMemories(query string) <-chan agent.RecallResult {
 	out := make(chan agent.RecallResult, 1)
-	if m.memoryMgr == nil || m.selectedProvider == nil {
+	if m.memoryMgr == nil || m.selectedProvider == nil || m.client == nil {
 		out <- agent.RecallResult{}
 		return out
 	}
-	provider := m.selectedProvider
-	memDir := m.memoryMgr.Dir()
-	userMemDir := m.memoryMgr.UserDir()
 	ag := m.ag
+	client := m.client
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 		defer cancel()
-		selector := func(ctx context.Context, sys, user string) (string, error) {
-			sideClient, err := llm.NewClient(provider, sys)
-			if err != nil {
-				return "", err
-			}
-			miniConv := conversation.NewManager()
-			miniConv.AddUserMessage(user)
-			events, errs := sideClient.Stream(ctx, miniConv, nil)
-			var sb strings.Builder
-			for ev := range events {
-				if td, ok := ev.(llm.TextDelta); ok {
-					sb.WriteString(td.Text)
-				}
-			}
-			select {
-			case err := <-errs:
-				if err != nil {
-					return "", err
-				}
-			default:
-			}
-			return sb.String(), nil
-		}
 		var recentTools []string
 		var surfaced map[string]struct{}
 		if ag != nil {
 			recentTools, surfaced = ag.RecallHints()
 		}
-		results, _ := memory.FindRelevantMemories(ctx, query, userMemDir, memDir, recentTools, surfaced, selector)
+		results := m.memoryMgr.FindRelevantMemories(ctx, query, client, recentTools, surfaced)
 		paths := make([]string, 0, len(results))
 		for _, r := range results {
 			paths = append(paths, r.Path)
 		}
-		out <- agent.RecallResult{Reminder: renderRelevantMemoriesReminder(results), Paths: paths}
+		out <- agent.RecallResult{Reminder: m.memoryMgr.RenderReminder(results), Paths: paths}
 	}()
 	return out
-}
-
-func renderRelevantMemoriesReminder(memories []memory.RelevantMemory) string {
-	if len(memories) == 0 {
-		return ""
-	}
-	var sb strings.Builder
-	sb.WriteString("The following relevant memories from prior conversations may help:\n\n")
-	for _, mem := range memories {
-		data, err := os.ReadFile(mem.Path)
-		if err != nil {
-			continue
-		}
-		sb.WriteString(fmt.Sprintf("## Memory: %s (saved %s)\n\n", filepath.Base(mem.Path), memory.MemoryAge(mem.MtimeMs)))
-		if note := memory.MemoryFreshnessText(mem.MtimeMs); note != "" {
-			sb.WriteString(note)
-			sb.WriteString("\n\n")
-		}
-		sb.Write(data)
-		sb.WriteString("\n\n---\n\n")
-	}
-	return sb.String()
 }
 
 func (m *Model) savePartialResponse() {

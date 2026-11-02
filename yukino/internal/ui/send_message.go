@@ -47,11 +47,6 @@ func (m Model) sendMessage(text string) (tea.Model, tea.Cmd) {
 	m.committedUpTo = len(m.chatMessages)
 	m.conversation.AppendMessages([]conversation.Message{recorded.ToConversation()})
 
-	if m.mcpInstructions != "" && !m.mcpInstructionsOK {
-		m.conversation.AddSystemReminder(m.mcpInstructions)
-		m.mcpInstructionsOK = true
-	}
-
 	prefetchCh := m.prefetchRelevantMemories(expanded)
 
 	m.streamBuf = ""

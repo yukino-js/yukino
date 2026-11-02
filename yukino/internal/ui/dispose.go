@@ -13,16 +13,14 @@ func (m Model) Dispose() error {
 		_ = m.ideConn.Close()
 	}
 	if m.mcpMgr != nil {
-		m.mcpMgr.Shutdown()
+		m.mcpMgr.DisconnectAll()
 	}
 	if m.teamMgr != nil {
 		m.teamMgr.CloseAll()
 	}
 	var failures []error
-	if m.memoryExtractor != nil {
-		if err := m.memoryExtractor.Drain(5000); err != nil {
-			failures = append(failures, err)
-		}
+	if m.memoryTasks != nil {
+		m.memoryTasks.Dispose()
 	}
 	if m.registry != nil {
 		if err := m.registry.Dispose(); err != nil {

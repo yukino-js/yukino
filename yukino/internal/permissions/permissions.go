@@ -1,6 +1,7 @@
 package permissions
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -62,18 +63,6 @@ func modeDecide(mode PermissionMode, category tools.ToolCategory) DecisionEffect
 		}
 		return Ask
 	}
-}
-
-// detectDangerous returns the matched reason (empty string means safe). The
-// pattern list is intentionally empty, so the Layer-3 deny stays inert until
-// patterns are added.
-func detectDangerous(command string) string {
-	for _, p := range DangerousPatterns {
-		if p.Re.MatchString(command) {
-			return p.Reason
-		}
-	}
-	return ""
 }
 
 func escapeRuleLiteral(content string) string {
@@ -511,15 +500,34 @@ func NewChecker(sandbox *PathSandbox, ruleEngine *RuleEngine, mode PermissionMod
 
 // Check decides a tool call; path resolution failures deny.
 func (c *Checker) Check(tool tools.Tool, args map[string]any) (decision Decision) {
+	return c.CheckNamed(tool.Name(), tool.Category(), args)
+}
+
+// CheckNamed decides a call by tool name and category without a Tool value.
+// It preserves the Policy override so scoped checkers see the same call.
+func (c *Checker) CheckNamed(toolName string, category tools.ToolCategory, args map[string]any) (decision Decision) {
 	defer func() {
 		if r := recover(); r != nil {
 			decision = Decision{Effect: Deny, Reason: fmt.Sprintf("Permission path resolution failed: %v", r)}
 		}
 	}()
 	if c.Policy != nil {
-		return c.Policy(tool, args)
+		return c.Policy(namedTool{name: toolName, category: category}, args)
 	}
-	return c.checkAction(tool.Name(), tool.Category(), args)
+	return c.checkAction(toolName, category, args)
+}
+
+type namedTool struct {
+	name     string
+	category tools.ToolCategory
+}
+
+func (t namedTool) Name() string                 { return t.name }
+func (t namedTool) Description() string          { return "" }
+func (t namedTool) Category() tools.ToolCategory { return t.category }
+func (t namedTool) Schema() map[string]any       { return nil }
+func (t namedTool) Execute(context.Context, map[string]any) tools.ToolResult {
+	return tools.ToolResult{}
 }
 
 func (c *Checker) checkAction(toolName string, category tools.ToolCategory, args map[string]any) Decision {
@@ -573,16 +581,6 @@ func (c *Checker) checkAction(toolName string, category tools.ToolCategory, args
 		return Decision{Effect: Allow, Reason: "Safe read-only command"}
 	}
 
-	// Layer 3: dangerous command block — reason records the specific matched
-	// pattern.
-	dangerReason := ""
-	if category == tools.CategoryCommand {
-		dangerReason = detectDangerous(content)
-	}
-	if dangerReason != "" {
-		return Decision{Effect: Deny, Reason: fmt.Sprintf("Dangerous command blocked: %s", dangerReason)}
-	}
-
 	if (toolName == "Bash" || toolName == "PowerShell") && strings.TrimSpace(content) == "" {
 		return Decision{Effect: Ask, Reason: "Approval requires a non-empty Bash command or PowerShell command"}
 	}
@@ -592,10 +590,9 @@ func (c *Checker) checkAction(toolName string, category tools.ToolCategory, args
 		return Decision{Effect: Ask, Reason: "Complex shell syntax requires approval"}
 	}
 
-	// Layer 3.5: sandbox auto-allow — OS sandbox already isolates writes;
-	// non-dangerous commands can skip human confirmation. Only Bash is
-	// wrapped by the configured OS sandbox; other command tools (e.g.
-	// PowerShell) never inherit this auto-allow.
+	// Sandbox auto-allow follows explicit deny/ask rules and shell syntax
+	// checks. Only Bash is wrapped by the configured OS sandbox; other
+	// command tools (e.g. PowerShell) never inherit this auto-allow.
 	if c.SandboxEnabled && c.SandboxAutoAllow && toolName == "Bash" {
 		return Decision{Effect: Allow, Reason: "Sandbox auto-allow: OS sandbox active"}
 	}

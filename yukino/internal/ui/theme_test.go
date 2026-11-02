@@ -9,12 +9,12 @@ import (
 // dark, Latte for light). These guard against accidental palette drift.
 func TestDarkThemeMatchesCatppuccinMocha(t *testing.T) {
 	want := map[string]string{
-		"Accent": "#94e2d5", "Border": "#585b70", "BorderAccent": "#94e2d5", "BorderMuted": "#313244",
+		"Accent": "#94e2d5", "Border": "#45475a", "BorderAccent": "#94e2d5", "BorderMuted": "#313244",
 		"Success": "#a6e3a1", "Error": "#f38ba8", "Warning": "#f9e2af", "Muted": "#bac2de",
 		"Dim": "#a6adc8", "Text": "#cdd6f4", "ThinkingText": "#a6adc8", "SelectedBg": "#45475a",
 		"UserMessageBg": "#313244", "UserMessageText": "#cdd6f4", "CustomMessageBg": "#313244", "CustomMessageText": "#cdd6f4",
 		"CustomMessageLabel": "#cba6f7", "ToolPendingBg": "#181825", "ToolSuccessBg": "#181825", "ToolErrorBg": "#181825",
-		"ToolTitle": "#cdd6f4", "ToolOutput": "#bac2de", "MdHeading": "#cdd6f4", "MdLink": "#89b4fa",
+		"ToolTitle": "#cdd6f4", "ToolOutput": "#bac2de", "MdHeading": "#cba6f7", "MdLink": "#89b4fa",
 		"MdLinkURL": "#a6adc8", "MdCode": "#94e2d5", "MdCodeBlock": "#cdd6f4", "MdCodeBlockBorder": "#585b70",
 		"MdQuote": "#a6adc8", "MdQuoteBorder": "#585b70", "MdHr": "#585b70", "MdListBullet": "#94e2d5",
 		"ToolDiffAdded": "#a6e3a1", "ToolDiffRemoved": "#f38ba8", "ToolDiffContext": "#a6adc8", "SyntaxComment": "#9399b2",
@@ -29,12 +29,12 @@ func TestDarkThemeMatchesCatppuccinMocha(t *testing.T) {
 
 func TestLightThemeMatchesCatppuccinLatte(t *testing.T) {
 	want := map[string]string{
-		"Accent": "#179299", "Border": "#acb0be", "BorderAccent": "#179299", "BorderMuted": "#ccd0da",
+		"Accent": "#179299", "Border": "#bcc0cc", "BorderAccent": "#179299", "BorderMuted": "#ccd0da",
 		"Success": "#40a02b", "Error": "#d20f39", "Warning": "#df8e1d", "Muted": "#5c5f77",
 		"Dim": "#6c6f85", "Text": "#4c4f69", "ThinkingText": "#6c6f85", "SelectedBg": "#bcc0cc",
 		"UserMessageBg": "#ccd0da", "UserMessageText": "#4c4f69", "CustomMessageBg": "#ccd0da", "CustomMessageText": "#4c4f69",
 		"CustomMessageLabel": "#8839ef", "ToolPendingBg": "#e6e9ef", "ToolSuccessBg": "#e6e9ef", "ToolErrorBg": "#e6e9ef",
-		"ToolTitle": "#4c4f69", "ToolOutput": "#5c5f77", "MdHeading": "#4c4f69", "MdLink": "#1e66f5",
+		"ToolTitle": "#4c4f69", "ToolOutput": "#5c5f77", "MdHeading": "#8839ef", "MdLink": "#1e66f5",
 		"MdLinkURL": "#6c6f85", "MdCode": "#179299", "MdCodeBlock": "#4c4f69", "MdCodeBlockBorder": "#acb0be",
 		"MdQuote": "#6c6f85", "MdQuoteBorder": "#acb0be", "MdHr": "#acb0be", "MdListBullet": "#179299",
 		"ToolDiffAdded": "#40a02b", "ToolDiffRemoved": "#d20f39", "ToolDiffContext": "#6c6f85", "SyntaxComment": "#7c7f93",

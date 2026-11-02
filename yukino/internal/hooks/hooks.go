@@ -8,18 +8,21 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/yukino-js/yukino/yukino/internal/config"
+	"github.com/yukino-js/yukino/yukino/internal/logger"
 )
 
-const (
-	hookTimeout   = 30 * time.Second
-	hookMaxBuffer = 10 * 1024 * 1024
-)
+var log = logger.CreateChildLogger("hooks")
+
+const hookTimeout = HookTimeoutMS * time.Millisecond
 
 type EventName string
 
@@ -41,6 +44,42 @@ type HookContext struct {
 	Args     map[string]any
 	FilePath string
 	Message  string
+}
+
+// MarshalJSON mirrors JSON.stringify of the reference HookContext: optionals
+// are omitted only when the reference leaves them undefined, which depends on
+// the event that built the context.
+func (c HookContext) MarshalJSON() ([]byte, error) {
+	var b bytes.Buffer
+	b.WriteString(`{"event":`)
+	writeJSONValue(&b, string(c.Event))
+	if c.ToolName != "" {
+		b.WriteString(`,"toolName":`)
+		writeJSONValue(&b, c.ToolName)
+	}
+	if c.Args != nil {
+		b.WriteString(`,"args":`)
+		writeJSONValue(&b, c.Args)
+	}
+	if c.Event == EventPreToolUse || c.Event == EventPostToolUse {
+		b.WriteString(`,"filePath":`)
+		writeJSONValue(&b, c.FilePath)
+	}
+	if c.Message != "" || c.Event == EventPostToolUse {
+		b.WriteString(`,"message":`)
+		writeJSONValue(&b, c.Message)
+	}
+	b.WriteString("}")
+	return b.Bytes(), nil
+}
+
+func writeJSONValue(b *bytes.Buffer, value any) {
+	data, err := json.Marshal(value)
+	if err != nil {
+		b.WriteString("null")
+		return
+	}
+	b.Write(data)
 }
 
 type HookResult struct {
@@ -147,6 +186,9 @@ func (e *Engine) Fire(event EventName, ctx HookContext, options HookRuntimeOptio
 		}
 		if hook.Condition != "" {
 			matched, err := evaluateCondition(hook.Condition, ctx)
+			if err != nil {
+				log.Error(map[string]any{"err": err, "condition": hook.Condition}, "hook condition evaluation failed")
+			}
 			if err != nil || !matched {
 				continue
 			}
@@ -170,6 +212,7 @@ func (e *Engine) Fire(event EventName, ctx HookContext, options HookRuntimeOptio
 			go func(hook config.HookConfig, onceKey string) {
 				result, err := e.executeAction(hook, ctx, options)
 				if err != nil {
+					log.Error(map[string]any{"err": err}, "hooks operation failed")
 					if onceKey != "" {
 						e.mu.Lock()
 						delete(e.firedOnce, onceKey)
@@ -186,6 +229,7 @@ func (e *Engine) Fire(event EventName, ctx HookContext, options HookRuntimeOptio
 		}
 		result, err := e.executeAction(hook, ctx, options)
 		if err != nil {
+			log.Error(map[string]any{"err": err}, "hooks operation failed")
 			if onceKey != "" {
 				e.mu.Lock()
 				delete(e.firedOnce, onceKey)
@@ -295,24 +339,62 @@ func runCommand(hook config.HookConfig, ctx HookContext, options HookRuntimeOpti
 	}
 	execCtx, cancel := context.WithTimeout(parent, hookTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(execCtx, "bash", "-c", hook.Action.Command)
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		shell := os.Getenv("ComSpec")
+		if shell == "" {
+			shell = "cmd.exe"
+		}
+		cmd = exec.CommandContext(execCtx, shell, "/d", "/s", "/c", hook.Action.Command)
+	} else {
+		cmd = exec.CommandContext(execCtx, "bash", "-c", hook.Action.Command)
+	}
 	cmd.Dir = options.Cwd
 	cmd.Env = append(cmd.Environ(),
 		"YUKINO_EVENT="+string(ctx.Event),
 		"YUKINO_TOOL="+ctx.ToolName,
 		"YUKINO_FILE_PATH="+ctx.FilePath,
 	)
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
+	stdout := &cappedBuffer{limit: HookMaxBufferBytes, label: "stdout", cancel: cancel}
+	stderr := &cappedBuffer{limit: HookMaxBufferBytes, label: "stderr", cancel: cancel}
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 	if err := cmd.Run(); err != nil {
+		if stdout.exceeded.Load() {
+			return HookResult{}, errors.New("stdout maxBuffer length exceeded")
+		}
+		if stderr.exceeded.Load() {
+			return HookResult{}, errors.New("stderr maxBuffer length exceeded")
+		}
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return HookResult{}, fmt.Errorf("Command failed: %s\n%s", hook.Action.Command, stderr.String())
+		}
 		return HookResult{}, err
 	}
-	output := stdout.String()
-	if len(output) > hookMaxBuffer {
-		output = output[:hookMaxBuffer]
-	}
-	return HookResult{Output: strings.TrimSpace(output), Success: true, Reject: hook.Reject}, nil
+	return HookResult{Output: strings.TrimSpace(stdout.String()), Success: true, Reject: hook.Reject}, nil
 }
+
+// cappedBuffer mirrors Node's maxBuffer: output past the cap fails the exec
+// instead of being silently truncated, and the child is killed.
+type cappedBuffer struct {
+	buf      bytes.Buffer
+	limit    int
+	label    string
+	cancel   context.CancelFunc
+	exceeded atomic.Bool
+}
+
+func (w *cappedBuffer) Write(p []byte) (int, error) {
+	if w.buf.Len()+len(p) > w.limit {
+		w.exceeded.Store(true)
+		w.cancel()
+		return 0, fmt.Errorf("%s maxBuffer length exceeded", w.label)
+	}
+	return w.buf.Write(p)
+}
+
+func (w *cappedBuffer) String() string { return w.buf.String() }
 
 func runHTTP(hook config.HookConfig, ctx HookContext, options HookRuntimeOptions) (HookResult, error) {
 	method := strings.ToUpper(hook.Action.Method)
@@ -321,14 +403,7 @@ func runHTTP(hook config.HookConfig, ctx HookContext, options HookRuntimeOptions
 	}
 	var body io.Reader
 	if method != "GET" && method != "HEAD" {
-		payload := struct {
-			Event    EventName      `json:"event"`
-			ToolName string         `json:"toolName,omitempty"`
-			Args     map[string]any `json:"args,omitempty"`
-			FilePath string         `json:"filePath,omitempty"`
-			Message  string         `json:"message,omitempty"`
-		}{ctx.Event, ctx.ToolName, ctx.Args, ctx.FilePath, ctx.Message}
-		data, err := json.Marshal(payload)
+		data, err := json.Marshal(ctx)
 		if err != nil {
 			return HookResult{}, err
 		}

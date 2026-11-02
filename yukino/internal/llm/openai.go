@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/yukino-js/yukino/yukino/internal/config"
@@ -55,6 +56,8 @@ func (c *openaiClient) SetSystemPrompt(prompt string) {
 	c.systemPrompt = prompt
 }
 
+func (c *openaiClient) Protocol() string { return "openai" }
+
 func (c *openaiClient) SetMaxOutputTokens(tokens int) {
 	c.maxOutputTokens = tokens
 }
@@ -83,19 +86,26 @@ func (c *openaiClient) Stream(ctx context.Context, conv *conversation.Manager, t
 	events := make(chan StreamEvent, 64)
 	errs := make(chan error, 1)
 
-	input := buildOpenAIInput(conversation.EnsureToolPairing(conv.GetMessages()))
+	input := responses.ResponseInputParam{responses.ResponseInputItemUnionParam{
+		OfMessage: &responses.EasyInputMessageParam{
+			Role:    responses.EasyInputMessageRoleSystem,
+			Content: responses.EasyInputMessageContentUnionParam{OfString: param.NewOpt(c.systemPrompt)},
+		},
+	}}
+	input = append(input, buildOpenAIInput(conversation.EnsureToolPairing(conv.GetMessages()))...)
 
 	var tools []responses.ToolUnionParam
 	for _, s := range toolSchemas {
 		name, _ := s["name"].(string)
 		desc, _ := s["description"].(string)
 		params, _ := s["parameters"].(map[string]any)
+		strict, _ := s["strict"].(bool)
 		tools = append(tools, responses.ToolUnionParam{
 			OfFunction: &responses.FunctionToolParam{
 				Name:        name,
 				Description: param.NewOpt(desc),
 				Parameters:  params,
-				Strict:      param.NewOpt(false),
+				Strict:      param.NewOpt(strict),
 			},
 		})
 	}
@@ -109,7 +119,6 @@ func (c *openaiClient) Stream(ctx context.Context, conv *conversation.Manager, t
 		reqParams := responses.ResponseNewParams{
 			MaxOutputTokens: param.NewOpt(int64(config.GetMaxOutputTokens(&requestConfig))),
 			Model:           c.model,
-			Instructions:    param.NewOpt(c.systemPrompt),
 			Input: responses.ResponseNewParamsInputUnion{
 				OfInputItemList: input,
 			},
@@ -133,7 +142,8 @@ func (c *openaiClient) Stream(ctx context.Context, conv *conversation.Manager, t
 		defer stream.Close()
 
 		var currentToolName, currentCallID, jsonAccum string
-		var reasoningID, reasoningText string
+		var reasoningID, reasoningText, reasoningPartText string
+		sawTerminalResponse := false
 
 		type sseResult struct {
 			hasNext bool
@@ -176,9 +186,30 @@ func (c *openaiClient) Stream(ctx context.Context, conv *conversation.Manager, t
 			switch event.Type {
 			case "response.output_text.delta":
 				events <- TextDelta{Text: event.Delta.OfString}
+			case "response.reasoning_summary_text.delta":
+				reasoningText += event.Delta.OfString
+				reasoningPartText += event.Delta.OfString
+				events <- ThinkingDelta{Text: event.Delta.OfString}
+			case "response.reasoning_summary_text.done":
+				if reasoningPartText == "" {
+					reasoningText += event.Text
+					events <- ThinkingDelta{Text: event.Text}
+				}
+				reasoningPartText = ""
+			case "response.function_call_arguments.delta":
+				if currentCallID == "" || currentToolName == "" {
+					errs <- &NetworkError{Message: "Responses tool arguments arrived before a valid tool call"}
+					return
+				}
+				jsonAccum += event.Delta.OfString
+				events <- ToolCallDelta{Text: event.Delta.OfString}
 			case "response.output_item.added":
 				switch event.Item.Type {
 				case "function_call":
+					if event.Item.CallID == "" || event.Item.Name == "" {
+						errs <- &NetworkError{Message: "Responses tool call started without a valid id or name"}
+						return
+					}
 					currentToolName = event.Item.Name
 					currentCallID = event.Item.CallID
 					jsonAccum = ""
@@ -186,38 +217,87 @@ func (c *openaiClient) Stream(ctx context.Context, conv *conversation.Manager, t
 				case "reasoning":
 					reasoningID = event.Item.ID
 					reasoningText = ""
+					reasoningPartText = ""
 				}
-			case "response.reasoning_summary_text.delta":
-				reasoningText += event.Delta.OfString
-				events <- ThinkingDelta{Text: event.Delta.OfString}
-			case "response.reasoning_summary_text.done":
-				events <- ThinkingComplete{Thinking: reasoningText, Signature: reasoningID}
-			case "response.function_call_arguments.delta":
-				jsonAccum += event.Delta.OfString
-				events <- ToolCallDelta{Text: event.Delta.OfString}
-			case "response.function_call_arguments.done":
-				args, parseError := ParseToolArguments(jsonAccum)
-				events <- ToolCallComplete{
-					ToolID:     currentCallID,
-					ToolName:   currentToolName,
-					Arguments:  args,
-					ParseError: parseError,
+			case "response.output_item.done":
+				switch event.Item.Type {
+				case "reasoning":
+					if reasoningText != "" {
+						events <- ThinkingComplete{Thinking: reasoningText, Signature: reasoningID}
+					}
+					reasoningID = ""
+					reasoningText = ""
+					reasoningPartText = ""
+				case "function_call":
+					if currentCallID == "" || currentToolName == "" {
+						errs <- &NetworkError{Message: "Responses tool call completed without a valid start event"}
+						return
+					}
+					raw := jsonAccum
+					if strings.TrimSpace(raw) == "" {
+						raw = event.Item.Arguments
+					}
+					args, parseError := ParseToolArguments(raw)
+					events <- ToolCallComplete{
+						ToolID:     currentCallID,
+						ToolName:   currentToolName,
+						Arguments:  args,
+						ParseError: parseError,
+					}
+					currentToolName = ""
+					currentCallID = ""
+					jsonAccum = ""
 				}
-				currentToolName = ""
-				currentCallID = ""
-				jsonAccum = ""
-			case "response.completed":
+			case "response.completed", "response.incomplete":
+				sawTerminalResponse = true
 				usage := UsageInfo{}
-				if event.Response.Usage.InputTokens != 0 || event.Response.Usage.OutputTokens != 0 {
-					usage.InputTokens = int(event.Response.Usage.InputTokens)
-					usage.OutputTokens = int(event.Response.Usage.OutputTokens)
-					usage.CacheReadTokens = int(event.Response.Usage.InputTokensDetails.CachedTokens)
-					usage.InputTokens -= usage.CacheReadTokens
-					if usage.InputTokens < 0 {
-						usage.InputTokens = 0
+				rawUsage := event.Response.Usage
+				usage.OutputTokens = int(rawUsage.OutputTokens)
+				usage.CacheReadTokens = int(rawUsage.InputTokensDetails.CachedTokens)
+				usage.InputTokens = int(rawUsage.InputTokens) - usage.CacheReadTokens
+				if usage.InputTokens < 0 {
+					usage.InputTokens = 0
+				}
+				stopReason := "end_turn"
+				if event.Type == "response.incomplete" || event.Response.Status == "incomplete" {
+					reason := event.Response.IncompleteDetails.Reason
+					if reason == "max_output_tokens" {
+						stopReason = "max_tokens"
+					} else {
+						if reason == "" {
+							reason = "unknown reason"
+						}
+						errs <- &LLMError{Message: "Response incomplete: " + reason}
+						return
 					}
 				}
-				events <- StreamEnd{StopReason: "end_turn", Usage: usage}
+				events <- StreamEnd{StopReason: stopReason, Usage: usage}
+			case "response.failed":
+				code := string(event.Response.Error.Code)
+				if code == "" {
+					code = "unknown"
+				}
+				message := code + ": " + event.Response.Error.Message
+				if event.Response.Error.Message == "" {
+					message = code + ": Response failed"
+				}
+				if ContainsContextLengthError(message) {
+					errs <- &ContextTooLongError{Message: message}
+				} else {
+					errs <- &LLMError{Message: message}
+				}
+				return
+			case "error":
+				message := event.Message
+				if event.Code != "" {
+					message = event.Code + ": " + event.Message
+				}
+				if ContainsContextLengthError(message) {
+					errs <- &ContextTooLongError{Message: message}
+				} else {
+					errs <- &LLMError{Message: message}
+				}
+				return
 			}
 
 			go readNext()
@@ -225,6 +305,10 @@ func (c *openaiClient) Stream(ctx context.Context, conv *conversation.Manager, t
 
 		if err := stream.Err(); err != nil {
 			errs <- classifyOpenAIError(err)
+			return
+		}
+		if !sawTerminalResponse {
+			errs <- &NetworkError{Message: "OpenAI Responses stream ended before a terminal response event"}
 		}
 	}()
 
@@ -291,23 +375,21 @@ func userContentsFor(m conversation.Message) responses.EasyInputMessageContentUn
 func buildOpenAIInput(messages []conversation.Message) responses.ResponseInputParam {
 	var input responses.ResponseInputParam
 	for _, m := range messages {
-		if m.Role == "assistant" {
-			for _, tb := range m.ThinkingBlocks {
-				if tb.Type == "redacted_thinking" {
-					continue
-				}
-				input = append(input, responses.ResponseInputItemParamOfReasoning(
-					tb.Signature,
-					[]responses.ResponseReasoningItemSummaryParam{{Text: tb.Thinking}},
-				))
+		for _, tb := range m.ThinkingBlocks {
+			if tb.Type != "thinking" || !strings.HasPrefix(tb.Signature, "rs_") {
+				continue
 			}
-			if m.Content != "" {
+			input = append(input, responses.ResponseInputItemParamOfReasoning(
+				tb.Signature,
+				[]responses.ResponseReasoningItemSummaryParam{{Text: tb.Thinking}},
+			))
+		}
+		if len(m.ToolUses) > 0 {
+			if text := m.ContentText(); text != "" {
 				input = append(input, responses.ResponseInputItemUnionParam{
 					OfMessage: &responses.EasyInputMessageParam{
-						Role: responses.EasyInputMessageRoleAssistant,
-						Content: responses.EasyInputMessageContentUnionParam{
-							OfString: param.NewOpt(m.Content),
-						},
+						Role:    responses.EasyInputMessageRoleAssistant,
+						Content: responses.EasyInputMessageContentUnionParam{OfString: param.NewOpt(text)},
 					},
 				})
 			}
@@ -323,12 +405,10 @@ func buildOpenAIInput(messages []conversation.Message) responses.ResponseInputPa
 			}
 		} else if len(m.ToolResults) > 0 {
 			for _, tr := range m.ToolResults {
-				input = append(input, responses.ResponseInputItemUnionParam{
-					OfFunctionCallOutput: &responses.ResponseInputItemFunctionCallOutputParam{
-						CallID: tr.ToolUseID,
-						Output: tr.Content,
-					},
-				})
+				input = append(input, responses.ResponseInputItemParamOfFunctionCallOutput(
+					tr.ToolUseID,
+					toolOutputForResponses(tr),
+				))
 			}
 			if m.HasContent() {
 				input = append(input, responses.ResponseInputItemUnionParam{
@@ -338,6 +418,20 @@ func buildOpenAIInput(messages []conversation.Message) responses.ResponseInputPa
 					},
 				})
 			}
+		} else if m.Role == "assistant" {
+			input = append(input, responses.ResponseInputItemUnionParam{
+				OfMessage: &responses.EasyInputMessageParam{
+					Role:    responses.EasyInputMessageRoleAssistant,
+					Content: responses.EasyInputMessageContentUnionParam{OfString: param.NewOpt(m.ContentText())},
+				},
+			})
+		} else if m.Role == "system" {
+			input = append(input, responses.ResponseInputItemUnionParam{
+				OfMessage: &responses.EasyInputMessageParam{
+					Role:    responses.EasyInputMessageRoleSystem,
+					Content: responses.EasyInputMessageContentUnionParam{OfString: param.NewOpt(m.ContentText())},
+				},
+			})
 		} else {
 			input = append(input, responses.ResponseInputItemUnionParam{
 				OfMessage: &responses.EasyInputMessageParam{
@@ -348,6 +442,47 @@ func buildOpenAIInput(messages []conversation.Message) responses.ResponseInputPa
 		}
 	}
 	return input
+}
+
+// toolOutputForResponses serializes rich tool-result content. The OpenAI Go SDK
+// v1.12 only accepts string function-call output, so image and document blocks
+// degrade to text summaries instead of native input_image/input_file parts.
+func toolOutputForResponses(tr conversation.ToolResultBlock) string {
+	if len(tr.ContentBlocks) == 0 {
+		return tr.Content
+	}
+	parts := []string{}
+	if tr.Content != "" {
+		parts = append(parts, tr.Content)
+	}
+	for _, raw := range tr.ContentBlocks {
+		block := conversation.NormalizeToolResultContentBlock(raw)
+		if block == nil {
+			continue
+		}
+		switch block["type"] {
+		case "image":
+			source, _ := block["source"].(map[string]any)
+			mediaType, _ := source["media_type"].(string)
+			if mediaType == "" {
+				mediaType = "image"
+			}
+			parts = append(parts, "[Image: "+mediaType+"]")
+		case "document":
+			title, _ := block["title"].(string)
+			if title == "" {
+				title = "document"
+			}
+			parts = append(parts, "[Document: "+title+"]")
+		case "text":
+			text, _ := block["text"].(string)
+			parts = append(parts, text)
+		}
+	}
+	if len(parts) == 0 {
+		return tr.Content
+	}
+	return strings.Join(parts, "\n")
 }
 
 func classifyOpenAIError(err error) error {

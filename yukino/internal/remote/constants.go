@@ -7,3 +7,9 @@ var LoopbackHosts = map[string]bool{
 	"::1":       true,
 	"localhost": true,
 }
+
+// TextPreviewChars caps the text preview attached to structured event logs.
+const TextPreviewChars = 800
+
+// PendingRequestTimeoutMS settles permission/ask requests with no client response.
+const PendingRequestTimeoutMS = 10 * 60 * 1000

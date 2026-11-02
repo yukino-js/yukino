@@ -19,7 +19,10 @@ func TestBuildAnthropicMessagesUserBlocks(t *testing.T) {
 	messages := []conversation.Message{
 		{Role: "user", ContentBlocks: imageBlocks()},
 	}
-	result := buildAnthropicMessages(messages)
+	result, err := buildAnthropicMessages(messages)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(result) != 1 {
 		t.Fatalf("messages = %d", len(result))
 	}
@@ -37,7 +40,10 @@ func TestBuildAnthropicMessagesUserBlocks(t *testing.T) {
 }
 
 func TestBuildAnthropicMessagesPlainUserUnchanged(t *testing.T) {
-	result := buildAnthropicMessages([]conversation.Message{{Role: "user", Content: "hello"}})
+	result, err := buildAnthropicMessages([]conversation.Message{{Role: "user", Content: "hello"}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	data, _ := json.Marshal(result)
 	if !strings.Contains(string(data), `"text":"hello"`) {
 		t.Fatalf("plain user message changed: %s", data)
@@ -49,7 +55,10 @@ func TestBuildAnthropicMessagesMergesBlocksIntoPreviousUser(t *testing.T) {
 		{Role: "user", Content: "first"},
 		{Role: "user", ContentBlocks: imageBlocks()},
 	}
-	result := buildAnthropicMessages(messages)
+	result, err := buildAnthropicMessages(messages)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(result) != 1 {
 		t.Fatalf("consecutive user turns must merge, got %d messages", len(result))
 	}
@@ -74,7 +83,10 @@ func TestBuildAnthropicMessagesToolResultTrailingBlocks(t *testing.T) {
 			ContentBlocks: imageBlocks(),
 		},
 	}
-	result := buildAnthropicMessages(messages)
+	result, err := buildAnthropicMessages(messages)
+	if err != nil {
+		t.Fatal(err)
+	}
 	last := result[len(result)-1]
 	data, _ := json.Marshal(last)
 	encoded := string(data)

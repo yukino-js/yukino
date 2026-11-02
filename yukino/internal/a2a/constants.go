@@ -62,8 +62,6 @@ func BuildUnknownPermissionIDReason(permissionID string) string {
 
 const TranscriptUnavailableError = "A2A context transcript is no longer available. Start a new context."
 
-const NoProviderError = "No provider configured."
-
 const SessionCapacityError = "A2A session capacity reached; retry when an active context finishes."
 
 const InvalidContextMappingError = "Invalid persisted A2A context mapping."

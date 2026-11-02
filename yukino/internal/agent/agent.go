@@ -197,6 +197,7 @@ type toolExecResult struct {
 	isError       bool
 	elapsed       time.Duration
 	contentBlocks []map[string]any
+	mcpApp        *tools.McpAppResult
 }
 
 func extractFilePath(args map[string]any) string {
@@ -371,6 +372,7 @@ func (a *Agent) executeSingleTool(ctx context.Context, eventCh chan AgentEvent, 
 		isError:       result.IsError,
 		elapsed:       time.Since(start),
 		contentBlocks: result.ContentBlocks,
+		mcpApp:        result.McpApp,
 	}
 }
 

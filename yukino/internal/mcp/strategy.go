@@ -8,16 +8,6 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/tools"
 )
 
-const (
-	DefaultEagerThresholdPercent = 10
-
-	CharsPerToken = 2.5
-
-	NativeToolSearchBeta = "advanced-tool-use-2025-11-20"
-)
-
-var officialHosts = map[string]bool{"api.anthropic.com": true}
-
 func IsOfficialAnthropicEndpoint(baseURL string) bool {
 	if baseURL == "" {
 		return true
@@ -26,7 +16,7 @@ func IsOfficialAnthropicEndpoint(baseURL string) bool {
 	if err != nil {
 		return false
 	}
-	return officialHosts[strings.ToLower(u.Hostname())]
+	return OfficialHosts[strings.ToLower(u.Hostname())]
 }
 
 func EstimateSchemaTokens(schemaChars int) int {

@@ -1,120 +1,84 @@
 package skills
 
 import (
-	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
-	"github.com/yukino-js/yukino/yukino/internal/frontmatter"
-
 	"github.com/goccy/go-yaml"
+
+	"github.com/yukino-js/yukino/yukino/internal/frontmatter"
+	"github.com/yukino-js/yukino/yukino/internal/logger"
 )
 
-func parseFrontmatterOnly(dir string) (*Skill, error) {
-	yamlPath := filepath.Join(dir, "skill.yaml")
-	if data, err := os.ReadFile(yamlPath); err == nil {
-		var meta SkillMeta
-		if err := yaml.Unmarshal(data, &meta); err != nil {
-			return nil, fmt.Errorf("parse skill.yaml: %w", err)
-		}
-		applyMetaDefaults(&meta, dir, "")
-		return &Skill{
-			Meta:        meta,
-			SourceDir:   dir,
-			IsDirectory: true,
-			BodyLoaded:  false,
-		}, nil
-	}
+var log = logger.CreateChildLogger("skills")
 
-	mdPath := filepath.Join(dir, "SKILL.md")
-	data, err := os.ReadFile(mdPath)
-	if err != nil {
-		return nil, fmt.Errorf("no skill.yaml or SKILL.md: %w", err)
-	}
-	meta, _ := splitFrontmatter(string(data))
-	applyMetaDefaults(&meta, dir, string(data))
-	return &Skill{
-		Meta:        meta,
-		SourceDir:   dir,
-		IsDirectory: true,
-		BodyLoaded:  false,
-	}, nil
-}
-
-func loadSkillBody(skill *Skill) error {
-	yamlPath := filepath.Join(skill.SourceDir, "skill.yaml")
-	if _, err := os.Stat(yamlPath); err == nil {
-		promptPath := filepath.Join(skill.SourceDir, "prompt.md")
-		body, err := os.ReadFile(promptPath)
-		if err != nil {
-			return fmt.Errorf("read prompt.md: %w", err)
-		}
-		skill.PromptBody = string(body)
-		skill.BodyLoaded = true
-		return nil
-	}
-
-	mdPath := filepath.Join(skill.SourceDir, "SKILL.md")
-	data, err := os.ReadFile(mdPath)
-	if err != nil {
-		return fmt.Errorf("read SKILL.md: %w", err)
-	}
-	_, body := splitFrontmatter(string(data))
-	skill.PromptBody = body
-	skill.BodyLoaded = true
-	return nil
-}
-
-func loadSkillFromBytes(name string, mdBytes []byte) (*Skill, error) {
-	meta, body := splitFrontmatter(string(mdBytes))
-	if meta.Name == "" {
-		meta.Name = name
-	}
-	applyMetaDefaults(&meta, name, string(mdBytes))
-	return &Skill{
-		Meta:        meta,
-		PromptBody:  body,
-		SourceDir:   "",
-		IsDirectory: false,
-		BodyLoaded:  true,
-	}, nil
-}
-
-func splitFrontmatter(content string) (SkillMeta, string) {
-	var meta SkillMeta
-	fm, body, ok := frontmatter.Split(content)
+// ParseSkillFile parses a SKILL.md document. It returns ok=false when the
+// frontmatter is missing or invalid.
+func ParseSkillFile(content string) (Skill, map[string]any, bool) {
+	normalized := strings.TrimPrefix(content, "\uFEFF")
+	fm, body, ok := frontmatter.Split(normalized)
 	if !ok {
-		return meta, body
+		return Skill{}, nil, false
 	}
-	if err := yaml.Unmarshal([]byte(fm), &meta); err != nil {
-		meta = SkillMeta{}
+	var raw map[string]any
+	if fm != "" {
+		if err := yaml.Unmarshal([]byte(fm), &raw); err != nil {
+			log.Error(map[string]any{"err": err}, "skills operation failed")
+			return Skill{}, nil, false
+		}
 	}
-	return meta, body
+	if raw == nil {
+		raw = map[string]any{}
+	}
+	name, isString := raw["name"].(string)
+	name = strings.TrimSpace(name)
+	if !isString || name == "" {
+		return Skill{}, nil, false
+	}
+	meta := SkillMeta{Name: name}
+	if value, present := raw["description"]; present {
+		description, ok := value.(string)
+		if !ok {
+			return Skill{}, nil, false
+		}
+		meta.Description = description
+	}
+	if value, present := raw["mode"]; present {
+		mode, ok := value.(string)
+		if !ok || (mode != "inline" && mode != "fork") {
+			return Skill{}, nil, false
+		}
+	}
+	if value, present := raw["model"]; present {
+		model, ok := value.(string)
+		if !ok {
+			return Skill{}, nil, false
+		}
+		meta.Model = model
+	}
+	if value, present := raw["fork_context"]; present {
+		forkContext, ok := value.(string)
+		if !ok {
+			return Skill{}, nil, false
+		}
+		switch forkContext {
+		case "full", "none", "recent":
+			meta.ForkContext = forkContext
+		default:
+			return Skill{}, nil, false
+		}
+	}
+	meta.Mode = resolveMode(raw)
+	return Skill{Meta: meta, Body: strings.TrimSpace(body)}, raw, true
 }
 
-func applyMetaDefaults(meta *SkillMeta, dirOrName, body string) {
-	if meta.Name == "" {
-		base := filepath.Base(dirOrName)
-		meta.Name = strings.ToLower(strings.ReplaceAll(base, " ", "-"))
+// resolveMode normalizes fork execution: some ecosystems use `context: fork`
+// where this project uses `mode: fork`.
+func resolveMode(raw map[string]any) string {
+	if mode, ok := raw["mode"].(string); ok && (mode == "inline" || mode == "fork") {
+		return mode
 	}
-	if meta.Description == "" && body != "" {
-		for _, line := range strings.Split(body, "\n") {
-			line = strings.TrimSpace(line)
-			if line != "" && !strings.HasPrefix(line, "#") && !strings.HasPrefix(line, "---") {
-				meta.Description = line
-				break
-			}
-		}
+	if contextValue, ok := raw["context"].(string); ok && contextValue == "fork" {
+		return "fork"
 	}
-	if meta.Mode == "" {
-		if meta.Context == "fork" {
-			meta.Mode = "fork"
-		} else {
-			meta.Mode = "inline"
-		}
-	}
-	if meta.IsFork() && meta.ForkContext == "" {
-		meta.ForkContext = "none"
-	}
+	return "inline"
 }

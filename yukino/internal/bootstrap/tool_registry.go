@@ -1,7 +1,6 @@
 package bootstrap
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
@@ -113,15 +112,11 @@ func WireSkillsToRegistry(catalog *skills.Catalog, commandRegistry *commands.Reg
 			command.Type = commands.TypePrompt
 			captured := meta.Name
 			command.Handler = func(ctx *commands.Context) string {
-				skill, err := catalog.GetFull(captured)
-				if err != nil && skill == nil {
-					return fmt.Sprintf("[skill error] %v", err)
+				skill := catalog.Get(captured)
+				if skill == nil {
+					return fmt.Sprintf("[skill error] unknown skill: %s", captured)
 				}
-				body, runErr := skills.RunInline(context.Background(), skill, ctx.Args, host)
-				if runErr != nil {
-					return fmt.Sprintf("[skill error] %v", runErr)
-				}
-				return body
+				return skills.RunInline(skill, ctx.Args, host)
 			}
 		}
 		commandRegistry.Register(command)

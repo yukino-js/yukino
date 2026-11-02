@@ -1,187 +1,242 @@
 package skills
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
-	"time"
+	"sort"
+
+	"github.com/yukino-js/yukino/yukino/internal/storage"
 )
 
+func yukinoSkillsDir() string {
+	return storage.YukinoPath(SkillsDirName)
+}
+
+type catalogEntry struct {
+	skill         Skill
+	filePath      string
+	loadedMtimeMs int64
+}
+
+type dirMtime struct {
+	set   bool
+	mtime int64
+}
+
+// Catalog is the internal skill storage with the source file path and the file
+// mtime recorded at load time, both used for hot reloading.
 type Catalog struct {
-	skills      map[string]*Skill
-	sources     map[string]string
-	workDir     string
-	hasReload   bool
-	dirModTimes map[string]time.Time
+	entries     map[string]*catalogEntry
+	order       []string
+	cwd         string
+	dirModTimes map[string]dirMtime
 }
 
 func NewCatalog() *Catalog {
-	return &Catalog{
-		skills:      make(map[string]*Skill),
-		sources:     make(map[string]string),
-		dirModTimes: make(map[string]time.Time),
-	}
+	return &Catalog{entries: map[string]*catalogEntry{}, dirModTimes: map[string]dirMtime{}}
 }
 
-func (c *Catalog) Register(s *Skill, source string) {
-	c.skills[s.Meta.Name] = s
-	c.sources[s.Meta.Name] = source
+func LoadCatalog(cwd string) *Catalog {
+	catalog := NewCatalog()
+	catalog.Load(cwd)
+	return catalog
 }
 
-func (c *Catalog) Get(name string) *Skill {
-	return c.skills[name]
-}
-
-func (c *Catalog) GetFull(name string) (*Skill, error) {
-	skill, ok := c.skills[name]
-	if !ok {
-		return nil, fmt.Errorf("unknown skill: %s", name)
-	}
-	if skill.SourceDir == "" {
-		return skill, nil
-	}
-	if err := loadSkillBody(skill); err != nil {
-		if skill.PromptBody == "" {
-			return nil, err
+func (c *Catalog) Load(cwd string) {
+	c.cwd = cwd
+	c.entries = map[string]*catalogEntry{}
+	c.order = nil
+	c.dirModTimes = map[string]dirMtime{}
+	for _, dir := range c.skillDirPaths() {
+		if _, err := os.Stat(dir); err != nil {
+			continue
 		}
-		return skill, err
+		c.scanDirectory(dir, map[string]bool{})
 	}
-	return skill, nil
+	c.snapshotDirModTimes()
 }
 
-func (c *Catalog) List() []SkillMeta {
-	result := make([]SkillMeta, 0, len(c.skills))
-	for _, s := range c.skills {
-		result = append(result, s.Meta)
-	}
-	return result
-}
-
-func (c *Catalog) Source(name string) string {
-	return c.sources[name]
-}
-
-func (c *Catalog) Reload(workDir string) {
-	fresh := LoadCatalog(workDir)
-	c.skills = fresh.skills
-	c.sources = fresh.sources
-	c.workDir = fresh.workDir
-	c.dirModTimes = fresh.dirModTimes
-}
-
+// NeedsReload reports whether a watched directory mtime changed (a skill
+// directory or an entry inside one was added or removed).
 func (c *Catalog) NeedsReload() bool {
 	for dir, recorded := range c.dirModTimes {
 		info, err := os.Stat(dir)
 		if err != nil {
-			if recorded.IsZero() {
-				continue
-			}
-			return true
-		}
-		if !info.ModTime().Equal(recorded) {
-			return true
-		}
-	}
-	dirs := skillDirPaths(c.workDir)
-	for _, dir := range dirs {
-		if _, tracked := c.dirModTimes[dir]; !tracked {
-			if info, err := os.Stat(dir); err == nil && !info.ModTime().IsZero() {
+			if recorded.set {
 				return true
 			}
+			continue
+		}
+		if !recorded.set || info.ModTime().UnixNano() != recorded.mtime {
+			return true
 		}
 	}
 	return false
 }
 
+func (c *Catalog) Reload() {
+	c.Load(c.cwd)
+}
+
 func (c *Catalog) snapshotDirModTimes() {
-	c.dirModTimes = make(map[string]time.Time)
-	for _, dir := range skillDirPaths(c.workDir) {
-		info, err := os.Stat(dir)
-		if err != nil {
-			c.dirModTimes[dir] = time.Time{}
-			continue
+	dirs := map[string]bool{}
+	for _, dir := range c.skillDirPaths() {
+		dirs[dir] = true
+	}
+	for dir := range c.dirModTimes {
+		dirs[dir] = true
+	}
+	for dir := range dirs {
+		if info, err := os.Stat(dir); err == nil {
+			c.dirModTimes[dir] = dirMtime{set: true, mtime: info.ModTime().UnixNano()}
+		} else {
+			c.dirModTimes[dir] = dirMtime{}
 		}
-		c.dirModTimes[dir] = info.ModTime()
 	}
 }
 
-func skillDirPaths(workDir string) []string {
+func (c *Catalog) skillDirPaths() []string {
 	var dirs []string
 	if home, err := os.UserHomeDir(); err == nil {
-		dirs = append(dirs, filepath.Join(home, ".yukino", "skills"))
+		dirs = append(dirs, filepath.Join(home, AgentsDirName, SkillsDirName))
 	}
-	if workDir != "" {
-		dirs = append(dirs, filepath.Join(workDir, ".yukino", "skills"))
+	dirs = append(dirs, yukinoSkillsDir())
+	if c.cwd != "" {
+		dirs = append(dirs, filepath.Join(c.cwd, AgentsDirName, SkillsDirName))
 	}
 	return dirs
 }
 
-func LoadCatalog(workDir string) *Catalog {
-	c := NewCatalog()
-	c.workDir = workDir
-
-	for _, s := range LoadBuiltins() {
-		c.Register(s, "builtin")
-	}
-
-	if home, err := os.UserHomeDir(); err == nil {
-		loadTierInto(c, filepath.Join(home, ".yukino", "skills"), "user")
-	}
-
-	loadTierInto(c, filepath.Join(workDir, ".yukino", "skills"), "project")
-
-	c.snapshotDirModTimes()
-	return c
-}
-
-func LoadFromDirectory(dir string) (*Catalog, error) {
-	c := NewCatalog()
-	loadTierEager(c, dir, dir)
-	return c, nil
-}
-
-func LoadSkills(workDir string) *Catalog {
-	c := NewCatalog()
-	c.workDir = workDir
-	if home, err := os.UserHomeDir(); err == nil {
-		loadTierEager(c, filepath.Join(home, ".yukino", "skills"), "user")
-	}
-	loadTierEager(c, filepath.Join(workDir, ".yukino", "skills"), "project")
-	return c
-}
-
-func loadTierInto(c *Catalog, dir, source string) {
-	entries, err := os.ReadDir(dir)
+func (c *Catalog) scanDirectory(dir string, visited map[string]bool) {
+	canonical, err := filepath.EvalSymlinks(dir)
 	if err != nil {
+		log.Error(map[string]any{"err": err}, "skills operation failed")
 		return
 	}
+	if visited[canonical] {
+		return
+	}
+	visited[canonical] = true
+	info, err := os.Stat(dir)
+	if err != nil {
+		log.Error(map[string]any{"err": err}, "skills operation failed")
+		return
+	}
+	c.dirModTimes[dir] = dirMtime{set: true, mtime: info.ModTime().UnixNano()}
+	skillFile := filepath.Join(dir, SkillFileName)
+	if _, err := os.Stat(skillFile); err == nil {
+		c.loadSkill(skillFile, dir)
+		return
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		log.Error(map[string]any{"err": err}, "skills operation failed")
+		return
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		fullPath := filepath.Join(dir, entry.Name())
+		_, hasSkill := os.Stat(filepath.Join(fullPath, SkillFileName))
+		if (entry.Name()[0] == '.' || entry.Name() == "node_modules") && hasSkill != nil {
 			continue
 		}
-		skill, err := parseFrontmatterOnly(filepath.Join(dir, entry.Name()))
+		info, err := os.Stat(fullPath)
 		if err != nil {
+			// A broken symlink or a concurrently removed entry must not hide
+			// other skills.
+			log.Error(map[string]any{"err": err}, "skills operation failed")
 			continue
 		}
-		c.Register(skill, source)
+		if info.IsDir() {
+			c.scanDirectory(fullPath, visited)
+		}
 	}
 }
 
-func loadTierEager(c *Catalog, dir, source string) {
-	entries, err := os.ReadDir(dir)
+func (c *Catalog) statMtime(filePath string) int64 {
+	info, err := os.Stat(filePath)
 	if err != nil {
+		log.Error(map[string]any{"err": err}, "skills operation failed")
+		return 0
+	}
+	return info.ModTime().UnixMilli()
+}
+
+func (c *Catalog) loadSkill(filePath, sourceDir string) {
+	// Stat before reading so the cached stamp never claims a version newer
+	// than the body we hold; re-stat after the read so a mid-read change
+	// forces a reload on next access.
+	mtimeBefore := c.statMtime(filePath)
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		log.Error(map[string]any{"err": err}, "skills operation failed")
 		return
 	}
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		path := filepath.Join(dir, entry.Name())
-		skill, err := parseFrontmatterOnly(path)
-		if err != nil {
-			continue
-		}
-		_ = loadSkillBody(skill)
-		c.Register(skill, source)
+	skill, _, ok := ParseSkillFile(string(data))
+	if !ok {
+		return
 	}
+	mtimeAfter := c.statMtime(filePath)
+	if mtimeBefore != mtimeAfter {
+		log.Debug(map[string]any{"filePath": filePath}, "skill file changed during load; will reload on next access")
+	}
+	skill.SourceDir = sourceDir
+	if _, exists := c.entries[skill.Meta.Name]; !exists {
+		c.order = append(c.order, skill.Meta.Name)
+	}
+	c.entries[skill.Meta.Name] = &catalogEntry{skill: skill, filePath: filePath, loadedMtimeMs: mtimeBefore}
+}
+
+func (c *Catalog) List() []SkillMeta {
+	metas := make([]SkillMeta, 0, len(c.order))
+	for _, name := range c.order {
+		if entry, ok := c.entries[name]; ok {
+			metas = append(metas, entry.skill.Meta)
+		}
+	}
+	return metas
+}
+
+// Get returns a skill with hot reload support: the file is re-read only when
+// its mtime shows it has been modified, and a failed parse retains the cached
+// body.
+func (c *Catalog) Get(name string) *Skill {
+	entry, ok := c.entries[name]
+	if !ok {
+		return nil
+	}
+	if entry.filePath != "" && entry.loadedMtimeMs > 0 {
+		info, err := os.Stat(entry.filePath)
+		if err != nil {
+			log.Error(map[string]any{"err": err}, "skills operation failed")
+			return &entry.skill
+		}
+		currentMtime := info.ModTime().UnixMilli()
+		if currentMtime != entry.loadedMtimeMs {
+			data, err := os.ReadFile(entry.filePath)
+			if err != nil {
+				log.Error(map[string]any{"err": err}, "skills operation failed")
+				return &entry.skill
+			}
+			parsed, _, ok := ParseSkillFile(string(data))
+			if ok {
+				if parsed.Meta.Name != name {
+					c.Reload()
+					if renamed, ok := c.entries[name]; ok {
+						return &renamed.skill
+					}
+					return nil
+				}
+				parsed.SourceDir = entry.skill.SourceDir
+				entry.skill = parsed
+				entry.loadedMtimeMs = currentMtime
+			}
+		}
+	}
+	return &entry.skill
+}
+
+func (c *Catalog) Has(name string) bool {
+	_, ok := c.entries[name]
+	return ok
 }
