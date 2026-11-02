@@ -16,7 +16,7 @@ var escKey = tea.KeyMsg{Type: tea.KeyEsc}
 func newChatModel(t *testing.T) Model {
 	t.Helper()
 	provider := config.ProviderConfig{Name: "test", Protocol: "anthropic", Model: "m", APIKey: "k"}
-	m := New([]config.ProviderConfig{provider}, nil, nil, nil, 0)
+	m := New([]config.ProviderConfig{provider}, nil, nil, nil, 0, "", true)
 	m.state = stateChat
 	return m
 }

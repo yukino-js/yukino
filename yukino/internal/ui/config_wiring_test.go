@@ -1,0 +1,113 @@
+package ui
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/yukino-js/yukino/yukino/internal/agent"
+	"github.com/yukino-js/yukino/yukino/internal/config"
+	"github.com/yukino-js/yukino/yukino/internal/permissions"
+)
+
+func TestInitialPermissionMode(t *testing.T) {
+	cases := map[string]permissions.PermissionMode{
+		"":                  permissions.ModeDefault,
+		"default":           permissions.ModeDefault,
+		"acceptEdits":       permissions.ModeAcceptEdits,
+		"bypassPermissions": permissions.ModeBypass,
+		"plan":              permissions.ModeDefault, // plan is not a startup mode
+		"bogus":             permissions.ModeDefault,
+	}
+	for in, want := range cases {
+		if got := initialPermissionMode(in); got != want {
+			t.Errorf("initialPermissionMode(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestNewWiresPermissionMode(t *testing.T) {
+	provider := config.ProviderConfig{Name: "test", Protocol: "anthropic", Model: "m", APIKey: "k"}
+	m := New([]config.ProviderConfig{provider}, nil, nil, nil, 0, "bypassPermissions", true)
+	if m.permissionMode != permissions.ModeBypass {
+		t.Fatalf("permissionMode = %q, want bypassPermissions", m.permissionMode)
+	}
+	if !m.memoryEnabled {
+		t.Fatal("memoryEnabled should be true")
+	}
+}
+
+func TestNewHonorsDefaultProvider(t *testing.T) {
+	p0 := config.ProviderConfig{Name: "a", Protocol: "anthropic", Model: "m", APIKey: "k", BaseURL: "u0"}
+	p1 := config.ProviderConfig{Name: "b", Protocol: "anthropic", Model: "m", APIKey: "k", BaseURL: "u1"}
+	m := New([]config.ProviderConfig{p0, p1}, nil, nil, nil, 1, "", true)
+	if m.defaultProvider != 1 || m.providerCursor != 1 {
+		t.Fatalf("defaultProvider=%d providerCursor=%d, want 1/1", m.defaultProvider, m.providerCursor)
+	}
+	if m.selectedProvider == nil || m.selectedProvider.Name != "b" {
+		t.Fatalf("selectedProvider = %+v, want provider b", m.selectedProvider)
+	}
+}
+
+func TestNewClampsOutOfRangeDefaultProvider(t *testing.T) {
+	p0 := config.ProviderConfig{Name: "a", Protocol: "anthropic", Model: "m", APIKey: "k", BaseURL: "u0"}
+	m := New([]config.ProviderConfig{p0}, nil, nil, nil, 5, "", true)
+	if m.providerCursor != 0 {
+		t.Fatalf("providerCursor = %d, want clamped to 0", m.providerCursor)
+	}
+}
+
+func TestRebuildSystemPromptGatesMemory(t *testing.T) {
+	provider := config.ProviderConfig{Name: "test", Protocol: "anthropic", Model: "m", APIKey: "k"}
+	dir := t.TempDir()
+
+	enabled := New([]config.ProviderConfig{provider}, nil, nil, nil, 0, "", true)
+	enabled.selectedProvider = &provider
+	enabled.rebuildSystemPrompt(dir)
+	if enabled.memoryContent == "" {
+		t.Error("memoryContent should be populated when enable_memory is on")
+	}
+
+	disabled := New([]config.ProviderConfig{provider}, nil, nil, nil, 0, "", false)
+	disabled.selectedProvider = &provider
+	disabled.rebuildSystemPrompt(dir)
+	if disabled.memoryContent != "" {
+		t.Errorf("memoryContent should be empty when enable_memory is off, got %q", disabled.memoryContent)
+	}
+	if disabled.memoryMgr != nil {
+		t.Error("memoryMgr must stay nil until registerAgentTools, and is gated there")
+	}
+}
+
+func TestBuildMemoryStatusDisabled(t *testing.T) {
+	provider := config.ProviderConfig{Name: "test", Protocol: "anthropic", Model: "m", APIKey: "k"}
+	m := New([]config.ProviderConfig{provider}, nil, nil, nil, 0, "", false)
+	got := m.buildMemoryStatus("")
+	want := "Auto memory is disabled (enable_memory: false in config.yaml)."
+	if got != want {
+		t.Errorf("buildMemoryStatus() = %q, want %q", got, want)
+	}
+}
+
+func TestBuildSessionStatusShowsDisabledMemory(t *testing.T) {
+	provider := config.ProviderConfig{Name: "test", Protocol: "anthropic", Model: "m", APIKey: "k"}
+	m := New([]config.ProviderConfig{provider}, nil, nil, nil, 0, "bypassPermissions", false)
+	m.selectedProvider = &provider
+	// activateInitialProvider builds the checker from m.permissionMode; mirror
+	// that here so /status renders the configured startup mode.
+	m.ag = &agent.Agent{}
+	m.ag.Checker = permissions.NewChecker(
+		permissions.NewPathSandbox(t.TempDir(), true),
+		permissions.NewRuleEngine(t.TempDir()),
+		m.permissionMode,
+	)
+	got := m.buildSessionStatus()
+	for _, want := range []string{
+		"Mode:      bypassPermissions",
+		"Memories:  disabled (enable_memory: false)",
+		"Provider:  test (anthropic)",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("status missing %q:\n%s", want, got)
+		}
+	}
+}

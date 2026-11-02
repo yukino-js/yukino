@@ -60,7 +60,6 @@ type AgentTool struct {
 	Conversation  *conversation.Manager
 	TeamMgr       *teams.TeamManager
 	ParentChecker *permissions.Checker
-	ForkDisabled  bool
 }
 
 func (t *AgentTool) Name() string                          { return "Agent" }
@@ -86,14 +85,14 @@ func (t *AgentTool) Schema() map[string]any {
 	for _, def := range definitions {
 		names = append(names, def.Name)
 	}
-	return map[string]any{"name": t.Name(), "description": buildAgentToolDescription(definitions, !t.ForkDisabled), "input_schema": map[string]any{
+	return map[string]any{"name": t.Name(), "description": buildAgentToolDescription(definitions), "input_schema": map[string]any{
 		"type": "object", "properties": map[string]any{
 			"description":       map[string]any{"type": "string", "description": DescriptionParameterDescription},
 			"prompt":            map[string]any{"type": "string", "description": PromptParameterDescription},
 			"kind":              map[string]any{"type": "string", "enum": []string{"subagent", "teammate"}, "default": "teammate", "description": AgentKindDescription},
 			"team_name":         map[string]any{"type": "string", "description": "Target team name returned by TeamCreate or TeamList. Required when multiple teams match; omitted when only one team matches. Teammates are restricted to their own team."},
 			"subagent_type":     map[string]any{"type": "string", "enum": names, "default": GeneralPurposeAgentType, "description": SubagentTypeDescription},
-			"fork":              map[string]any{"type": "boolean", "default": !t.ForkDisabled, "description": ForkParameterDescription},
+			"fork":              map[string]any{"type": "boolean", "default": true, "description": ForkParameterDescription},
 			"model":             map[string]any{"type": "string", "description": AgentModelDescription},
 			"run_in_background": map[string]any{"type": "boolean", "default": false, "description": AgentBackgroundDescription},
 			"worktree":          map[string]any{"type": "boolean", "description": AgentWorktreeDescription},
@@ -170,7 +169,7 @@ func (t *AgentTool) Execute(ctx context.Context, args map[string]any) tools.Tool
 		}
 		return fail(fmt.Sprintf("Error: unknown agent type '%s'. Available: %s", role, strings.Join(names, ", ")))
 	}
-	fork := !t.ForkDisabled
+	fork := true
 	if value, exists := args["fork"]; exists {
 		fork = value.(bool)
 	}

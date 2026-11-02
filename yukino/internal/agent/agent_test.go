@@ -905,25 +905,6 @@ func TestFilterSchemasByNameEmptyInput(t *testing.T) {
 	}
 }
 
-func schemaNames(schemas []map[string]any) []string {
-	var out []string
-	for _, s := range schemas {
-		if n, ok := s["name"].(string); ok {
-			out = append(out, n)
-		}
-	}
-	return out
-}
-
-func contains(list []string, want string) bool {
-	for _, v := range list {
-		if v == want {
-			return true
-		}
-	}
-	return false
-}
-
 func lastUserRequest(messages []conversation.Message) conversation.Message {
 	for i := len(messages) - 1; i >= 0; i-- {
 		message := messages[i]

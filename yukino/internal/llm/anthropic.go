@@ -163,8 +163,12 @@ func (c *anthropicClient) Stream(ctx context.Context, conv *conversation.Manager
 					}
 				}
 			default:
+				answerReserve := config.MinThinkingAnswerTokens
+				if reserve := answerReserveTokens(ctx); reserve > answerReserve {
+					answerReserve = reserve
+				}
 				thinkingTokens := config.ThinkingBudgetForProvider(&requestConfig, level)
-				if reserve := int(maxTokens) - config.MinThinkingAnswerTokens; thinkingTokens > reserve {
+				if reserve := int(maxTokens) - answerReserve; thinkingTokens > reserve {
 					thinkingTokens = reserve
 				}
 				if thinkingTokens >= config.MinThinkingBudgetTokens {
@@ -370,6 +374,150 @@ func markLastUserTailForCache(messages []anthropic.MessageParam) {
 	}
 }
 
+// userBlocksFor mirrors the reference userBlocksFor: string content becomes a
+// single text block; block arrays are normalized to the provider shape
+// (text/image/document/search_result). tool_reference and unsupported blocks
+// are skipped (the reference throws; the Go builder degrades instead of
+// failing the whole request on a malformed stored session).
+func userBlocksFor(m conversation.Message) []anthropic.ContentBlockParamUnion {
+	if len(m.ContentBlocks) == 0 {
+		return []anthropic.ContentBlockParamUnion{anthropic.NewTextBlock(m.Content)}
+	}
+	var blocks []anthropic.ContentBlockParamUnion
+	for _, raw := range m.ContentBlocks {
+		block := conversation.NormalizeToolResultContentBlock(raw)
+		if block == nil || block["type"] == "tool_reference" {
+			continue
+		}
+		if converted, ok := anthropicContentBlock(block); ok {
+			blocks = append(blocks, converted)
+		}
+	}
+	if len(blocks) == 0 {
+		blocks = append(blocks, anthropic.NewTextBlock(""))
+	}
+	return blocks
+}
+
+func anthropicContentBlock(block map[string]any) (anthropic.ContentBlockParamUnion, bool) {
+	switch block["type"] {
+	case "text":
+		text, _ := block["text"].(string)
+		return anthropic.NewTextBlock(text), true
+	case "image":
+		source, _ := block["source"].(map[string]any)
+		if source == nil {
+			return anthropic.ContentBlockParamUnion{}, false
+		}
+		if source["type"] == "url" {
+			url, _ := source["url"].(string)
+			if url == "" {
+				return anthropic.ContentBlockParamUnion{}, false
+			}
+			return anthropic.ContentBlockParamUnion{
+				OfImage: &anthropic.ImageBlockParam{
+					Source: anthropic.ImageBlockParamSourceUnion{
+						OfURL: &anthropic.URLImageSourceParam{URL: url},
+					},
+				},
+			}, true
+		}
+		mediaType, _ := source["media_type"].(string)
+		data, _ := source["data"].(string)
+		if mediaType == "" || data == "" {
+			return anthropic.ContentBlockParamUnion{}, false
+		}
+		return anthropic.NewImageBlockBase64(mediaType, data), true
+	case "document":
+		source, _ := block["source"].(map[string]any)
+		if source == nil {
+			return anthropic.ContentBlockParamUnion{}, false
+		}
+		var union anthropic.ContentBlockParamUnion
+		switch source["type"] {
+		case "url":
+			url, _ := source["url"].(string)
+			if url == "" {
+				return union, false
+			}
+			union = anthropic.NewDocumentBlock(anthropic.URLPDFSourceParam{URL: url})
+		case "base64":
+			data, _ := source["data"].(string)
+			if data == "" {
+				return union, false
+			}
+			union = anthropic.NewDocumentBlock(anthropic.Base64PDFSourceParam{Data: data})
+		case "text":
+			data, _ := source["data"].(string)
+			union = anthropic.NewDocumentBlock(anthropic.PlainTextSourceParam{Data: data})
+		case "content":
+			contentSource := anthropic.ContentBlockSourceParam{}
+			switch content := source["content"].(type) {
+			case string:
+				contentSource.Content.OfString = param.NewOpt(content)
+			case []map[string]any:
+				var items []anthropic.ContentBlockSourceContentItemUnionParam
+				for _, item := range content {
+					switch item["type"] {
+					case "text":
+						text, _ := item["text"].(string)
+						items = append(items, anthropic.ContentBlockSourceContentItemUnionParam{
+							OfText: &anthropic.TextBlockParam{Text: text},
+						})
+					case "image":
+						itemSource, _ := item["source"].(map[string]any)
+						if itemSource == nil {
+							continue
+						}
+						mediaType, _ := itemSource["media_type"].(string)
+						data, _ := itemSource["data"].(string)
+						if mediaType == "" || data == "" {
+							continue
+						}
+						items = append(items, anthropic.ContentBlockSourceContentItemUnionParam{
+							OfImage: &anthropic.ImageBlockParam{
+								Source: anthropic.ImageBlockParamSourceUnion{
+									OfBase64: &anthropic.Base64ImageSourceParam{
+										MediaType: anthropic.Base64ImageSourceMediaType(mediaType),
+										Data:      data,
+									},
+								},
+							},
+						})
+					}
+				}
+				contentSource.Content.OfContentBlockSourceContent = items
+			default:
+				return union, false
+			}
+			union = anthropic.NewDocumentBlock(contentSource)
+		default:
+			return union, false
+		}
+		if union.OfDocument != nil {
+			if title, ok := block["title"].(string); ok {
+				union.OfDocument.Title = param.NewOpt(title)
+			}
+			if context, ok := block["context"].(string); ok {
+				union.OfDocument.Context = param.NewOpt(context)
+			}
+		}
+		return union, true
+	case "search_result":
+		source, _ := block["source"].(string)
+		title, _ := block["title"].(string)
+		var textBlocks []anthropic.TextBlockParam
+		if content, ok := block["content"].([]map[string]any); ok {
+			for _, item := range content {
+				text, _ := item["text"].(string)
+				textBlocks = append(textBlocks, anthropic.TextBlockParam{Text: text})
+			}
+		}
+		return anthropic.NewSearchResultBlock(textBlocks, source, title), true
+	}
+	return anthropic.ContentBlockParamUnion{}, false
+}
+
 func buildAnthropicMessages(messages []conversation.Message) []anthropic.MessageParam {
 	var result []anthropic.MessageParam
 	for _, m := range messages {
@@ -422,8 +570,8 @@ func buildAnthropicMessages(messages []conversation.Message) []anthropic.Message
 					},
 				})
 			}
-			if m.Content != "" {
-				blocks = append(blocks, anthropic.NewTextBlock(m.Content))
+			if m.HasContent() {
+				blocks = append(blocks, userBlocksFor(m)...)
 			}
 			result = append(result, anthropic.MessageParam{
 				Role:    anthropic.MessageParamRoleUser,
@@ -433,11 +581,15 @@ func buildAnthropicMessages(messages []conversation.Message) []anthropic.Message
 			// Anthropic messages must alternate roles. Merge every consecutive
 			// user turn, including reminders or steering immediately after
 			// tool results.
+			userBlocks := userBlocksFor(m)
 			if n := len(result); n > 0 && result[n-1].Role == anthropic.MessageParamRoleUser {
-				result[n-1].Content = append(result[n-1].Content, anthropic.NewTextBlock(m.Content))
+				result[n-1].Content = append(result[n-1].Content, userBlocks...)
 				continue
 			}
-			result = append(result, anthropic.NewUserMessage(anthropic.NewTextBlock(m.Content)))
+			result = append(result, anthropic.MessageParam{
+				Role:    anthropic.MessageParamRoleUser,
+				Content: userBlocks,
+			})
 		}
 	}
 	return result

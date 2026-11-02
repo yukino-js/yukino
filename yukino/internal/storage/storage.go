@@ -6,12 +6,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"regexp"
 
 	"github.com/yukino-js/yukino/yukino/internal/utils"
 )
-
-var sessionIDRe = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 func GetYukinoDir() string {
 	home, _ := os.UserHomeDir()
@@ -23,7 +20,7 @@ func YukinoPath(segments ...string) string {
 }
 
 func SessionPath(sessionID string, segments ...string) (string, error) {
-	if !sessionIDRe.MatchString(sessionID) {
+	if !SessionIDRe.MatchString(sessionID) {
 		return "", errors.New(InvalidSessionIDError)
 	}
 	return YukinoPath(append([]string{SessionsDirName, ArtifactsDirName, sessionID}, segments...)...), nil

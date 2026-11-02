@@ -9,12 +9,29 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/yukino-js/yukino/yukino/internal/conversation"
+	"github.com/yukino-js/yukino/yukino/internal/file_history"
+	"github.com/yukino-js/yukino/yukino/internal/session"
+	"os"
 )
 
 // Port of src/ui/rewind-dialog.tsx and the rewind flow in src/ui/app.tsx.
 
 // formatRewindAgo mirrors formatAgo in src/ui/rewind-dialog.tsx.
+// parseSnapshotTime parses the ISO timestamp persisted with a snapshot.
+func parseSnapshotTime(value string) time.Time {
+	if parsed, err := time.Parse("2006-01-02T15:04:05.000Z", value); err == nil {
+		return parsed
+	}
+	if parsed, err := time.Parse(time.RFC3339Nano, value); err == nil {
+		return parsed
+	}
+	return time.Time{}
+}
+
 func formatRewindAgo(t time.Time) string {
+	if t.IsZero() {
+		return "0s ago"
+	}
 	seconds := int64(time.Since(t).Seconds())
 	if seconds < 0 {
 		seconds = 0
@@ -62,7 +79,7 @@ func (m Model) renderRewindSnapshotList() string {
 			pointer = "› "
 			color = accentColor
 		}
-		meta := fmt.Sprintf(" · %s · %d files", formatRewindAgo(snap.Timestamp), len(snap.Backups))
+		meta := fmt.Sprintf(" · %s · %d files", formatRewindAgo(parseSnapshotTime(snap.Timestamp)), len(snap.Backups))
 		labelWidth := rowWidth - visibleWidth(meta)
 		var line string
 		if labelWidth >= 4 {
@@ -217,12 +234,39 @@ func (m Model) handleRewindPhase1(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// rewindConversation rewinds the live conversation to a snapshot, persisting
+// the rewind. The snapshot's sessionLineCount is the authoritative coordinate:
+// the session log is truncated to it and the in-memory conversation is rebuilt
+// from the truncated log. Line coordinates survive resume and compaction,
+// unlike in-memory message indexes. Snapshots with no recorded
+// sessionLineCount — or whose session file is gone — fall back to truncating
+// by messageIndex. It returns the visible transcript for the rewound state.
+func (m *Model) rewindConversation(snap file_history.Snapshot) []chatMessage {
+	wd, _ := os.Getwd()
+	sessionFilePath := session.SessionFilePath(wd, m.sessionID)
+	if snap.SessionLineCount != nil {
+		if _, err := os.Stat(sessionFilePath); err == nil {
+			_ = session.TruncateSessionLines(sessionFilePath, *snap.SessionLineCount)
+			saved := session.LoadSession(wd, m.sessionID)
+			m.conversation.Reset()
+			m.conversation.AppendMessages(session.RebuildFromSession(saved, false))
+			return transcriptFromConversation(session.RebuildFromSession(saved, true))
+		}
+	}
+	m.conversation.TruncateTo(snap.MessageIndex)
+	return transcriptFromConversation(m.conversation.GetMessages())
+}
+
 // transcriptFromConversation maps the truncated conversation back onto visible
-// chat messages after a rewind.
+// chat messages after a rewind, dropping system reminders like the reference
+// transcript filter.
 func transcriptFromConversation(messages []conversation.Message) []chatMessage {
 	var out []chatMessage
 	for _, msg := range messages {
 		if msg.Content == "" {
+			continue
+		}
+		if msg.Role == "system" || strings.HasPrefix(msg.Content, "<system-reminder>") {
 			continue
 		}
 		out = append(out, chatMessage{role: msg.Role, content: msg.Content})
@@ -233,6 +277,7 @@ func transcriptFromConversation(messages []conversation.Message) []chatMessage {
 func (m Model) executeRewindOption() (tea.Model, tea.Cmd) {
 	snap := m.rewindSnapshots[m.rewindCursor]
 	var summary string
+	var transcript []chatMessage
 	rebuilt := false
 
 	switch m.rewindOptionCursor {
@@ -241,7 +286,7 @@ func (m Model) executeRewindOption() (tea.Model, tea.Cmd) {
 		if err != nil {
 			return m.finishRewindError(err)
 		}
-		m.conversation.TruncateTo(snap.MessageIndex)
+		transcript = m.rewindConversation(snap)
 		summary = fmt.Sprintf("⟲ Rewound to checkpoint. Restored %d file(s) and conversation.", len(changed))
 		for _, f := range changed {
 			summary += "\n  " + f
@@ -249,7 +294,7 @@ func (m Model) executeRewindOption() (tea.Model, tea.Cmd) {
 		rebuilt = true
 
 	case 1:
-		m.conversation.TruncateTo(snap.MessageIndex)
+		transcript = m.rewindConversation(snap)
 		summary = "⟲ Rewound conversation. Files unchanged."
 		rebuilt = true
 
@@ -272,8 +317,14 @@ func (m Model) executeRewindOption() (tea.Model, tea.Cmd) {
 	}
 
 	if rebuilt {
-		m.chatMessages = transcriptFromConversation(m.conversation.GetMessages())
+		m.chatMessages = transcript
 		m.committedUpTo = 0
+		// The reference drops the goal manager on a conversation rewind so goal
+		// state reloads from the rewound session; rebind the stable agent.
+		m.invalidateGoal()
+		if m.ag != nil {
+			m.ag.GoalManager = m.currentGoal()
+		}
 	}
 	m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: summary})
 	m.rewindDialog = false

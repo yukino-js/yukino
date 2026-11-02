@@ -245,6 +245,7 @@ func (m Model) doResumeSession(wd, targetID string, saved []session.Message) (te
 	if m.ag != nil {
 		m.ag.SetSessionID(m.sessionID)
 		m.ag.FileHistory = m.fileHistory
+		m.ag.GoalManager = m.currentGoal()
 		if m.ag.Checker != nil {
 			m.ag.Checker.SetPlanFilePath("")
 		}

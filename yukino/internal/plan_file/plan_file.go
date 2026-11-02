@@ -1,15 +1,12 @@
 package plan_file
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/yukino-js/yukino/yukino/internal/storage"
+	"github.com/yukino-js/yukino/yukino/internal/utils"
 )
 
 const (
@@ -25,15 +22,6 @@ type Owner interface {
 
 func plansDir() string {
 	return storage.YukinoPath(PlansDirName)
-}
-
-func generateSlug() string {
-	timestamp := strconv.FormatInt(time.Now().UnixMilli(), 36)
-	buf := make([]byte, 6)
-	if _, err := rand.Read(buf); err != nil {
-		panic(err)
-	}
-	return timestamp + "-" + hex.EncodeToString(buf)
 }
 
 func isPlanInStorage(planPath string) bool {
@@ -53,7 +41,7 @@ func CreatePlanPath() (string, error) {
 	if err := storage.MkdirPrivateSync(dir); err != nil {
 		return "", err
 	}
-	path := filepath.Join(dir, generateSlug()+PlanFileExt)
+	path := filepath.Join(dir, utils.GenerateSlug()+PlanFileExt)
 	if err := storage.WritePrivateFileSync(path, nil, os.O_WRONLY|os.O_CREATE|os.O_EXCL); err != nil {
 		return "", err
 	}

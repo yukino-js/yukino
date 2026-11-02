@@ -6,6 +6,12 @@ func (m Model) Dispose() error {
 	if m.cancelStream != nil {
 		m.cancelStream()
 	}
+	if m.ideCancel != nil {
+		m.ideCancel()
+	}
+	if m.ideConn != nil {
+		_ = m.ideConn.Close()
+	}
 	if m.mcpMgr != nil {
 		m.mcpMgr.Shutdown()
 	}

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -223,6 +224,17 @@ func (m *Manager) RegisterAllTools(ctx context.Context, registry *tools.Registry
 		registry.Register(t)
 	}
 	return result.Errors
+}
+
+// ConnectedServers lists every server with a live connection, across all
+// connect passes.
+func (m *Manager) ConnectedServers() []string {
+	names := make([]string, 0, len(m.clients))
+	for name := range m.clients {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func (m *Manager) Shutdown() {

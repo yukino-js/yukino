@@ -2,165 +2,18 @@ package compact
 
 import (
 	"fmt"
-	"sort"
+	"math"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
-
-const (
-	RecoveryFileLimit      = 5
-	RecoveryTokensPerFile  = 5_000
-	RecoverySkillsBudget   = 25_000
-	RecoveryTokensPerSkill = 5_000
-	recoveryCharsPerToken  = 3.5
-)
-
-type FileReadRecord struct {
-	Path      string
-	Content   string
-	Timestamp time.Time
-}
-
-type SkillInvocationRecord struct {
-	Name      string
-	Body      string
-	Timestamp time.Time
-}
-
-type RecoveryState struct {
-	mu     sync.Mutex
-	files  map[string]FileReadRecord
-	skills map[string]SkillInvocationRecord
-}
-
-func NewRecoveryState() *RecoveryState {
-	return &RecoveryState{
-		files:  map[string]FileReadRecord{},
-		skills: map[string]SkillInvocationRecord{},
-	}
-}
-
-func (s *RecoveryState) RecordFileRead(path, content string) {
-	if s == nil || path == "" {
-		return
-	}
-	s.mu.Lock()
-	s.files[path] = FileReadRecord{Path: path, Content: content, Timestamp: time.Now()}
-	s.mu.Unlock()
-}
-
-func (s *RecoveryState) RecordSkillInvocation(name, body string) {
-	if s == nil || name == "" {
-		return
-	}
-	s.mu.Lock()
-	s.skills[name] = SkillInvocationRecord{Name: name, Body: body, Timestamp: time.Now()}
-	s.mu.Unlock()
-}
-
-func (s *RecoveryState) snapshotFiles(limit int) []FileReadRecord {
-	if s == nil {
-		return nil
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	out := make([]FileReadRecord, 0, len(s.files))
-	for _, r := range s.files {
-		out = append(out, r)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Timestamp.After(out[j].Timestamp) })
-	if limit > 0 && len(out) > limit {
-		out = out[:limit]
-	}
-	return out
-}
-
-func (s *RecoveryState) snapshotSkills() []SkillInvocationRecord {
-	if s == nil {
-		return nil
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	out := make([]SkillInvocationRecord, 0, len(s.skills))
-	for _, r := range s.skills {
-		out = append(out, r)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Timestamp.After(out[j].Timestamp) })
-	return out
-}
-
-func BuildRecoveryAttachment(state *RecoveryState, toolSchemas []map[string]any) string {
-	var sb strings.Builder
-
-	if files := state.snapshotFiles(RecoveryFileLimit); len(files) > 0 {
-		sb.WriteString("## Recently read files\n\n")
-		sb.WriteString("These snapshots are what the file-reading tool last returned. Re-open with the tool if you need the current bytes.\n\n")
-		for _, f := range files {
-			content := truncateByTokens(f.Content, RecoveryTokensPerFile)
-			ts := f.Timestamp.UTC().Format("2006-01-02T15:04:05Z")
-			fmt.Fprintf(&sb, "### %s  (read %s)\n\n", f.Path, ts)
-			sb.WriteString("```\n")
-			sb.WriteString(content)
-			if !strings.HasSuffix(content, "\n") {
-				sb.WriteByte('\n')
-			}
-			sb.WriteString("```\n\n")
-		}
-	}
-
-	if skills := state.snapshotSkills(); len(skills) > 0 {
-		var section strings.Builder
-		section.WriteString("## Active skills\n\n")
-		section.WriteString("These skills were invoked earlier in the session. Continue to follow each SOP when its triggering condition applies.\n\n")
-		used := 0
-		emitted := false
-		for _, sk := range skills {
-			body := truncateByTokens(sk.Body, RecoveryTokensPerSkill)
-			tokens := approxTokens(body) + approxTokens(sk.Name) + 8
-			if used+tokens > RecoverySkillsBudget {
-				break
-			}
-			used += tokens
-			fmt.Fprintf(&section, "### %s\n\n%s\n\n", sk.Name, body)
-			emitted = true
-		}
-		if emitted {
-			sb.WriteString(section.String())
-		}
-	}
-
-	if len(toolSchemas) > 0 {
-		sb.WriteString("## Available tools\n\nYou still have access to the following tools — call them directly when the task needs one:\n\n")
-		for _, t := range toolSchemas {
-			name, _ := t["name"].(string)
-			if name == "" {
-				continue
-			}
-			desc, _ := t["description"].(string)
-			desc = firstLine(desc)
-			if desc != "" {
-				fmt.Fprintf(&sb, "- %s — %s\n", name, desc)
-			} else {
-				fmt.Fprintf(&sb, "- %s\n", name)
-			}
-		}
-		sb.WriteString("\n")
-	}
-
-	if sb.Len() == 0 {
-		return ""
-	}
-
-	sb.WriteString("## Note\n\nEverything above the divider is reconstructed context. For exact code, error strings, or user-typed text, re-read the source rather than guess from the summary.\n")
-	return sb.String()
-}
 
 func approxTokens(s string) int {
 	if s == "" {
 		return 0
 	}
-	return int(float64(len(s)) / recoveryCharsPerToken)
+	return int(math.Floor(float64(utf8.RuneCountInString(s)) / RecoveryCharsPerToken))
 }
 
 func truncateByTokens(s string, tokenBudget int) string {
@@ -170,19 +23,142 @@ func truncateByTokens(s string, tokenBudget int) string {
 	if approxTokens(s) <= tokenBudget {
 		return s
 	}
-	maxChars := int(float64(tokenBudget) * recoveryCharsPerToken)
-	if maxChars <= 0 || maxChars >= len(s) {
+	maxChars := int(math.Floor(float64(tokenBudget) * RecoveryCharsPerToken))
+	runes := []rune(s)
+	if maxChars <= 0 || maxChars >= len(runes) {
 		return s
 	}
-	return s[:maxChars] + "\n… (content truncated)"
+	suffix := "\n… (content truncated)"
+	suffixRunes := []rune(suffix)
+	if maxChars <= len(suffixRunes) {
+		return string(suffixRunes[:maxChars])
+	}
+	return string(runes[:maxChars-len(suffixRunes)]) + suffix
 }
 
-func firstLine(s string) string {
-	for _, line := range strings.Split(s, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed != "" {
-			return trimmed
+// FileReadRecord is one tracked file snapshot.
+type FileReadRecord struct {
+	Path      string
+	Content   string
+	Timestamp time.Time
+}
+
+// RecoveryState keeps the recent-file snapshots attached to compaction
+// summaries. Insertion order is tracked explicitly: re-recording a path
+// refreshes its recency and eviction drops the oldest entry, mirroring the
+// reference Map semantics.
+type RecoveryState struct {
+	mu    sync.Mutex
+	files map[string]FileReadRecord
+	order []string
+}
+
+func NewRecoveryState() *RecoveryState {
+	return &RecoveryState{files: map[string]FileReadRecord{}}
+}
+
+func (s *RecoveryState) ensure() {
+	if s.files == nil {
+		s.files = map[string]FileReadRecord{}
+	}
+}
+
+// RecordFileRead snapshots a file read, truncating to the per-file budget and
+// evicting the oldest entries beyond the limit.
+func (s *RecoveryState) RecordFileRead(path, content string) {
+	if s == nil || path == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ensure()
+	if _, ok := s.files[path]; ok {
+		s.removeOrder(path)
+	}
+	s.files[path] = FileReadRecord{
+		Path:      path,
+		Content:   truncateByTokens(content, RecoveryTokensPerFile),
+		Timestamp: time.Now(),
+	}
+	s.order = append(s.order, path)
+	for len(s.order) > RecoveryFileLimit {
+		oldest := s.order[0]
+		s.order = s.order[1:]
+		delete(s.files, oldest)
+	}
+}
+
+func (s *RecoveryState) removeOrder(path string) {
+	for i, item := range s.order {
+		if item == path {
+			s.order = append(s.order[:i], s.order[i+1:]...)
+			return
 		}
 	}
-	return ""
+}
+
+// SnapshotFiles returns the most recently read records, newest first.
+func (s *RecoveryState) SnapshotFiles(limit int) []FileReadRecord {
+	if s == nil {
+		return nil
+	}
+	if limit <= 0 {
+		limit = RecoveryFileLimit
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]FileReadRecord, 0, len(s.files))
+	for _, record := range s.files {
+		out = append(out, record)
+	}
+	sortByTimestampDesc(out)
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}
+
+func sortByTimestampDesc(out []FileReadRecord) {
+	for i := 1; i < len(out); i++ {
+		for j := i; j > 0 && out[j].Timestamp.After(out[j-1].Timestamp); j-- {
+			out[j], out[j-1] = out[j-1], out[j]
+		}
+	}
+}
+
+// BuildRecoveryAttachment renders the attachment block appended to the
+// compaction summary message.
+func (s *RecoveryState) BuildRecoveryAttachment(toolSchemaNames []string) string {
+	var sections []string
+
+	recentFiles := s.SnapshotFiles(RecoveryFileLimit)
+	if len(recentFiles) > 0 {
+		sections = append(sections, RecoveryFilesHeader)
+		sections = append(sections, RecoveryFilesNote)
+		for _, f := range recentFiles {
+			content := truncateByTokens(f.Content, RecoveryTokensPerFile)
+			// toISOString() with the milliseconds stripped, like the reference.
+			ts := f.Timestamp.UTC().Format("2006-01-02T15:04:05") + "Z"
+			body := content
+			if !strings.HasSuffix(body, "\n") {
+				body += "\n"
+			}
+			sections = append(sections, fmt.Sprintf("### %s  (read %s)\n\n```\n%s```", f.Path, ts, body))
+		}
+	}
+
+	if len(toolSchemaNames) > 0 {
+		lines := make([]string, 0, len(toolSchemaNames))
+		for _, name := range toolSchemaNames {
+			lines = append(lines, "- "+name)
+		}
+		sections = append(sections, RecoveryToolsIntro+strings.Join(lines, "\n"))
+	}
+
+	if len(sections) == 0 {
+		return ""
+	}
+
+	sections = append(sections, RecoveryFooterNote)
+	return strings.Join(sections, "\n\n")
 }

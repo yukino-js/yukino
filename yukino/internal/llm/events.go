@@ -3,6 +3,8 @@ package llm
 import (
 	"encoding/json"
 	"strings"
+
+	"github.com/yukino-js/yukino/yukino/internal/telemetry"
 )
 
 type StreamEvent interface{ streamEvent() }
@@ -51,6 +53,17 @@ func (ToolCallDelta) streamEvent() {}
 func (ToolCallComplete) streamEvent() {}
 
 func (StreamEnd) streamEvent() {}
+
+// TelemetryStreamEnd exposes the completion usage and stop reason to the
+// telemetry observation wrapper without telemetry importing this package.
+func (e StreamEnd) TelemetryStreamEnd() (telemetry.Usage, string) {
+	return telemetry.Usage{
+		InputTokens:         e.Usage.InputTokens,
+		OutputTokens:        e.Usage.OutputTokens,
+		CacheReadTokens:     e.Usage.CacheReadTokens,
+		CacheCreationTokens: e.Usage.CacheCreationTokens,
+	}, e.StopReason
+}
 
 func ParseToolArguments(raw string) (map[string]any, string) {
 	if strings.TrimSpace(raw) == "" {

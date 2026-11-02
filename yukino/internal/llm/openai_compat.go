@@ -333,6 +333,43 @@ func (c *openaiCompatClient) Stream(ctx context.Context, conv *conversation.Mana
 	return events, errs
 }
 
+// userPartsFor mirrors the reference: string content stays a string; block
+// arrays become Chat Completions parts (text / image_url data URL; other
+// block types are dropped).
+func userPartsFor(m conversation.Message) openai.ChatCompletionUserMessageParamContentUnion {
+	if len(m.ContentBlocks) == 0 {
+		return openai.ChatCompletionUserMessageParamContentUnion{OfString: param.NewOpt(m.Content)}
+	}
+	var parts []openai.ChatCompletionContentPartUnionParam
+	for _, raw := range m.ContentBlocks {
+		block := conversation.NormalizeToolResultContentBlock(raw)
+		if block == nil {
+			continue
+		}
+		if block["type"] == "text" {
+			text, _ := block["text"].(string)
+			parts = append(parts, openai.ChatCompletionContentPartUnionParam{
+				OfText: &openai.ChatCompletionContentPartTextParam{Text: text},
+			})
+			continue
+		}
+		if url := imageDataURL(block); url != "" {
+			parts = append(parts, openai.ChatCompletionContentPartUnionParam{
+				OfImageURL: &openai.ChatCompletionContentPartImageParam{
+					ImageURL: openai.ChatCompletionContentPartImageImageURLParam{URL: url},
+				},
+			})
+		}
+	}
+	return openai.ChatCompletionUserMessageParamContentUnion{OfArrayOfContentParts: parts}
+}
+
+func userMessageParam(m conversation.Message) openai.ChatCompletionMessageParamUnion {
+	return openai.ChatCompletionMessageParamUnion{
+		OfUser: &openai.ChatCompletionUserMessageParam{Content: userPartsFor(m)},
+	}
+}
+
 func buildChatCompletionMessages(systemPrompt string, messages []conversation.Message) []openai.ChatCompletionMessageParamUnion {
 	var result []openai.ChatCompletionMessageParamUnion
 
@@ -380,11 +417,11 @@ func buildChatCompletionMessages(systemPrompt string, messages []conversation.Me
 			for _, tr := range m.ToolResults {
 				result = append(result, openai.ToolMessage(tr.Content, tr.ToolUseID))
 			}
-			if m.Content != "" {
-				result = append(result, openai.UserMessage(m.Content))
+			if m.HasContent() {
+				result = append(result, userMessageParam(m))
 			}
 		} else {
-			result = append(result, openai.UserMessage(m.Content))
+			result = append(result, userMessageParam(m))
 		}
 	}
 

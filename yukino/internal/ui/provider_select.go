@@ -51,11 +51,12 @@ func (m *Model) activateInitialProvider(p *config.ProviderConfig) tea.Cmd {
 	ag.SkillDeltaFn = m.skillDelta
 	ag.FileHistory = m.fileHistory
 	ag.SetSessionID(m.sessionID)
+	ag.GoalManager = m.currentGoal()
 	pathSandbox := permissions.NewPathSandbox(wd, true)
 	ag.Checker = permissions.NewChecker(
 		pathSandbox,
 		permissions.NewRuleEngine(wd),
-		permissions.ModeDefault,
+		m.permissionMode,
 	)
 	ag.Checker.SandboxEnabled = m.sandboxCfg.SandboxEnabled()
 	ag.Checker.SandboxAutoAllow = m.sandboxCfg.SandboxAutoAllow()

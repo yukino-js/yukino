@@ -7,11 +7,6 @@ import (
 	"strings"
 )
 
-const (
-	MaxSymlinkDepth      = 40
-	TooManySymlinksError = "Too many symbolic links while resolving path"
-)
-
 func ResolveToolPath(cwd, path string) string {
 	home, _ := os.UserHomeDir()
 	expanded := path

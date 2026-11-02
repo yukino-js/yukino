@@ -3,6 +3,8 @@ package agent
 import (
 	"time"
 
+	"github.com/yukino-js/yukino/yukino/internal/session"
+
 	"github.com/yukino-js/yukino/yukino/internal/permissions"
 )
 
@@ -32,7 +34,10 @@ type LoopComplete struct {
 }
 type UsageEvent struct{ InputTokens, OutputTokens, CacheReadTokens, CacheCreationTokens int }
 type ErrorEvent struct{ Message string }
-type CompactEvent struct{ Message string }
+type CompactEvent struct {
+	Message  string
+	Boundary *session.CompactBoundary
+}
 type RetryEvent struct {
 	Reason string
 	Wait   time.Duration

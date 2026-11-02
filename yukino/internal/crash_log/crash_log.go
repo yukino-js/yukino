@@ -30,6 +30,12 @@ func RecordPanic(context string, value any, stack []byte) {
 	Record(fmt.Sprintf("crash [%s] %v\n%s", context, value, stack))
 }
 
+// RecordError records an error that escaped to the top level; context
+// identifies the originating layer.
+func RecordError(context string, err error) {
+	Record(fmt.Sprintf("crash [%s] %s", context, err))
+}
+
 var exitRecorded atomic.Bool
 
 // RecordExit writes the exit marker; subsequent calls are no-ops. Whichever

@@ -129,7 +129,7 @@ func TestSaveProvider(t *testing.T) {
 			t.Fatal(err)
 		}
 		path := GlobalConfigPath()
-		if err := os.WriteFile(path, []byte("permission_mode: plan\nenable_fork: false\nsandbox:\n  enabled: true\ncustom_setting: keep\n"), 0o600); err != nil {
+		if err := os.WriteFile(path, []byte("permission_mode: plan\nsandbox:\n  enabled: true\ncustom_setting: keep\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		first, err := SaveProvider(loginInput(), nil)
@@ -165,9 +165,6 @@ func TestSaveProvider(t *testing.T) {
 		}
 		if !reflect.DeepEqual(reloaded.Providers, third.Providers) {
 			t.Fatalf("reloaded %+v != saved %+v", reloaded.Providers, third.Providers)
-		}
-		if reloaded.EnableFork == nil || *reloaded.EnableFork {
-			t.Fatal("enable_fork must stay false")
 		}
 		if reloaded.Sandbox == nil || reloaded.Sandbox.Enabled == nil || !*reloaded.Sandbox.Enabled {
 			t.Fatal("sandbox.enabled must stay true")

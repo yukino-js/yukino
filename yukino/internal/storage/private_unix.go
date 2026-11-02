@@ -7,7 +7,7 @@ import (
 	"syscall"
 )
 
-const openNoFollow = syscall.O_NOFOLLOW
+const openNoFollow = syscall.O_NOFOLLOW | syscall.O_NONBLOCK
 
 func chmodDirNoFollow(dir string, mode os.FileMode) error {
 	f, err := os.OpenFile(dir, os.O_RDONLY|syscall.O_DIRECTORY|openNoFollow, 0)

@@ -6,6 +6,7 @@ import (
 
 	"github.com/yukino-js/yukino/yukino/internal/config"
 	"github.com/yukino-js/yukino/yukino/internal/conversation"
+	"github.com/yukino-js/yukino/yukino/internal/telemetry"
 )
 
 type Client interface {
@@ -38,16 +39,22 @@ type OutputBudgetProvider interface {
 }
 
 func NewClient(cfg *config.ProviderConfig, systemPrompt string) (Client, error) {
+	var client Client
+	var err error
 	switch cfg.Protocol {
 	case "anthropic":
-		return newAnthropicClient(cfg, systemPrompt)
+		client, err = newAnthropicClient(cfg, systemPrompt)
 	case "openai":
-		return newOpenAIClient(cfg, systemPrompt)
+		client, err = newOpenAIClient(cfg, systemPrompt)
 	case "openai-compat":
-		return newOpenAICompatClient(cfg, systemPrompt)
+		client, err = newOpenAICompatClient(cfg, systemPrompt)
 	default:
 		return nil, fmt.Errorf("unknown protocol: %s", cfg.Protocol)
 	}
+	if err != nil {
+		return nil, err
+	}
+	return telemetry.RegisterLlmClient(client, telemetry.LlmMetadata{Model: cfg.Model, Protocol: cfg.Protocol}), nil
 }
 
 type maxOutputKey struct{}
@@ -60,4 +67,19 @@ func maxOutputTokens(ctx context.Context, fallback int) int {
 		return tokens
 	}
 	return fallback
+}
+
+type answerReserveKey struct{}
+
+// WithAnswerReserveTokens reserves answer tokens out of the max-output budget
+// when the provider computes a thinking budget (StreamOptions
+// answerReserveTokens in the reference).
+func WithAnswerReserveTokens(ctx context.Context, tokens int) context.Context {
+	return context.WithValue(ctx, answerReserveKey{}, tokens)
+}
+func answerReserveTokens(ctx context.Context) int {
+	if tokens, ok := ctx.Value(answerReserveKey{}).(int); ok && tokens > 0 {
+		return tokens
+	}
+	return 0
 }

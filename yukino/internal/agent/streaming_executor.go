@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 
+	"github.com/yukino-js/yukino/yukino/internal/telemetry"
 	"github.com/yukino-js/yukino/yukino/internal/tools"
 )
 
@@ -25,18 +26,20 @@ type toolCallInfo struct {
 }
 
 type StreamingExecutor struct {
-	registry *tools.Registry
-	eventCh  chan AgentEvent
+	registry  *tools.Registry
+	eventCh   chan AgentEvent
+	telemetry *telemetry.AgentTelemetry
 
 	mu      sync.Mutex
 	calls   []toolCallInfo
 	results []toolExecResult
 }
 
-func NewStreamingExecutor(registry *tools.Registry, eventCh chan AgentEvent) *StreamingExecutor {
+func NewStreamingExecutor(registry *tools.Registry, eventCh chan AgentEvent, agentTelemetry *telemetry.AgentTelemetry) *StreamingExecutor {
 	return &StreamingExecutor{
-		registry: registry,
-		eventCh:  eventCh,
+		registry:  registry,
+		eventCh:   eventCh,
+		telemetry: agentTelemetry,
 	}
 }
 
@@ -67,7 +70,7 @@ func (se *StreamingExecutor) ExecuteAll(ctx context.Context, agent *Agent) []too
 				wg.Add(1)
 				go func(e toolCallEntry) {
 					defer wg.Done()
-					r := agent.executeSingleTool(ctx, se.eventCh, e.tc)
+					r := se.observeTool(ctx, agent, e.tc)
 					se.emitResult(r)
 					se.mu.Lock()
 					results[e.index] = r
@@ -77,7 +80,7 @@ func (se *StreamingExecutor) ExecuteAll(ctx context.Context, agent *Agent) []too
 			wg.Wait()
 		} else {
 			for _, entry := range batch.calls {
-				r := agent.executeSingleTool(ctx, se.eventCh, entry.tc)
+				r := se.observeTool(ctx, agent, entry.tc)
 				se.emitResult(r)
 				results[entry.index] = r
 			}
@@ -86,6 +89,14 @@ func (se *StreamingExecutor) ExecuteAll(ctx context.Context, agent *Agent) []too
 
 	se.results = results
 	return results
+}
+
+// observeTool wraps a single tool execution with the tool observation,
+// mirroring observeToolExecution around tool.execute in the reference.
+func (se *StreamingExecutor) observeTool(ctx context.Context, agent *Agent, tc toolCallInfo) toolExecResult {
+	return telemetry.ObserveToolExecution(tc.toolName, func() toolExecResult {
+		return agent.executeSingleTool(ctx, se.eventCh, tc)
+	}, func(result toolExecResult) bool { return result.isError }, se.telemetry)
 }
 
 func (se *StreamingExecutor) emitResult(r toolExecResult) {

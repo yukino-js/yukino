@@ -101,6 +101,13 @@ func (m *Manager) AddUserMessage(content string) {
 	m.history = append(m.history, Message{Role: "user", Content: content})
 }
 
+// AddUserMessageBlocks appends a user message whose content is a block array
+// (text plus image blocks), mirroring the reference addUserMessage accepting
+// string | Record<string, unknown>[].
+func (m *Manager) AddUserMessageBlocks(blocks []map[string]any) {
+	m.history = append(m.history, Message{Role: "user", ContentBlocks: blocks})
+}
+
 func (m *Manager) AddAssistantMessage(content string) {
 	m.history = append(m.history, Message{Role: "assistant", Content: content})
 }

@@ -87,7 +87,12 @@ func (m *Model) registerAgentTools(client llm.Client, providerCfg *config.Provid
 		panic(err)
 	}
 
-	m.memoryMgr = memory.NewManager(wd)
+	// enable_memory: false disables the whole auto-memory pipeline; no
+	// manager is created so nothing scans, rebuilds MEMORY.md, or injects
+	// reminders.
+	if m.memoryEnabled {
+		m.memoryMgr = memory.NewManager(wd)
+	}
 
 	loader := subagent.NewAgentLoader()
 	loader.LoadAll()
@@ -137,7 +142,6 @@ func (m *Model) registerAgentTools(client llm.Client, providerCfg *config.Provid
 		Loader:        loader,
 		Conversation:  m.conversation,
 		TeamMgr:       teamMgr,
-		ForkDisabled:  m.ForkDisabled,
 	})
 
 }
@@ -234,9 +238,7 @@ func (m *Model) registerSkillCommand(name string) {
 			if runErr != nil {
 				return fmt.Sprintf("[skill error] %v", runErr)
 			}
-			if m.ag != nil {
-				m.ag.RecoveryState.RecordSkillInvocation(skill.Meta.Name, body)
-			}
+			m.ActivateSkill(skill.Meta.Name, body)
 			return body
 		}
 	}
@@ -284,7 +286,10 @@ func (m *Model) skillDelta() string {
 
 func (m *Model) rebuildSystemPrompt(wd string) string {
 	m.instructionsContent = m.loadCustomInstructions(wd)
-	m.memoryContent = memory.LoadAutoMemoryPrompt(wd)
+	m.memoryContent = ""
+	if m.memoryEnabled {
+		m.memoryContent = memory.LoadAutoMemoryPrompt(wd)
+	}
 	env := prompt.DetectEnvironment(wd)
 	if m.selectedProvider != nil {
 		env.Model = m.selectedProvider.Model
@@ -385,7 +390,7 @@ func (m *Model) loadCustomInstructions(wd string) string {
 }
 
 func (m *Model) installMemoryExtractor(ag *agent.Agent, wd, protocol string) *extractor.Extractor {
-	if m.client == nil || m.conversation == nil {
+	if m.client == nil || m.conversation == nil || !m.memoryEnabled {
 		return nil
 	}
 	conv := m.conversation

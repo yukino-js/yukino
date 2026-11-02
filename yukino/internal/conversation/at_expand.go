@@ -1,6 +1,7 @@
 package conversation
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,7 +9,12 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/yukino-js/yukino/yukino/internal/images"
+	"github.com/yukino-js/yukino/yukino/internal/logger"
 )
+
+var atExpandLog = logger.CreateChildLogger("at-expand")
 
 const (
 	MaxInlineBytes      = 100_000
@@ -173,4 +179,106 @@ func ExpandAtRefs(text, cwd string) string {
 		return text
 	}
 	return text + appendix.String()
+}
+
+// ExpandAtRefsWithImages behaves like ExpandAtRefs, but @references to image
+// files (png/jpg/jpeg/gif/webp) are loaded as inline image content blocks
+// instead of being inlined as (garbled) utf-8 text. The appendix gets an
+// <image> placeholder so the model can pair each block with its @token. Image
+// load failures are logged and skipped (only exceeding the per-message image
+// limit appends an error note); non-image refs behave exactly like
+// ExpandAtRefs. The second return is nil when no image is referenced.
+func ExpandAtRefsWithImages(text, cwd string) (string, []map[string]any) {
+	refs := collectAtRefs(text, cwd)
+	if len(refs) == 0 {
+		return text, nil
+	}
+	var appendix strings.Builder
+	totalBytes := 0
+	appendBlock := func(block string) bool {
+		if totalBytes+len(block) > MaxInlineTotalBytes {
+			return false
+		}
+		appendix.WriteString(block)
+		totalBytes += len(block)
+		return true
+	}
+	seen := map[string]bool{}
+	var imageBlocks []map[string]any
+	imageLimitNoticeAdded := false
+	for _, ref := range refs {
+		if seen[ref] {
+			continue
+		}
+		seen[ref] = true
+		refPath, lineStart, lineEnd, hasRange := parseRef(ref)
+		p := refPath
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(cwd, p)
+		}
+		info, err := os.Stat(p)
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		if images.IsImagePath(p) {
+			if len(imageBlocks) >= images.MaxImagesPerMessage {
+				// Route the notice through the same byte budget as every other
+				// appendix block, and emit it at most once regardless of how
+				// many further images are over the limit.
+				if !imageLimitNoticeAdded {
+					imageLimitNoticeAdded = true
+					appendBlock(fmt.Sprintf("\n\nError: too many images attached (limit %d per message)", images.MaxImagesPerMessage))
+				}
+				continue
+			}
+			attachment, err := images.LoadImageAttachment(context.Background(), p)
+			if err != nil {
+				atExpandLog.Error(map[string]any{"err": err}, "@-mention expansion failed")
+				continue
+			}
+			imageBlock := map[string]any{
+				"type": "image",
+				"source": map[string]any{
+					"type":       "base64",
+					"media_type": string(attachment.MediaType),
+					"data":       attachment.Data,
+				},
+			}
+			if appendBlock(fmt.Sprintf("\n\n<image type=\"base64\" media_type=\"%s\" path=\"%s\" />", attachment.MediaType, refPath)) {
+				imageBlocks = append(imageBlocks, imageBlock)
+			}
+			continue
+		}
+		if hasRange {
+			if info.Size() > MaxRangeFileBytes {
+				continue
+			}
+			data, err := os.ReadFile(p)
+			if err != nil {
+				continue
+			}
+			snippet := sliceLines(string(data), lineStart, lineEnd)
+			if utf8.RuneCountInString(snippet) <= MaxInlineBytes {
+				appendBlock(fmt.Sprintf("\n\n<file path=%q lines=\"%d-%d\">\n%s\n</file>", refPath, lineStart, lineEnd, snippet))
+			}
+			continue
+		}
+		if info.Size() > MaxInlineBytes {
+			continue
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		appendBlock(fmt.Sprintf("\n\n<file path=%q>\n%s\n</file>", ref, string(data)))
+	}
+	expanded := text
+	if appendix.Len() > 0 {
+		expanded = text + appendix.String()
+	}
+	if len(imageBlocks) == 0 {
+		return expanded, nil
+	}
+	blocks := append([]map[string]any{{"type": "text", "text": expanded}}, imageBlocks...)
+	return expanded, blocks
 }

@@ -13,7 +13,7 @@ func TestClearResetsSession(t *testing.T) {
 		Model:    "claude-sonnet-4-20250514",
 		APIKey:   "test-key",
 	}
-	m := New([]config.ProviderConfig{provider}, nil, nil, nil, 0)
+	m := New([]config.ProviderConfig{provider}, nil, nil, nil, 0, "", true)
 
 	m.chatMessages = []chatMessage{
 		{role: "user", content: "hello"},

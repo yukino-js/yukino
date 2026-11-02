@@ -4,10 +4,15 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
+	"github.com/yukino-js/yukino/yukino/internal/images"
+	"github.com/yukino-js/yukino/yukino/internal/logger"
 	"github.com/yukino-js/yukino/yukino/internal/storage"
 )
+
+var log = logger.CreateChildLogger("tools")
 
 type ReadFileTool struct {
 	FileStateCache *FileStateCache
@@ -56,6 +61,20 @@ func (t *ReadFileTool) Execute(ctx context.Context, args map[string]any) ToolRes
 	}
 	if !info.Mode().IsRegular() {
 		return ToolResult{Output: fmt.Sprintf("Error: %s is not a regular file", path), IsError: true}
+	}
+	isImage := images.IsImagePath(path)
+	if !isImage {
+		sniffed, ok, err := images.SniffFileMediaType(ctx, path)
+		if err != nil {
+			if ctx.Err() != nil {
+				return ToolResult{Output: OperationInterruptedError, IsError: true}
+			}
+			return ToolResult{Output: fmt.Sprintf("Error reading file: %s", err), IsError: true}
+		}
+		isImage = ok && sniffed != ""
+	}
+	if isImage {
+		return t.readImage(ctx, path, info)
 	}
 	if info.Size() > MaxReadFileBytes {
 		return ToolResult{Output: fmt.Sprintf("Error: %s is %d bytes, over the %d-byte read limit. Use Grep with a pattern, or Bash with head/tail/sed, to inspect parts of it.", path, info.Size(), MaxReadFileBytes), IsError: true}
@@ -112,6 +131,40 @@ func (t *ReadFileTool) Execute(ctx context.Context, args map[string]any) ToolRes
 		numbered = append(numbered, fmt.Sprintf("[%d more lines in file. Use offset=%d to continue.]", remaining, next))
 	}
 	return ToolResult{Output: strings.Join(numbered, "\n")}
+}
+
+func (t *ReadFileTool) readImage(ctx context.Context, path string, info os.FileInfo) ToolResult {
+	cache := fileCacheForContext(ctx, t.FileStateCache)
+	attachment, err := images.LoadImageAttachment(ctx, path)
+	if err == nil {
+		after, statErr := os.Stat(path)
+		if statErr == nil && (!after.ModTime().Equal(info.ModTime()) || after.Size() != info.Size()) {
+			return ToolResult{Output: fmt.Sprintf("Error: %s changed while it was being read; read it again before editing.", path), IsError: true}
+		}
+		if ctx.Err() != nil {
+			return ToolResult{Output: OperationInterruptedError, IsError: true}
+		}
+		if cache != nil {
+			cache.Record(path, info.ModTime().UnixMilli())
+		}
+		imageBlock := map[string]any{
+			"type": "image",
+			"source": map[string]any{
+				"type":       "base64",
+				"media_type": string(attachment.MediaType),
+				"data":       attachment.Data,
+			},
+		}
+		return ToolResult{
+			Output:        fmt.Sprintf("[Image: %s]", attachment.MediaType),
+			ContentBlocks: []map[string]any{imageBlock},
+		}
+	}
+	if ctx.Err() != nil {
+		return ToolResult{Output: OperationInterruptedError, IsError: true}
+	}
+	log.Error(map[string]any{"err": err}, "image read failed")
+	return ToolResult{Output: fmt.Sprintf("Error reading image %s: %s", filepath.Base(path), err), IsError: true}
 }
 
 func intArg(args map[string]any, key string, def int) int {

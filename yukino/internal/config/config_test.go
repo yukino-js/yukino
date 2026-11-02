@@ -254,26 +254,6 @@ func TestResolveAPIKey(t *testing.T) {
 	})
 }
 
-func TestEnableFork(t *testing.T) {
-	bare := func() *AppConfig {
-		return &AppConfig{MCPLoading: "auto", Theme: "auto"}
-	}
-	if !bare().ForkEnabled() {
-		t.Fatal("defaults to enabled when unset")
-	}
-	off := false
-	on := true
-	cfg := bare()
-	cfg.EnableFork = &off
-	if cfg.ForkEnabled() {
-		t.Fatal("disables for real when set to false")
-	}
-	cfg.EnableFork = &on
-	if !cfg.ForkEnabled() {
-		t.Fatal("stays enabled when set to true")
-	}
-}
-
 func TestMemoryEnabled(t *testing.T) {
 	bare := func() *AppConfig {
 		return &AppConfig{MCPLoading: "auto", Theme: "auto"}

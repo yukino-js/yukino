@@ -1,0 +1,510 @@
+package a2a
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/yukino-js/yukino/yukino/internal/agent"
+	"github.com/yukino-js/yukino/yukino/internal/bootstrap"
+	"github.com/yukino-js/yukino/yukino/internal/commands"
+	"github.com/yukino-js/yukino/yukino/internal/compact"
+	"github.com/yukino-js/yukino/yukino/internal/config"
+	"github.com/yukino-js/yukino/yukino/internal/conversation"
+	"github.com/yukino-js/yukino/yukino/internal/file_history"
+	"github.com/yukino-js/yukino/yukino/internal/goal"
+	"github.com/yukino-js/yukino/yukino/internal/history"
+	"github.com/yukino-js/yukino/yukino/internal/hooks"
+	"github.com/yukino-js/yukino/yukino/internal/llm"
+	"github.com/yukino-js/yukino/yukino/internal/mcp"
+	"github.com/yukino-js/yukino/yukino/internal/memory"
+	extractor "github.com/yukino-js/yukino/yukino/internal/memory/extractor"
+	"github.com/yukino-js/yukino/yukino/internal/permissions"
+	"github.com/yukino-js/yukino/yukino/internal/prompt"
+	"github.com/yukino-js/yukino/yukino/internal/session"
+	"github.com/yukino-js/yukino/yukino/internal/skills"
+	"github.com/yukino-js/yukino/yukino/internal/subagent"
+	"github.com/yukino-js/yukino/yukino/internal/teams"
+	"github.com/yukino-js/yukino/yukino/internal/todo"
+	"github.com/yukino-js/yukino/yukino/internal/tools"
+	"github.com/yukino-js/yukino/yukino/internal/workflow"
+	"github.com/yukino-js/yukino/yukino/internal/worktree"
+)
+
+// Runtime is the minimal agent runtime surface the A2A executor drives,
+// mirroring the reference A2aRuntime interface.
+type Runtime interface {
+	SessionID() string
+	Cwd() string
+	Run(text string) (<-chan agent.AgentEvent, error)
+	Abort()
+	Dispose() error
+}
+
+// agentRuntime boots the full yukino agent stack for a cwd.
+type agentRuntime struct {
+	sessionID string
+	cwd       string
+
+	provider       *config.ProviderConfig
+	client         llm.Client
+	conv           *conversation.Manager
+	registry       *tools.Registry
+	checker        *permissions.Checker
+	fileHistory    *file_history.History
+	fileStateCache *tools.FileStateCache
+	recoveryState  *compact.RecoveryState
+	goalManager    *goal.GoalManager
+	hookEngine     *hooks.Engine
+	skillCatalog   *skills.Catalog
+	activeSkills   map[string]string
+	teamMgr        *teams.TeamManager
+	taskMgr        *subagent.TaskManager
+	todoList       *todo.TaskList
+	memoryMgr      *memory.Manager
+	memoryEnabled  bool
+	contextWindow  int
+
+	enableCoordinatorMode bool
+
+	mcpMgr           *mcp.Manager
+	mcpInstructions  string
+	mcpAnnouncedOnce bool
+
+	mu       sync.Mutex
+	cancel   context.CancelFunc
+	disposed bool
+}
+
+// RuntimeFactory builds a runtime for cwd. When sessionID is supplied the
+// runtime is a recreation of a previously evicted session and restores that
+// session's transcript so the conversation continues across eviction.
+type RuntimeFactory func(cwd string, sessionID string) (Runtime, error)
+
+// CreateA2aRuntime is the default factory: it boots the full yukino agent
+// stack for cwd in non-interactive mode.
+func CreateA2aRuntime(cwd string, sessionID string) (Runtime, error) {
+	restoring := sessionID != ""
+	var saved []session.Message
+	if restoring {
+		saved = session.LoadSession(cwd, sessionID)
+		if len(saved) == 0 {
+			return nil, errors.New(TranscriptUnavailableError)
+		}
+	} else {
+		sessionID = session.NewID()
+	}
+	cfg, err := config.LoadConfig("", config.LoadOptions{})
+	if err != nil {
+		return nil, err
+	}
+	cfg = config.WithProjectMcpServers(cfg, cwd)
+	provider := config.ResolveDefaultProvider(cfg.Providers, cfg.DefaultProvider)
+	if provider == nil {
+		return nil, errors.New(NoProviderError)
+	}
+	if err := hooks.Validate(cfg.Hooks); err != nil {
+		return nil, err
+	}
+
+	r := &agentRuntime{
+		sessionID:             sessionID,
+		cwd:                   cwd,
+		provider:              provider,
+		conv:                  conversation.NewManager(),
+		fileHistory:           file_history.New(sessionID),
+		fileStateCache:        tools.NewFileStateCache(),
+		recoveryState:         &compact.RecoveryState{},
+		goalManager:           goal.NewGoalManager(cwd, sessionID),
+		skillCatalog:          skills.LoadCatalog(cwd),
+		activeSkills:          map[string]string{},
+		teamMgr:               teams.NewTeamManager(cwd),
+		memoryMgr:             memory.NewManager(cwd),
+		memoryEnabled:         cfg.MemoryEnabled(),
+		contextWindow:         config.GetContextWindow(provider),
+		enableCoordinatorMode: cfg.EnableCoordinatorMode,
+	}
+	r.teamMgr.CoordinatorMode = cfg.EnableCoordinatorMode
+	_ = history.RegisterProject(cwd)
+
+	store, err := todo.NewStore(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if r.todoList, err = todo.NewTaskList(store); err != nil {
+		return nil, err
+	}
+	r.taskMgr = subagent.NewTaskManager()
+	if err := r.taskMgr.UseSession(sessionID); err != nil {
+		return nil, err
+	}
+
+	gitRoot := worktree.FindCanonicalGitRoot(cwd)
+	defaultTools := bootstrap.CreateToolRegistry(r.todoList, bootstrap.ToolRegistryOptions{
+		InteractionMode: "non-interactive",
+		TeamMgr:         r.teamMgr,
+		WorkDir:         cwd,
+		SessionID:       sessionID,
+		RepoRoot:        gitRoot,
+		GoalManager:     func() *goal.GoalManager { return r.goalManager },
+	})
+	r.registry = defaultTools.Registry
+	bootstrap.ConfigureBashSandbox(r.registry, cwd, cfg.Sandbox, nil)
+	defaultTools.EditFile.FileHistory = r.fileHistory
+	defaultTools.WriteFile.FileHistory = r.fileHistory
+
+	env := prompt.DetectEnvironment(cwd)
+	env.Model = provider.Model
+	systemPrompt := prompt.BuildSystemPrompt(env)
+	if r.client, err = llm.NewClient(provider, systemPrompt); err != nil {
+		return nil, err
+	}
+
+	instructions := memory.LoadInstructions(cwd)
+	memReminder := ""
+	if r.memoryEnabled {
+		memReminder = r.memoryMgr.BuildSystemReminder()
+	}
+	r.conv.InjectLongTermMemory(instructions, memReminder, "")
+
+	if len(cfg.Hooks) > 0 {
+		r.hookEngine = hooks.NewEngine(cfg.Hooks)
+		r.hookEngine.AgentRunner = agentHookRunner(r.client)
+	}
+
+	tools.AttachBackgroundTaskManager(r.registry, r.taskMgr)
+	manager := r.taskMgr
+	r.registry.AddCleanup(func() error { return manager.StopAll(context.Background()) })
+	r.registry.Register(&teams.TeamCreateTool{TeamMgr: r.teamMgr})
+	r.registry.Register(&teams.TeamDeleteTool{TeamMgr: r.teamMgr})
+	r.registry.Register(&teams.TeamListTool{TeamMgr: r.teamMgr})
+	r.registry.Register(&teams.SendMessageTool{TeamMgr: r.teamMgr, SenderName: "leader"})
+	r.registry.Register(&teams.TaskStopTool{TeamMgr: r.teamMgr, TaskManager: r.taskMgr})
+	loader := subagent.NewAgentLoader()
+	loader.LoadAll()
+	subProgressCh := make(chan subagent.SubAgentProgress, 32)
+	r.registry.Register(&subagent.AgentTool{
+		Client:        r.client,
+		Provider:      provider,
+		MemoryContent: memReminder,
+		Registry:      r.registry,
+		Protocol:      provider.Protocol,
+		TaskMgr:       r.taskMgr,
+		ProgressCh:    subProgressCh,
+		Loader:        loader,
+		Conversation:  r.conv,
+		TeamMgr:       r.teamMgr,
+	})
+	workflow.AttachWorkflow(workflow.WorkflowServiceOptions{
+		WorkflowBackendOptions: workflow.WorkflowBackendOptions{
+			Registry:    r.registry,
+			GetClient:   func() llm.Client { return r.client },
+			GetProvider: func() *config.ProviderConfig { return r.provider },
+		},
+		Cwd:         cwd,
+		TaskManager: r.taskMgr,
+	})
+
+	if len(cfg.MCPServers) > 0 {
+		mgr := mcp.NewManager()
+		var serverConfigs []mcp.ServerConfig
+		for _, c := range cfg.MCPServers {
+			serverConfigs = append(serverConfigs, mcp.ServerConfig{
+				Name:      c.Name,
+				Command:   c.Command,
+				Args:      c.Args,
+				URL:       c.URL,
+				Transport: c.Transport,
+				Headers:   c.Headers,
+				Env:       c.Env,
+			})
+		}
+		mgr.LoadConfigs(serverConfigs)
+		result := mgr.ConnectAll(context.Background())
+		r.mcpMgr = result.Mgr
+		for _, tool := range result.Tools {
+			r.registry.Register(tool)
+		}
+		if len(result.Tools) > 0 {
+			mcp.DecideAndApply(r.registry, provider.BaseURL, provider.Protocol, r.contextWindow, cfg.MCPLoading)
+		}
+		r.mcpInstructions = buildMcpInstructions(result)
+	}
+
+	r.checker = permissions.NewChecker(
+		permissions.NewPathSandbox(cwd, true),
+		permissions.NewRuleEngine(cwd),
+		permissions.ModeDefault,
+	)
+	r.teamMgr.SetPermissionChecker(r.checker)
+	if at, ok := r.registry.Get("Agent").(*subagent.AgentTool); ok {
+		at.ParentChecker = r.checker
+	}
+	mode := cfg.PermissionMode
+	if mode == "" {
+		mode = string(permissions.ModeDefault)
+	}
+	r.checker.SetMode(permissions.PermissionMode(mode))
+
+	if restoring {
+		// Recreation after idle eviction: replay the persisted transcript.
+		// Long-term memory/instructions were already injected at the front of
+		// the conversation, so appending keeps that ordering intact.
+		r.conv.AppendMessages(session.RebuildFromSession(saved, false))
+	}
+	return r, nil
+}
+
+// SessionID implements Runtime.
+func (r *agentRuntime) SessionID() string { return r.sessionID }
+
+// Cwd implements Runtime.
+func (r *agentRuntime) Cwd() string { return r.cwd }
+
+// SetPermissionMode applies the configured permission mode.
+func (r *agentRuntime) SetPermissionMode(mode permissions.PermissionMode) {
+	r.checker.SetMode(mode)
+}
+
+// AppendMessages replays transcript messages into the conversation.
+func (r *agentRuntime) AppendMessages(messages []conversation.Message) {
+	r.conv.AppendMessages(messages)
+}
+
+// Run executes one agent turn for the user text and returns the event
+// stream, mirroring the reference AgentHandleImpl.run for the A2A path.
+func (r *agentRuntime) Run(text string) (<-chan agent.AgentEvent, error) {
+	r.mu.Lock()
+	if r.disposed {
+		r.mu.Unlock()
+		return nil, errors.New("agent runtime is disposed")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	r.cancel = cancel
+	r.mu.Unlock()
+
+	out := make(chan agent.AgentEvent, 32)
+
+	commandName, commandArgs, isCommand := commands.Parse(text)
+	isGoal := isCommand && commandName == "goal"
+
+	inputOptions := history.InputOptions{Cwd: r.cwd, SessionID: &r.sessionID, Source: "sdk", Text: text}
+	if isGoal {
+		name := "goal"
+		inputOptions.CommandName = &name
+	}
+	input, err := history.RecordInput(inputOptions)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+
+	if isGoal {
+		result := goal.HandleGoalCommand(r.goalManager, commandArgs)
+		go func() {
+			defer close(out)
+			out <- agent.StreamText{Text: result.Message + "\n"}
+			if result.Prompt == "" {
+				out <- agent.LoopComplete{StopReason: "end_turn"}
+				return
+			}
+			out <- agent.TurnComplete{}
+			r.runAgent(ctx, out, result.Prompt, input)
+		}()
+		return out, nil
+	}
+
+	go func() {
+		defer close(out)
+		r.runAgent(ctx, out, text, input)
+	}()
+	return out, nil
+}
+
+// runAgent saves the user message, announces MCP instructions once, builds
+// the agent and forwards its events to out.
+func (r *agentRuntime) runAgent(ctx context.Context, out chan<- agent.AgentEvent, text string, input history.InputEntry) {
+	if _, err := session.SaveUserMessage(r.cwd, r.sessionID, input, session.Message{Content: text}); err != nil {
+		out <- agent.ErrorEvent{Message: err.Error()}
+		return
+	}
+	r.conv.AddUserMessage(text)
+
+	r.mu.Lock()
+	if r.mcpInstructions != "" && !r.mcpAnnouncedOnce {
+		r.conv.AddSystemReminder(r.mcpInstructions)
+		r.mcpAnnouncedOnce = true
+	}
+	r.mu.Unlock()
+
+	ag := agent.New(r.client, r.registry, r.provider.Protocol)
+	ag.WorkDir = r.cwd
+	ag.ContextWindow = r.contextWindow
+	ag.MaxOutputTokens = config.GetMaxOutputTokens(r.provider)
+	ag.InstructionsFn = func() string { return memory.LoadInstructions(r.cwd) }
+	ag.MemoryContentFn = func() string {
+		if !r.memoryEnabled {
+			return ""
+		}
+		return r.memoryMgr.BuildSystemReminder()
+	}
+	ag.SkillSection = buildSkillSection(r.skillCatalog, r.cwd)
+	ag.SkillDeltaFn = func() string {
+		section := buildSkillSection(r.skillCatalog, r.cwd)
+		if section != "" && !r.conv.HasReminderContaining(section) {
+			return section
+		}
+		return ""
+	}
+	ag.FileHistory = r.fileHistory
+	ag.FileStateCache = r.fileStateCache
+	ag.RecoveryState = r.recoveryState
+	ag.SetSessionID(r.sessionID)
+	ag.GoalManager = r.goalManager
+	ag.Checker = r.checker
+	ag.Hooks = r.hookEngine
+	ag.TaskManager = r.taskMgr
+	ag.ToolNameFilter = teams.CoordinatorToolFilter(r.enableCoordinatorMode)
+	ag.CoordinatorActiveFn = teams.CoordinatorActiveFn(r.enableCoordinatorMode)
+	ag.NotificationFn = func() []string {
+		var messages []string
+		if r.taskMgr != nil {
+			for _, n := range r.taskMgr.DrainNotifications() {
+				messages = append(messages, subagent.FormatAgentTaskNotification(n))
+			}
+		}
+		return append(messages, teams.DrainLeadMailbox(r.teamMgr)...)
+	}
+	for name, body := range r.activeSkills {
+		ag.ActivateSkill(name, body)
+	}
+	if r.memoryEnabled {
+		extr := extractor.InitExtractMemories(extractor.Deps{
+			MemoryDir:     memory.GetAutoMemPath(r.cwd),
+			UserMemoryDir: memory.GetUserAutoMemPath(),
+			ProjectRoot:   r.cwd,
+			Client:        r.client,
+			ToolRegistry:  r.registry,
+			Protocol:      r.provider.Protocol,
+			Conversation:  r.conv,
+			AppendSystem:  func(s string) { r.conv.AddSystemReminder(s) },
+		})
+		ag.OnLoopComplete = func(_ *conversation.Manager) {
+			_ = extr.Execute(context.Background())
+		}
+	}
+
+	for event := range ag.Run(ctx, r.conv) {
+		out <- event
+	}
+}
+
+// Abort cancels the active run.
+func (r *agentRuntime) Abort() {
+	r.mu.Lock()
+	cancel := r.cancel
+	r.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+// Dispose releases the runtime's resources.
+func (r *agentRuntime) Dispose() error {
+	r.mu.Lock()
+	if r.disposed {
+		r.mu.Unlock()
+		return nil
+	}
+	r.disposed = true
+	if r.cancel != nil {
+		r.cancel()
+	}
+	r.mu.Unlock()
+	if r.registry != nil {
+		return r.registry.Dispose()
+	}
+	return nil
+}
+
+// buildMcpInstructions formats connected MCP server guidance, mirroring the
+// remote server's announcement text.
+func buildMcpInstructions(result mcp.ConnectResult) string {
+	if len(result.Servers) == 0 {
+		return ""
+	}
+	toolsByServer := make(map[string][]string)
+	for _, tool := range result.Tools {
+		toolName := tool.Name()
+		for _, srv := range result.Servers {
+			if strings.HasPrefix(toolName, mcp.MCPToolNamePrefix(srv.Name)) {
+				toolsByServer[srv.Name] = append(toolsByServer[srv.Name], toolName)
+				break
+			}
+		}
+	}
+	var parts []string
+	for _, srv := range result.Servers {
+		var sb strings.Builder
+		sb.WriteString("## " + srv.Name + "\n")
+		if srv.Instructions != "" {
+			sb.WriteString(srv.Instructions + "\n")
+		}
+		if toolNames, ok := toolsByServer[srv.Name]; ok && len(toolNames) > 0 {
+			sb.WriteString("\nAvailable tools: " + strings.Join(toolNames, ", "))
+		}
+		parts = append(parts, sb.String())
+	}
+	return "# MCP Server Instructions\n\nThe following MCP servers are connected. Use their tools when the user asks.\n\n" + strings.Join(parts, "\n\n")
+}
+
+// buildSkillSection renders the available-skills prompt section.
+func buildSkillSection(catalog *skills.Catalog, wd string) string {
+	if catalog == nil {
+		return ""
+	}
+	metas := catalog.List()
+	if len(metas) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("## Available Skills\n\n")
+	sb.WriteString(fmt.Sprintf("Skills are installed at: %s\n", wd+"/.yukino/skills"))
+	sb.WriteString("When creating new skills, always place them under this directory as <skill-name>/SKILL.md.\n\n")
+	for _, meta := range metas {
+		desc := meta.Description
+		if runes := []rune(desc); len(runes) > 200 {
+			desc = string(runes[:200]) + "…"
+		}
+		sb.WriteString(fmt.Sprintf("- /%s: %s\n", meta.Name, desc))
+	}
+	return sb.String()
+}
+
+// agentHookRunner runs a hook's agent prompt through the LLM client.
+func agentHookRunner(client llm.Client) func(prompt string, ctx hooks.HookContext) (string, error) {
+	return func(p string, _ hooks.HookContext) (string, error) {
+		c, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		conv := conversation.NewManager()
+		conv.AddUserMessage(p)
+		events, errs := client.Stream(c, conv, nil)
+		var text string
+		for ev := range events {
+			if td, ok := ev.(llm.TextDelta); ok {
+				text += td.Text
+			}
+		}
+		select {
+		case err := <-errs:
+			if err != nil {
+				return "", err
+			}
+		default:
+		}
+		return text, nil
+	}
+}

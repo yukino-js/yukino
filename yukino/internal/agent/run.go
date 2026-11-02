@@ -12,11 +12,14 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/compact"
 	"github.com/yukino-js/yukino/yukino/internal/config"
 	"github.com/yukino-js/yukino/yukino/internal/conversation"
+	"github.com/yukino-js/yukino/yukino/internal/goal"
 	"github.com/yukino-js/yukino/yukino/internal/hooks"
 	"github.com/yukino-js/yukino/yukino/internal/llm"
 	"github.com/yukino-js/yukino/yukino/internal/permissions"
 	"github.com/yukino-js/yukino/yukino/internal/plan_file"
 	"github.com/yukino-js/yukino/yukino/internal/prompt"
+	"github.com/yukino-js/yukino/yukino/internal/session"
+	"github.com/yukino-js/yukino/yukino/internal/telemetry"
 	"github.com/yukino-js/yukino/yukino/internal/tool_result"
 	"github.com/yukino-js/yukino/yukino/internal/tools"
 )
@@ -26,6 +29,9 @@ type runState struct {
 	escalated        bool
 	outputRecoveries int
 	transientRetries int
+	summarizingGoal  bool
+	outcome          string
+	telemetry        *telemetry.AgentTelemetry
 }
 
 func (a *Agent) restoreContext(conv *conversation.Manager) {
@@ -51,11 +57,25 @@ func (a *Agent) restoreContext(conv *conversation.Manager) {
 func (a *Agent) Run(ctx context.Context, conv *conversation.Manager) <-chan AgentEvent {
 	ch := make(chan AgentEvent, 32)
 	go func() {
+		agentTelemetry := telemetry.StartAgentTelemetry(a.SessionID, a.Client)
+		state := runState{maxOutput: a.MaxOutputTokens, outcome: "interrupted", telemetry: agentTelemetry}
 		defer close(ch)
+		defer func() {
+			outcome := state.outcome
+			if ctx.Err() != nil {
+				outcome = "interrupted"
+			}
+			telemetry.EndAgentTelemetry(agentTelemetry, outcome)
+		}()
 		defer a.emitHook(hooks.EventSessionEnd, "", nil)
+		if a.GoalManager != nil {
+			defer a.GoalManager.EndRun()
+		}
 		a.restoreContext(conv)
+		if a.GoalManager != nil {
+			a.GoalManager.BeginTurn()
+		}
 		a.emitHook(hooks.EventSessionStart, "", nil)
-		state := runState{maxOutput: a.MaxOutputTokens}
 		if state.maxOutput <= 0 {
 			state.maxOutput = config.DefaultMaxOutputTokens
 		}
@@ -64,7 +84,24 @@ func (a *Agent) Run(ctx context.Context, conv *conversation.Manager) <-chan Agen
 				ch <- LoopComplete{TotalTurns: iteration - 1, StopReason: "interrupted"}
 				return
 			}
-			if a.MaxIterations > 0 && iteration > a.MaxIterations {
+			if a.GoalManager != nil {
+				g := a.GoalManager.Get()
+				if state.summarizingGoal || (g != nil && g.Status == "budget_limited") {
+					canSummarize := !state.summarizingGoal &&
+						(a.Checker == nil || a.Checker.Mode() != permissions.ModePlan) &&
+						(a.ShouldContinueGoal == nil || a.ShouldContinueGoal()) &&
+						g != nil && g.BudgetSummaryPending
+					if !canSummarize {
+						ch <- StreamText{Text: "\n" + a.GoalManager.Format() + "\n"}
+						ch <- LoopComplete{TotalTurns: iteration - 1, StopReason: "budget_limited"}
+						state.outcome = "completed"
+						return
+					}
+					state.summarizingGoal = true
+				}
+			}
+			if !state.summarizingGoal && a.MaxIterations > 0 && iteration > a.MaxIterations {
+				state.outcome = "error"
 				ch <- ErrorEvent{Message: fmt.Sprintf("Agent reached maximum iterations (%d)", a.MaxIterations)}
 				return
 			}
@@ -76,8 +113,35 @@ func (a *Agent) Run(ctx context.Context, conv *conversation.Manager) <-chan Agen
 	return ch
 }
 
+// sessionFilePath mirrors this.sessionFilePath in the reference.
+func (a *Agent) sessionFilePath() string {
+	if a.TranscriptPath != "" {
+		return a.TranscriptPath
+	}
+	if a.WorkDir == "" || a.SessionID == "" {
+		return ""
+	}
+	return session.SessionFilePath(a.WorkDir, a.SessionID)
+}
+
+// sessionLineCount returns the session-log line coordinate for snapshots,
+// mirroring sessionLineCount(this.sessionFilePath) in the reference.
+func (a *Agent) sessionLineCount() *int {
+	if a.TranscriptPath == "" {
+		return nil
+	}
+	count, exists, err := session.SessionLineCount(a.TranscriptPath)
+	if err != nil || !exists {
+		return nil
+	}
+	return &count
+}
+
 func (a *Agent) runTurn(ctx context.Context, ch chan AgentEvent, conv *conversation.Manager, iteration int, state *runState) bool {
-	schemas := a.currentToolSchemas()
+	var schemas []map[string]any
+	if !state.summarizingGoal {
+		schemas = a.currentToolSchemas()
+	}
 	names := make([]string, 0, len(schemas))
 	for _, schema := range schemas {
 		if name := tools.SchemaName(schema); name != "" {
@@ -91,6 +155,16 @@ func (a *Agent) runTurn(ctx context.Context, ch chan AgentEvent, conv *conversat
 	}
 	if guidance != "" {
 		conv.AddSystemReminderIfChanged(prompt.ToolGuidanceMarker, guidance)
+	}
+	goalReminder := ""
+	if a.GoalManager != nil {
+		goalReminder = a.GoalManager.Reminder()
+	}
+	if goalReminder == "" && conv.HasReminderContaining(goal.PersistentGoalMarker) {
+		goalReminder = NoPersistentGoalReminder
+	}
+	if goalReminder != "" {
+		conv.AddSystemReminderIfChanged(goal.PersistentGoalMarker, goalReminder)
 	}
 	if a.Checker != nil && a.Checker.Mode() == permissions.ModePlan {
 		path, err := plan_file.GetOrCreatePlanPath(a.Checker)
@@ -106,9 +180,11 @@ func (a *Agent) runTurn(ctx context.Context, ch chan AgentEvent, conv *conversat
 		conv.AddSystemReminder(prompt.CoordinatorReminder(iteration))
 	}
 	var deferred []string
-	for _, name := range a.Registry.GetDeferredToolNames() {
-		if a.ToolNameFilter == nil || a.ToolNameFilter(name) {
-			deferred = append(deferred, name)
+	if !state.summarizingGoal {
+		for _, name := range a.Registry.GetDeferredToolNames() {
+			if a.ToolNameFilter == nil || a.ToolNameFilter(name) {
+				deferred = append(deferred, name)
+			}
 		}
 	}
 	deferredGuidance := prompt.BuildDeferredToolGuidance(deferred, names, a.Registry.McpLoadingMode == tools.McpLoadingDispatch)
@@ -142,25 +218,51 @@ func (a *Agent) runTurn(ctx context.Context, ch chan AgentEvent, conv *conversat
 	defer a.emitHook(hooks.EventTurnEnd, "", nil)
 	a.emitHook(hooks.EventPreSend, "", nil)
 	drainHooks()
-	if msg, err := compact.ManageContext(ctx, conv, a.Client, a.WorkDir, a.SessionID, a.ContextWindow, state.maxOutput, &a.compactTracking, a.RecoveryState, schemas); err == nil && msg != "" {
-		ch <- CompactEvent{Message: msg}
-		a.restoreContext(conv)
-		if guidance != "" {
-			conv.AddSystemReminderIfChanged(prompt.ToolGuidanceMarker, guidance)
+	if !state.summarizingGoal {
+		mc, err := compact.ManageContext(ctx, conv, a.Client, a.ContextWindow, state.maxOutput, &a.compactTracking, a.RecoveryState, names, schemas, a.sessionFilePath())
+		if err != nil {
+			ch <- ErrorEvent{Message: err.Error()}
+			return false
 		}
-		if deferredGuidance != "" {
-			conv.AddSystemReminderIfChanged(prompt.DeferredGuidanceMarker, deferredGuidance)
+		if mc.Message != "" {
+			if mc.Boundary != nil && a.WorkDir != "" && a.SessionID != "" {
+				_ = session.SaveCompactBoundary(a.WorkDir, a.SessionID, mc.Boundary.Summary, mc.Boundary.Keep)
+			}
+			ch <- CompactEvent{Message: mc.Message, Boundary: mc.Boundary}
+		}
+		if mc.Compacted {
+			a.restoreContext(conv)
+			if guidance != "" {
+				conv.AddSystemReminderIfChanged(prompt.ToolGuidanceMarker, guidance)
+			}
+			if deferredGuidance != "" {
+				conv.AddSystemReminderIfChanged(prompt.DeferredGuidanceMarker, deferredGuidance)
+			}
 		}
 	}
 	if ctx.Err() != nil {
 		ch <- LoopComplete{TotalTurns: iteration, StopReason: "interrupted"}
 		return false
 	}
+	if state.summarizingGoal {
+		summary := ""
+		if (a.Checker == nil || a.Checker.Mode() != permissions.ModePlan) && (a.ShouldContinueGoal == nil || a.ShouldContinueGoal()) {
+			summary = a.GoalManager.TakeBudgetSummary()
+		}
+		if summary == "" {
+			ch <- LoopComplete{TotalTurns: iteration, StopReason: "budget_limited"}
+			state.outcome = "completed"
+			return false
+		}
+		conv.AddUserMessage(summary)
+		a.persistLastMessage(conv)
+	}
 	streamCtx := ctx
 	if state.escalated || a.MaxOutputTokens > 0 {
 		streamCtx = llm.WithMaxOutputTokens(ctx, state.maxOutput)
 	}
 	events, errs := a.Client.Stream(streamCtx, conv, schemas)
+	events, errs = telemetry.ObserveLlmStream(a.Client, events, errs, state.telemetry)
 	var text strings.Builder
 	var calls []llm.ToolCallComplete
 	var thinking []conversation.ThinkingBlock
@@ -197,6 +299,9 @@ func (a *Agent) runTurn(ctx context.Context, ch chan AgentEvent, conv *conversat
 				receivedEnd = true
 				stopReason = e.StopReason
 				usage = e.Usage
+				if a.GoalManager != nil {
+					a.GoalManager.AddTokens(float64(usage.InputTokens + usage.OutputTokens + usage.CacheReadTokens + usage.CacheCreationTokens))
+				}
 				ch <- UsageEvent{InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens, CacheReadTokens: usage.CacheReadTokens, CacheCreationTokens: usage.CacheCreationTokens}
 			}
 		case err, ok := <-errs:
@@ -224,14 +329,22 @@ func (a *Agent) runTurn(ctx context.Context, ch chan AgentEvent, conv *conversat
 	if streamErr != nil {
 		var tooLong *llm.ContextTooLongError
 		if errors.As(streamErr, &tooLong) {
-			if msg, err := compact.ForceCompact(ctx, conv, a.Client, a.WorkDir, a.SessionID, a.ContextWindow, a.RecoveryState, schemas); err == nil && msg != "" {
-				conv.ClearUsageAnchor()
-				a.restoreContext(conv)
-				ch <- CompactEvent{Message: "Auto-compacted due to context length: " + msg}
-				return true
+			result, err := compact.ForceCompact(ctx, conv, a.Client, a.RecoveryState, names, schemas, a.sessionFilePath(), "")
+			if err != nil || !result.Compacted {
+				persistPartial()
+				state.outcome = "error"
+				ch <- ErrorEvent{Message: streamErr.Error()}
+				return false
 			}
+			conv.ClearUsageAnchor()
+			a.restoreContext(conv)
+			if result.Boundary != nil && a.WorkDir != "" && a.SessionID != "" {
+				_ = session.SaveCompactBoundary(a.WorkDir, a.SessionID, result.Boundary.Summary, result.Boundary.Keep)
+			}
+			ch <- CompactEvent{Message: "Auto-compacted due to context length: " + result.Message, Boundary: result.Boundary}
+			return true
 		}
-		if delay, retry := llm.LLMRetryDelay(streamErr, state.transientRetries); retry && text.Len() == 0 && !receivedThinking && len(thinking) == 0 && len(calls) == 0 {
+		if delay, retry := llm.LLMRetryDelay(streamErr, state.transientRetries); retry && !state.summarizingGoal && text.Len() == 0 && !receivedThinking && len(thinking) == 0 && len(calls) == 0 {
 			state.transientRetries++
 			reason := "temporary provider failure"
 			var rate *llm.RateLimitError
@@ -250,6 +363,7 @@ func (a *Agent) runTurn(ctx context.Context, ch chan AgentEvent, conv *conversat
 			}
 		}
 		persistPartial()
+		state.outcome = "error"
 		ch <- ErrorEvent{Message: streamErr.Error()}
 		return false
 	}
@@ -258,7 +372,13 @@ func (a *Agent) runTurn(ctx context.Context, ch chan AgentEvent, conv *conversat
 	anchor := func() {
 		conv.RecordUsageAnchor(usage.InputTokens, usage.OutputTokens, usage.CacheReadTokens, usage.CacheCreationTokens)
 	}
-	if stopReason == "max_tokens" && len(calls) == 0 {
+	budgetLimited := false
+	if a.GoalManager != nil {
+		if g := a.GoalManager.Get(); g != nil && g.Status == "budget_limited" {
+			budgetLimited = true
+		}
+	}
+	if stopReason == "max_tokens" && len(calls) == 0 && !state.summarizingGoal && !budgetLimited {
 		ceiling := min(maxTokensCeiling, a.ContextWindow)
 		recovery := ""
 		reason := ""
@@ -285,11 +405,14 @@ func (a *Agent) runTurn(ctx context.Context, ch chan AgentEvent, conv *conversat
 	} else {
 		state.outputRecoveries = 0
 	}
-	executor := NewStreamingExecutor(a.Registry, ch)
+	executor := NewStreamingExecutor(a.Registry, ch, state.telemetry)
 	var uses []conversation.ToolUseBlock
 	for _, call := range calls {
 		if stopReason == "max_tokens" {
 			call.ParseError = "The response hit the output token limit, so tool arguments may be truncated. Re-issue the call with complete arguments"
+		}
+		if state.summarizingGoal || budgetLimited {
+			call.ParseError = GoalBudgetLimitedNotice
 		}
 		uses = append(uses, conversation.ToolUseBlock{ToolUseID: call.ToolID, ToolName: call.ToolName, Arguments: call.Arguments, ParseError: call.ParseError, ProviderItemID: call.ProviderItemID})
 		executor.Submit(toolCallInfo{toolID: call.ToolID, toolName: call.ToolName, arguments: call.Arguments, parseError: call.ParseError})
@@ -301,13 +424,36 @@ func (a *Agent) runTurn(ctx context.Context, ch chan AgentEvent, conv *conversat
 	anchor()
 	if len(calls) == 0 {
 		ch <- TurnComplete{Turn: iteration}
+		// A budget-limited summary turn yields control back to the loop-top budget
+		// check, which stops the run with the budget_limited reason.
+		if state.summarizingGoal || budgetLimited {
+			return true
+		}
+		if (stopReason == "end_turn" || stopReason == "stop") && a.GoalManager != nil &&
+			(a.Checker == nil || a.Checker.Mode() != permissions.ModePlan) &&
+			(a.ShouldContinueGoal == nil || a.ShouldContinueGoal()) {
+			if contPrompt := a.GoalManager.Continuation(); contPrompt != "" {
+				if a.FileHistory != nil {
+					summary := []rune(text.String())
+					if len(summary) > 60 {
+						summary = summary[:60]
+					}
+					a.FileHistory.MakeSnapshot(conv.Len(), string(summary), a.sessionLineCount())
+				}
+				conv.AddUserMessage(contPrompt)
+				a.persistLastMessage(conv)
+				a.GoalManager.BeginTurn()
+				return true
+			}
+		}
 		if a.FileHistory != nil {
 			summary := []rune(text.String())
 			if len(summary) > 60 {
 				summary = append(summary[:60], []rune("...")...)
 			}
-			a.FileHistory.MakeSnapshot(conv.Len(), string(summary))
+			a.FileHistory.MakeSnapshot(conv.Len(), string(summary), a.sessionLineCount())
 		}
+		state.outcome = "completed"
 		ch <- LoopComplete{TotalTurns: iteration, StopReason: stopReason}
 		if a.OnLoopComplete != nil {
 			go func() { defer func() { _ = recover() }(); a.OnLoopComplete(conv) }()
@@ -357,6 +503,7 @@ func (a *Agent) runTurn(ctx context.Context, ch chan AgentEvent, conv *conversat
 		}
 	}
 	if planReady {
+		state.outcome = "completed"
 		ch <- LoopComplete{TotalTurns: iteration, PlanReady: true, StopReason: "end_turn"}
 		return false
 	}

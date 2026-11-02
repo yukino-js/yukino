@@ -23,8 +23,9 @@ const (
 )
 
 var (
-	locksMu sync.Mutex
-	locks   = map[string]*sync.Mutex{}
+	locksMu   sync.Mutex
+	locks     = map[string]*sync.Mutex{}
+	heldLocks = map[string]bool{}
 )
 
 func lockMutexFor(dir string) *sync.Mutex {
@@ -192,25 +193,37 @@ func releaseTicket(lockDir string, contender *lockContender) {
 	_ = os.Remove(lockDir)
 }
 
-func acquireLock(filePath string, wait bool) func() {
+func acquireLock(filePath string, wait bool) (func(), error) {
 	lockDir := filePath + ".lock"
+	locksMu.Lock()
+	held := heldLocks[lockDir]
+	locksMu.Unlock()
+	if held {
+		if !wait {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("file lock %s: recursive acquisition", lockDir)
+	}
 	mu := lockMutexFor(lockDir)
 	if wait {
 		mu.Lock()
 	} else if !mu.TryLock() {
-		return nil
+		return nil, nil
 	}
 
 	contender, err := createContender(lockDir)
 	if err != nil {
 		mu.Unlock()
-		return nil
+		return nil, err
 	}
 	deadline := time.Now().Add(lockAcquireTimeout)
 	backoff := lockMinBackoff
 	for {
 		choosing, tickets := liveLockEntries(lockDir, contender)
 		if len(choosing) == 0 && len(tickets) > 0 && tickets[0] == contender.ticketName {
+			locksMu.Lock()
+			heldLocks[lockDir] = true
+			locksMu.Unlock()
 			released := false
 			return func() {
 				if released {
@@ -218,13 +231,19 @@ func acquireLock(filePath string, wait bool) func() {
 				}
 				releaseTicket(lockDir, contender)
 				released = true
+				locksMu.Lock()
+				delete(heldLocks, lockDir)
+				locksMu.Unlock()
 				mu.Unlock()
-			}
+			}, nil
 		}
 		if !wait || !time.Now().Before(deadline) {
 			releaseTicket(lockDir, contender)
 			mu.Unlock()
-			return nil
+			if !wait {
+				return nil, nil
+			}
+			return nil, fmt.Errorf("file lock %s: timed out after %dms", lockDir, lockAcquireTimeout.Milliseconds())
 		}
 		jitter, _ := rand.Int(rand.Reader, big.NewInt(int64(backoff)))
 		time.Sleep(backoff + time.Duration(jitter.Int64()))
@@ -238,11 +257,15 @@ func acquireLock(filePath string, wait bool) func() {
 // TryAcquireFileSyncLock returns a release function, or nil when the lock is
 // held elsewhere.
 func TryAcquireFileSyncLock(filePath string) func() {
-	return acquireLock(filePath, false)
+	release, _ := acquireLock(filePath, false)
+	return release
 }
 
 func WithFileSyncLock(filePath string, fn func() error) error {
-	release := acquireLock(filePath, true)
+	release, err := acquireLock(filePath, true)
+	if err != nil {
+		return err
+	}
 	if release == nil {
 		return fmt.Errorf("file lock %s: acquisition failed", filePath)
 	}

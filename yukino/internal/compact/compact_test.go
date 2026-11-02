@@ -2,150 +2,124 @@ package compact
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/yukino-js/yukino/yukino/internal/conversation"
 	"github.com/yukino-js/yukino/yukino/internal/llm"
-	"github.com/yukino-js/yukino/yukino/internal/session"
 )
 
 type stubSummaryClient struct {
-	summary      string
-	lastPrompt   string
-	streamCalled bool
+	summary    string
+	lastPrompt string
+	stopReason string
+	toolCall   bool
+	failErr    error
 }
 
 func (c *stubSummaryClient) SetSystemPrompt(prompt string) {}
 
 func (c *stubSummaryClient) Stream(ctx context.Context, conv *conversation.Manager, tools []map[string]any) (<-chan llm.StreamEvent, <-chan error) {
-	c.streamCalled = true
 	if msgs := conv.GetMessages(); len(msgs) > 0 {
 		c.lastPrompt = msgs[len(msgs)-1].Content
 	}
 	ch := make(chan llm.StreamEvent, 4)
 	errCh := make(chan error, 1)
-	ch <- llm.TextDelta{Text: "<summary>" + c.summary + "</summary>"}
-	ch <- llm.StreamEnd{StopReason: "end_turn"}
+	if c.failErr != nil {
+		close(ch)
+		errCh <- c.failErr
+		close(errCh)
+		return ch, errCh
+	}
+	if c.toolCall {
+		ch <- llm.ToolCallStart{ToolName: "Bash", ToolID: "t1"}
+	}
+	text := c.summary
+	if text == "" {
+		text = "<summary>THE SUMMARY</summary>"
+	}
+	ch <- llm.TextDelta{Text: text}
+	stop := c.stopReason
+	if stop == "" {
+		stop = "end_turn"
+	}
+	ch <- llm.StreamEnd{StopReason: stop}
 	close(ch)
 	errCh <- nil
 	close(errCh)
 	return ch, errCh
 }
 
+// Expected values verified against the reference formatCompactSummary
+// semantics (regex-based extraction).
 func TestFormatCompactSummary(t *testing.T) {
 	cases := []struct {
 		name string
 		in   string
 		want string
 	}{
-		{
-			name: "both blocks present",
-			in:   "<analysis>scratch thoughts</analysis>\n<summary>final text</summary>",
-			want: "final text",
-		},
-		{
-			name: "summary block unterminated",
-			in:   "<analysis>scratch</analysis>\n<summary>tail with no close tag",
-			want: "tail with no close tag",
-		},
-		{
-			name: "only analysis block — drop it",
-			in:   "prefix <analysis>scratch</analysis> suffix",
-			want: "prefix  suffix",
-		},
-		{
-			name: "neither block — return raw",
-			in:   "plain text response",
-			want: "plain text response",
-		},
+		{"both blocks", "<analysis>scratch thoughts</analysis>\n<summary>final text</summary>", "final text"},
+		{"summary unterminated, analysis present", "<analysis>scratch</analysis>\n<summary>tail with no close tag", "<summary>tail with no close tag"},
+		{"only analysis", "prefix <analysis>scratch</analysis> suffix", "prefix  suffix"},
+		{"neither", "plain text response", "plain text response"},
+		{"summary only", "<summary>\n  spaced  \n</summary>", "spaced"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := formatCompactSummary(tc.in)
-			if got != tc.want {
+			if got := formatCompactSummary(tc.in); got != tc.want {
 				t.Errorf("got %q, want %q", got, tc.want)
 			}
 		})
 	}
 }
 
-func TestEstimateTokensZeroAndPopulated(t *testing.T) {
-	if got := EstimateTokens(nil); got != 0 {
-		t.Errorf("empty input should be 0 tokens, got %d", got)
+func TestComputeCompactThreshold(t *testing.T) {
+	// Large window keeps the fixed margin.
+	got, err := ComputeCompactThreshold(200000, 32000, false)
+	if err != nil {
+		t.Fatal(err)
 	}
-	conv := conversation.NewManager()
-	conv.AddUserMessage(strings.Repeat("x", 700))
-	got := EstimateTokens(conv.GetMessages())
-	if got < 150 || got > 250 {
-		t.Errorf("700-char message should estimate ~200 tokens, got %d", got)
+	if want := 200000 - SummaryOutputReserve - AutoCompactSafetyMargin; got != want {
+		t.Errorf("auto = %d, want %d", got, want)
 	}
-}
-
-func TestBaselineFromUsage(t *testing.T) {
-	u := llm.UsageInfo{
-		InputTokens:         100,
-		OutputTokens:        40,
-		CacheReadTokens:     5000,
-		CacheCreationTokens: 200,
+	got, err = ComputeCompactThreshold(200000, 32000, true)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got, want := BaselineFromUsage(u), 5340; got != want {
-		t.Errorf("BaselineFromUsage = %d, want %d", got, want)
+	if want := 200000 - SummaryOutputReserve - ManualCompactSafetyMargin; got != want {
+		t.Errorf("manual = %d, want %d", got, want)
 	}
-	if got := BaselineFromUsage(llm.UsageInfo{}); got != 0 {
-		t.Errorf("empty usage baseline = %d, want 0", got)
+	// Small window caps the margin to the ratio of the effective window.
+	got, err = ComputeCompactThreshold(30000, 10000, false)
+	if err != nil {
+		t.Fatal(err)
 	}
-}
-
-func TestComputeUsedTokensColdStartFallback(t *testing.T) {
-	conv := conversation.NewManager()
-	conv.AddUserMessage(strings.Repeat("x", 700))
-	conv.AddAssistantMessage(strings.Repeat("y", 700))
-	msgs := conv.GetMessages()
-
-	got := ComputeUsedTokens(msgs, UsageAnchor{})
-	want := EstimateTokens(msgs)
-	if got != want {
-		t.Errorf("cold-start ComputeUsedTokens = %d, want full estimate %d", got, want)
+	effective := 30000 - 10000
+	if want := effective - effective/4; got != want {
+		t.Errorf("capped = %d, want %d", got, want)
 	}
-}
-
-func TestComputeUsedTokensWithAnchorIncremental(t *testing.T) {
-	conv := conversation.NewManager()
-	conv.AddUserMessage(strings.Repeat("x", 7000))
-	conv.AddAssistantMessage(strings.Repeat("y", 7000))
-	conv.AddUserMessage(strings.Repeat("z", 7000))
-	anchorCount := conv.Len()
-	conv.AddAssistantMessage(strings.Repeat("w", 350))
-	msgs := conv.GetMessages()
-
-	const baseline = 1500
-	anchor := UsageAnchor{BaselineTokens: baseline, AnchorCount: anchorCount, HasUsage: true}
-
-	got := ComputeUsedTokens(msgs, anchor)
-	wantIncrement := EstimateTokens(msgs[anchorCount:])
-	if got != baseline+wantIncrement {
-		t.Errorf("anchored ComputeUsedTokens = %d, want baseline+increment %d", got, baseline+wantIncrement)
+	// maxOutput below the reserve uses maxOutput as the reserve.
+	got, _ = ComputeCompactThreshold(200000, 5000, false)
+	if want := 200000 - 5000 - AutoCompactSafetyMargin; got != want {
+		t.Errorf("small maxOutput = %d, want %d", got, want)
 	}
-	if full := EstimateTokens(msgs); got >= full {
-		t.Errorf("anchored result %d should be below full estimate %d", got, full)
-	}
-}
-
-func TestComputeUsedTokensStaleAnchorClamp(t *testing.T) {
-	conv := conversation.NewManager()
-	conv.AddUserMessage("hi")
-	msgs := conv.GetMessages()
-
-	anchor := UsageAnchor{BaselineTokens: 9999, AnchorCount: 50, HasUsage: true}
-	got := ComputeUsedTokens(msgs, anchor)
-	if want := EstimateTokens(msgs); got != want {
-		t.Errorf("stale-anchor ComputeUsedTokens = %d, want full estimate %d", got, want)
+	if _, err := ComputeCompactThreshold(10000, 20000, false); err == nil ||
+		!strings.Contains(err.Error(), "too small to compact") {
+		t.Errorf("small window err = %v", err)
 	}
 }
 
 func bigMsg(tokens int) string {
 	return strings.Repeat("x", tokens*4)
+}
+
+func msgContents(msgs []conversation.Message) []string {
+	out := make([]string, 0, len(msgs))
+	for _, m := range msgs {
+		out = append(out, m.Content)
+	}
+	return out
 }
 
 func containsMsg(msgs []conversation.Message, want string) bool {
@@ -157,26 +131,32 @@ func containsMsg(msgs []conversation.Message, want string) bool {
 	return false
 }
 
-func TestAutoCompactKeepsRecentVerbatim(t *testing.T) {
+func populatedConversation() *conversation.Manager {
 	conv := conversation.NewManager()
 	for i := 0; i < 6; i++ {
 		conv.AddUserMessage("OLD-PREFIX " + bigMsg(3000))
 		conv.AddAssistantMessage("OLD-REPLY " + bigMsg(3000))
 	}
-	recent := []string{"RECENT-A unique-marker-A", "RECENT-B unique-marker-B"}
-	conv.AddUserMessage(recent[0])
-	conv.AddAssistantMessage(recent[1])
+	conv.AddUserMessage("RECENT-A unique-marker-A")
+	conv.AddAssistantMessage("RECENT-B unique-marker-B")
+	return conv
+}
 
+func TestDoCompactKeepsRecentVerbatim(t *testing.T) {
+	conv := populatedConversation()
 	client := &stubSummaryClient{summary: "THE SUMMARY"}
-	msg, err := autoCompact(context.Background(), conv, client, "", "", 200000, nil, nil)
+	result, err := doCompact(context.Background(), conv, client, nil, nil, nil, "", "")
 	if err != nil {
-		t.Fatalf("autoCompact error: %v", err)
+		t.Fatalf("doCompact error: %v", err)
 	}
-	if msg == "" {
-		t.Fatalf("expected a compaction message, got empty (degraded to no-op)")
+	if !result.Compacted {
+		t.Fatalf("result = %+v", result)
+	}
+	// The keep-walk retains at least MinKeepMessages recent messages.
+	if !strings.Contains(result.Message, "Compacted 9 messages into summary (11 chars), kept 5 recent messages verbatim") {
+		t.Errorf("message = %q", result.Message)
 	}
 	out := conv.GetMessages()
-
 	var sawSummary bool
 	for _, m := range out {
 		if strings.Contains(m.Content, "THE SUMMARY") {
@@ -186,177 +166,268 @@ func TestAutoCompactKeepsRecentVerbatim(t *testing.T) {
 	if !sawSummary {
 		t.Errorf("summary not present after compaction")
 	}
-	for _, r := range recent {
+	for _, r := range []string{"RECENT-A unique-marker-A", "RECENT-B unique-marker-B"} {
 		if !containsMsg(out, r) {
-			t.Errorf("recent message %q not preserved verbatim after compaction; messages=%v", r, msgContents(out))
+			t.Errorf("recent message %q not preserved; messages=%v", r, msgContents(out))
 		}
+	}
+	if result.Boundary == nil || !strings.Contains(result.Boundary.Summary, "THE SUMMARY") {
+		t.Errorf("boundary = %+v", result.Boundary)
+	}
+	if len(result.Boundary.Keep) != 5 {
+		t.Errorf("boundary keep = %d records", len(result.Boundary.Keep))
 	}
 }
 
-func TestAutoCompactPersistsBoundary(t *testing.T) {
+func TestDoCompactSkipsTinyPrefix(t *testing.T) {
 	conv := conversation.NewManager()
-	for i := 0; i < 6; i++ {
-		conv.AddUserMessage("OLD-PREFIX " + bigMsg(3000))
-		conv.AddAssistantMessage("OLD-REPLY " + bigMsg(3000))
-	}
-	conv.AddUserMessage("RECENT-TAIL-USER unique-marker-A")
-	conv.AddAssistantMessage("RECENT-TAIL-ASSISTANT unique-marker-B")
-
-	workDir := t.TempDir()
-	sid := "compact-roundtrip"
-	client := &stubSummaryClient{summary: "PERSISTED-SUMMARY"}
-
-	msg, err := autoCompact(context.Background(), conv, client, workDir, sid, 200000, nil, nil)
+	conv.AddUserMessage("only one message")
+	client := &stubSummaryClient{}
+	result, err := doCompact(context.Background(), conv, client, nil, nil, nil, "", "")
 	if err != nil {
-		t.Fatalf("autoCompact error: %v", err)
+		t.Fatal(err)
 	}
-	if msg == "" {
-		t.Fatalf("expected a compaction message, got empty (degraded to no-op)")
-	}
-
-	msgs := session.LoadSession(workDir, sid)
-	boundary, after, ok := session.FindLastCompactBoundary(msgs)
-	if !ok {
-		t.Fatalf("expected a compact_boundary record to be persisted")
-	}
-	if boundary.Summary != "PERSISTED-SUMMARY" {
-		t.Fatalf("persisted summary mismatch: got %q", boundary.Summary)
-	}
-	if len(after) != 0 {
-		t.Fatalf("no messages should follow a freshly written boundary, got %d", len(after))
-	}
-	var sawTailUser, sawTailAssistant bool
-	for _, k := range boundary.Keep {
-		if k.Content == "RECENT-TAIL-USER unique-marker-A" {
-			sawTailUser = true
-		}
-		if k.Content == "RECENT-TAIL-ASSISTANT unique-marker-B" {
-			sawTailAssistant = true
-		}
-	}
-	if !sawTailUser || !sawTailAssistant {
-		t.Fatalf("kept tail not inlined into boundary: %+v", boundary.Keep)
-	}
-	rebuilt := conv.GetMessages()
-	tail := rebuilt[len(rebuilt)-len(boundary.Keep):]
-	for i, k := range boundary.Keep {
-		if tail[i].Role != k.Role || tail[i].Content != k.Content {
-			t.Fatalf("boundary keep[%d]=%+v does not match in-memory tail %+v", i, k, tail[i])
-		}
+	if result.Compacted || !strings.Contains(result.Message, "Compaction skipped: only 0 message(s) to summarize") {
+		t.Errorf("result = %+v", result)
 	}
 }
 
-func TestAutoCompactNoSessionNoBoundary(t *testing.T) {
-	conv := conversation.NewManager()
-	for i := 0; i < 6; i++ {
-		conv.AddUserMessage("OLD-PREFIX " + bigMsg(3000))
-		conv.AddAssistantMessage("OLD-REPLY " + bigMsg(3000))
+func TestDoCompactSessionFilePathHint(t *testing.T) {
+	conv := populatedConversation()
+	client := &stubSummaryClient{summary: "SUM"}
+	result, err := doCompact(context.Background(), conv, client, nil, nil, nil, "/path/session.jsonl", "")
+	if err != nil {
+		t.Fatal(err)
 	}
-	conv.AddUserMessage("RECENT-A")
-	conv.AddAssistantMessage("RECENT-B")
-
-	workDir := t.TempDir()
-	client := &stubSummaryClient{summary: "S"}
-	if _, err := autoCompact(context.Background(), conv, client, workDir, "", 200000, nil, nil); err != nil {
-		t.Fatalf("autoCompact error: %v", err)
-	}
-	msgs := session.LoadSession(workDir, "anything")
-	if len(msgs) != 0 {
-		t.Fatalf("expected no session log written when sessionID empty, got %d", len(msgs))
-	}
-}
-
-func TestAutoCompactSummaryOnlyCoversPrefix(t *testing.T) {
-	conv := conversation.NewManager()
-	for i := 0; i < 6; i++ {
-		conv.AddUserMessage("PREFIX-ONLY-CONTENT " + bigMsg(3000))
-		conv.AddAssistantMessage("PREFIX-ONLY-REPLY " + bigMsg(3000))
-	}
-	conv.AddUserMessage("TAIL-ONLY-MARKER")
-	conv.AddAssistantMessage("TAIL-ONLY-REPLY")
-
-	client := &stubSummaryClient{summary: "S"}
-	if _, err := autoCompact(context.Background(), conv, client, "", "", 200000, nil, nil); err != nil {
-		t.Fatalf("autoCompact error: %v", err)
-	}
-	if !client.streamCalled {
-		t.Fatalf("summarizer was never called")
-	}
-	if strings.Contains(client.lastPrompt, "TAIL-ONLY-MARKER") {
-		t.Errorf("summary prompt must not include the kept tail, but it did")
-	}
-	if !strings.Contains(client.lastPrompt, "PREFIX-ONLY-CONTENT") {
-		t.Errorf("summary prompt must include the summarized prefix, but it did not")
-	}
-}
-
-func TestComputeKeepStartIndexDoesNotSplitToolPair(t *testing.T) {
-	conv := conversation.NewManager()
-	for i := 0; i < 8; i++ {
-		conv.AddUserMessage(bigMsg(3000))
-		conv.AddAssistantMessage(bigMsg(3000))
-	}
-	conv.AddToolUseMessage("calling tool", "tu-1", "ReadFile", map[string]any{"path": "/x"})
-	conv.AddToolResultMessage("tu-1", bigMsg(9000), false)
 	msgs := conv.GetMessages()
-
-	keepStart := computeKeepStartIndex(msgs)
-	if keepStart <= 0 || keepStart >= len(msgs) {
-		t.Fatalf("keepStart=%d out of expected range (0, %d)", keepStart, len(msgs))
+	if !strings.Contains(msgs[0].Content, "use ReadFile to read the full session transcript: /path/session.jsonl") {
+		t.Errorf("transcript hint missing: %q", msgs[0].Content)
 	}
-	if hasToolResults(msgs[keepStart]) {
-		t.Fatalf("keepStart landed on a tool_result message (orphaned); keepStart=%d", keepStart)
+	if !strings.Contains(result.Boundary.Summary, "/path/session.jsonl") {
+		t.Errorf("boundary summary must keep the transcript hint: %q", result.Boundary.Summary)
 	}
-	keep := msgs[keepStart:]
-	openUses := map[string]bool{}
-	for _, m := range keep {
-		for _, tu := range m.ToolUses {
-			openUses[tu.ToolUseID] = true
-		}
-		for _, tr := range m.ToolResults {
-			if !openUses[tr.ToolUseID] {
-				t.Errorf("tool_result %s in kept tail has no matching tool_use in tail (pair split)", tr.ToolUseID)
-			}
-		}
+	if strings.Contains(result.Boundary.Summary, "Recently read files") {
+		t.Error("boundary summary must exclude the recovery attachment")
 	}
 }
 
-func TestAutoCompactDegradesWhenTooFewMessages(t *testing.T) {
-	conv := conversation.NewManager()
-	conv.AddUserMessage("just one")
-	conv.AddAssistantMessage("two")
-	before := conv.GetMessages()
-
-	client := &stubSummaryClient{summary: "S"}
-	msg, err := autoCompact(context.Background(), conv, client, "", "", 200000, nil, nil)
+func TestDoCompactRecoveryAttachment(t *testing.T) {
+	conv := populatedConversation()
+	client := &stubSummaryClient{summary: "SUM"}
+	recovery := NewRecoveryState()
+	recovery.RecordFileRead("/tmp/x.go", "package x")
+	result, err := doCompact(context.Background(), conv, client, recovery, []string{"Bash"}, nil, "", "")
 	if err != nil {
-		t.Fatalf("autoCompact error: %v", err)
+		t.Fatal(err)
 	}
-	if msg != "" {
-		t.Errorf("expected no-op (empty message) for too-few messages, got %q", msg)
+	msgs := conv.GetMessages()
+	if !strings.Contains(msgs[0].Content, RecoveryAttachmentDivider) ||
+		!strings.Contains(msgs[0].Content, "## Recently read files") ||
+		!strings.Contains(msgs[0].Content, "- Bash") {
+		t.Errorf("recovery attachment missing: %q", msgs[0].Content)
 	}
-	if client.streamCalled {
-		t.Errorf("summarizer should not be called when degrading to no-op")
+	if strings.Contains(result.Boundary.Summary, "Recently read files") {
+		t.Error("boundary must exclude the recovery attachment")
 	}
-	after := conv.GetMessages()
-	if len(before) != len(after) {
-		t.Errorf("conversation changed during no-op: before=%d after=%d", len(before), len(after))
+}
+
+func TestDoCompactConversationChanged(t *testing.T) {
+	conv := populatedConversation()
+	// Mutate the conversation mid-flight by wrapping the client.
+	mutating := &mutatingClient{stubSummaryClient: &stubSummaryClient{summary: "SUM"}, conv: conv}
+	_, err := doCompact(context.Background(), conv, mutating, nil, nil, nil, "", "")
+	if err == nil || err.Error() != CompactionConversationChangedError {
+		t.Errorf("err = %v", err)
 	}
-	for i := range before {
-		if before[i].Content != after[i].Content {
-			t.Errorf("message %d mutated during no-op", i)
+}
+
+type mutatingClient struct {
+	*stubSummaryClient
+	conv *conversation.Manager
+}
+
+func (c *mutatingClient) Stream(ctx context.Context, conv *conversation.Manager, tools []map[string]any) (<-chan llm.StreamEvent, <-chan error) {
+	c.conv.AddUserMessage("injected during compaction")
+	return c.stubSummaryClient.Stream(ctx, conv, tools)
+}
+
+func TestCollectSummaryValidation(t *testing.T) {
+	conv := conversation.NewManager()
+	conv.AddUserMessage("hello")
+
+	toolClient := &stubSummaryClient{toolCall: true}
+	if _, err := collectSummaryAttempt(context.Background(), toolClient, conv, nil); err == nil ||
+		err.Error() != CompactionToolCallError {
+		t.Errorf("tool call err = %v", err)
+	}
+
+	stopClient := &stubSummaryClient{stopReason: "max_tokens"}
+	if _, err := collectSummaryAttempt(context.Background(), stopClient, conv, nil); err == nil ||
+		!strings.Contains(err.Error(), "did not finish: max_tokens") {
+		t.Errorf("stop reason err = %v", err)
+	}
+
+	emptyClient := &stubSummaryClient{summary: "<summary></summary>"}
+	if _, err := collectSummaryAttempt(context.Background(), emptyClient, conv, nil); err == nil ||
+		err.Error() != CompactionEmptySummaryError {
+		t.Errorf("empty summary err = %v", err)
+	}
+
+	unterminated := &stubSummaryClient{summary: "<summary>no close"}
+	if _, err := collectSummaryAttempt(context.Background(), unterminated, conv, nil); err == nil ||
+		err.Error() != CompactionEmptySummaryError {
+		t.Errorf("unterminated err = %v", err)
+	}
+}
+
+func TestManageContextCircuitBreakerAndSkip(t *testing.T) {
+	// populatedConversation estimates ~41.2k tokens; with contextWindow
+	// 60000 / maxOutput 10000 the effective window is 50000 and the
+	// thresholds land at auto=37500 and hard=47000, so the run sits between
+	// them (not forced).
+	conv := populatedConversation()
+	tracking := &AutoCompactTrackingState{ConsecutiveFailures: MaxConsecutiveFailures}
+	result, err := ManageContext(context.Background(), conv, &stubSummaryClient{}, 60000, 10000, tracking, nil, nil, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Compacted || !strings.Contains(result.Message, "Auto-compact circuit breaker: 3 consecutive failures") {
+		t.Errorf("circuit breaker result = %+v", result)
+	}
+
+	// Below the threshold: no message.
+	small := conversation.NewManager()
+	small.AddUserMessage("tiny")
+	result, err = ManageContext(context.Background(), small, &stubSummaryClient{}, 200000, 32000, nil, nil, nil, nil, "")
+	if err != nil || result.Compacted || result.Message != "" {
+		t.Errorf("below-threshold result = %+v err=%v", result, err)
+	}
+
+	// Failure increments the breaker and reports the failure message.
+	tracking = &AutoCompactTrackingState{}
+	failing := &stubSummaryClient{failErr: errors.New("boom")}
+	result, err = ManageContext(context.Background(), conv, failing, 60000, 10000, tracking, nil, nil, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result.Message, "Auto-compact failed: boom") || tracking.ConsecutiveFailures != 1 {
+		t.Errorf("failure result = %+v failures = %d", result, tracking.ConsecutiveFailures)
+	}
+}
+
+func TestComputeKeepStartIndex(t *testing.T) {
+	var msgs []conversation.Message
+	for i := 0; i < 6; i++ {
+		msgs = append(msgs, conversation.Message{Role: "user", Content: bigMsg(3000)})
+		msgs = append(msgs, conversation.Message{Role: "assistant", Content: bigMsg(3000)})
+	}
+	msgs = append(msgs,
+		conversation.Message{Role: "user", Content: "recent-a"},
+		conversation.Message{Role: "assistant", Content: "recent-b"},
+	)
+	keepStart := ComputeKeepStartIndex(msgs)
+	if keepStart <= 0 || keepStart >= len(msgs) {
+		t.Fatalf("keepStart = %d", keepStart)
+	}
+	kept := msgs[keepStart:]
+	if len(kept) < MinKeepMessages {
+		t.Errorf("kept %d messages, want >= %d", len(kept), MinKeepMessages)
+	}
+	if kept[len(kept)-1].Content != "recent-b" {
+		t.Error("tail must reach the last message")
+	}
+}
+
+func TestBackUpPastToolUse(t *testing.T) {
+	msgs := []conversation.Message{
+		{Role: "user", Content: "old"},
+		{Role: "assistant", Content: "", ToolUses: []conversation.ToolUseBlock{{ToolUseID: "t1", ToolName: "Bash"}}},
+		{Role: "user", Content: "", ToolResults: []conversation.ToolResultBlock{{ToolUseID: "t1", Content: "ok"}}},
+		{Role: "assistant", Content: "done"},
+	}
+	// Boundary lands on the tool_result user message; must back up to the
+	// assistant message carrying the matching tool_use.
+	if got := backUpPastToolUse(msgs, 2); got != 1 {
+		t.Errorf("backUp = %d, want 1", got)
+	}
+	// Clean boundary stays put.
+	if got := backUpPastToolUse(msgs, 3); got != 3 {
+		t.Errorf("clean boundary = %d, want 3", got)
+	}
+}
+
+func TestGroupMessagesByAPIRound(t *testing.T) {
+	msgs := []conversation.Message{
+		{Role: "user", Content: "a"},
+		{Role: "assistant", Content: "b"},
+		{Role: "user", Content: "c"},
+		{Role: "assistant", Content: "d"},
+		{Role: "user", Content: "e"},
+	}
+	groups := groupMessagesByAPIRound(msgs)
+	// Each new assistant reply starts a new group: [a,b,c] then [d,e].
+	if len(groups) != 2 {
+		t.Fatalf("groups = %d, want 2", len(groups))
+	}
+	if len(groups[0]) != 3 || len(groups[1]) != 2 {
+		t.Errorf("group sizes = %d %d", len(groups[0]), len(groups[1]))
+	}
+}
+
+func TestTruncateHeadForPTL(t *testing.T) {
+	var prefix []conversation.Message
+	for i := 0; i < 10; i++ {
+		prefix = append(prefix, conversation.Message{Role: "user", Content: bigMsg(100)})
+		prefix = append(prefix, conversation.Message{Role: "assistant", Content: bigMsg(100)})
+	}
+	truncated := truncateHeadForPTL(prefix, 0)
+	if truncated == nil {
+		t.Fatal("expected truncation")
+	}
+	if len(truncated) >= len(prefix) {
+		t.Errorf("truncated %d >= original %d", len(truncated), len(prefix))
+	}
+	if truncated[0].Role != "user" {
+		t.Errorf("first message role = %s, want user (PTL marker)", truncated[0].Role)
+	}
+	if truncated[0].Content != PTLRetryMarker {
+		t.Errorf("marker = %q", truncated[0].Content)
+	}
+	// Single group cannot be truncated.
+	if got := truncateHeadForPTL(prefix[:2], 10); got != nil {
+		t.Errorf("single group must return nil, got %v", got)
+	}
+}
+
+func TestSerializePrefixText(t *testing.T) {
+	msgs := []conversation.Message{
+		{Role: "user", Content: "hello"},
+		{Role: "assistant", Content: "calling", ToolUses: []conversation.ToolUseBlock{{ToolUseID: "t1", ToolName: "Bash", Arguments: map[string]any{"command": "ls"}}}},
+		{Role: "user", Content: "", ToolResults: []conversation.ToolResultBlock{{ToolUseID: "t1", Content: "file.txt", IsError: true}}},
+	}
+	text := serializePrefixText(msgs)
+	for _, want := range []string{
+		"[user]: hello",
+		"[assistant]: calling\n[tool calls]\nt1 Bash {\"command\":\"ls\"}",
+		"[tool results]\nt1 (error): file.txt",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("missing %q in:\n%s", want, text)
 		}
 	}
 }
 
-func msgContents(msgs []conversation.Message) []string {
-	out := make([]string, len(msgs))
-	for i, m := range msgs {
-		c := m.Content
-		if len(c) > 40 {
-			c = c[:40] + "..."
-		}
-		out[i] = c
+func TestEstimateMessages(t *testing.T) {
+	msgs := []conversation.Message{
+		{Role: "user", Content: strings.Repeat("x", 350)},
+		{Role: "assistant", Content: "", ToolUses: []conversation.ToolUseBlock{{ToolUseID: "t", ToolName: "Bash", Arguments: map[string]any{}}}},
+		{Role: "user", Content: "", ToolResults: []conversation.ToolResultBlock{{ToolUseID: "t", Content: strings.Repeat("y", 350)}}},
+		{Role: "assistant", Content: "", ThinkingBlocks: []conversation.ThinkingBlock{{Type: "thinking", Thinking: strings.Repeat("z", 350)}}},
 	}
-	return out
+	if got := EstimateMessages(msgs); got < 300 {
+		t.Errorf("estimate = %d", got)
+	}
+	if got := EstimateMessages(nil); got != 0 {
+		t.Errorf("empty estimate = %d", got)
+	}
 }

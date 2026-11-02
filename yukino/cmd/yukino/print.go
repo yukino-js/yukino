@@ -3,15 +3,20 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/yukino-js/yukino/yukino/internal/agent"
+	"github.com/yukino-js/yukino/yukino/internal/bootstrap"
+	"github.com/yukino-js/yukino/yukino/internal/commands"
 	"github.com/yukino-js/yukino/yukino/internal/config"
 	"github.com/yukino-js/yukino/yukino/internal/conversation"
 	"github.com/yukino-js/yukino/yukino/internal/file_history"
+	"github.com/yukino-js/yukino/yukino/internal/goal"
 	"github.com/yukino-js/yukino/yukino/internal/history"
 	"github.com/yukino-js/yukino/yukino/internal/hooks"
 	"github.com/yukino-js/yukino/yukino/internal/llm"
@@ -25,8 +30,13 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/teams"
 	"github.com/yukino-js/yukino/yukino/internal/todo"
 	"github.com/yukino-js/yukino/yukino/internal/tools"
+	"github.com/yukino-js/yukino/yukino/internal/workflow"
 	"github.com/yukino-js/yukino/yukino/internal/worktree"
 )
+
+// errGoalCommand signals that a /goal print-mode invocation failed; main exits
+// with code 1 without printing an extra error since the message is already shown.
+var errGoalCommand = errors.New("goal command failed")
 
 type printResult struct {
 	Type       string         `json:"type"`
@@ -75,10 +85,53 @@ func parsePrintFlags(args []string) (string, string, bool) {
 func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookConfig, outputFormat string) error {
 	p := config.ResolveDefaultProvider(cfg.Providers, cfg.DefaultProvider)
 	wd, _ := os.Getwd()
+	startTime := time.Now()
+	isJSON := outputFormat == "stream-json"
 
-	defaultTools := tools.CreateDefaultTools()
-	registry := defaultTools.Registry
-	defer registry.Dispose()
+	sessionID := session.NewID()
+	goalManager := goal.NewGoalManager(wd, sessionID)
+
+	// The goal command runs before any runtime chunk is built, mirroring the
+	// reference maintenance-mode fast path.
+	cmdName, cmdArgs, isCmd := commands.Parse(userPrompt)
+	var commandName *string
+	if isCmd && cmdName == "goal" {
+		goalName := "goal"
+		commandName = &goalName
+	}
+	input, err := history.RecordInput(history.InputOptions{Cwd: wd, SessionID: &sessionID, Source: "print", Text: userPrompt, CommandName: commandName})
+	if err != nil {
+		return err
+	}
+	if isCmd && cmdName == "goal" {
+		result := goal.HandleGoalCommand(goalManager, cmdArgs)
+		if isJSON {
+			emitJSON(map[string]any{"type": "goal", "message": result.Message, "goal": goalManager.Get()})
+		} else {
+			fmt.Println(result.Message)
+		}
+		if result.Prompt == "" {
+			if isJSON {
+				emitJSON(printResult{Type: "result", Result: result.Message, DurationMs: time.Since(startTime).Milliseconds(), NumTurns: 0, ToolCalls: []toolCallInfo{}, Usage: usageInfo{}})
+			}
+			if result.IsError {
+				return errGoalCommand
+			}
+			return nil
+		}
+		userPrompt = result.Prompt
+	}
+
+	if isCmd && cmdName == "ultracode" {
+		userPrompt = workflow.UltracodePrompt + "\n\nTask: " + cmdArgs
+	} else if isCmd {
+		for _, name := range workflow.ListNamedWorkflows(filepath.Join(wd, workflow.WorkflowDirName)) {
+			if name == cmdName {
+				userPrompt = workflow.BuildNamedWorkflowPrompt(cmdName, cmdArgs)
+				break
+			}
+		}
+	}
 
 	skillCatalog := skills.LoadCatalog(wd)
 	instructionsContent := loadPrintInstructions(wd)
@@ -95,17 +148,13 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 	}
 
 	conv := conversation.NewManager()
-	sessionID := session.NewID()
 	fh := file_history.New(sessionID)
-	defaultTools.EditFile.FileHistory = fh
-	defaultTools.WriteFile.FileHistory = fh
 
 	taskMgr := subagent.NewTaskManager()
 	if err := taskMgr.UseSession(sessionID); err != nil {
 		return err
 	}
 	defer taskMgr.StopAll(context.Background())
-	tools.AttachBackgroundTaskManager(registry, taskMgr)
 	store, err := todo.NewStore(sessionID)
 	if err != nil {
 		return err
@@ -117,12 +166,33 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 	loader := subagent.NewAgentLoader()
 	loader.LoadAll()
 
-	registry.Register(&tools.ToolSearchTool{Registry: registry})
-	registry.Register(&tools.McpCallTool{Registry: registry})
-
 	teamMgr := teams.NewTeamManager(wd)
 	teamMgr.CoordinatorMode = cfg.EnableCoordinatorMode
-	registry.Register(&teams.TeamTodoWriteTool{TeamMgr: teamMgr, Fallback: todoList})
+	gitRoot := worktree.FindCanonicalGitRoot(wd)
+
+	defaultTools := bootstrap.CreateToolRegistry(todoList, bootstrap.ToolRegistryOptions{
+		InteractionMode: "non-interactive",
+		TeamMgr:         teamMgr,
+		WorkDir:         wd,
+		SessionID:       sessionID,
+		RepoRoot:        gitRoot,
+		GoalManager:     func() *goal.GoalManager { return goalManager },
+	})
+	registry := defaultTools.Registry
+	defer registry.Dispose()
+	defaultTools.EditFile.FileHistory = fh
+	defaultTools.WriteFile.FileHistory = fh
+
+	// Print mode intentionally bypasses permission prompts.
+	checker := permissions.NewChecker(
+		permissions.NewPathSandbox(wd, true),
+		permissions.NewRuleEngine(wd),
+		permissions.ModeBypass,
+	)
+	bootstrap.ConfigureBashSandbox(registry, wd, cfg.Sandbox, checker)
+	teamMgr.SetPermissionChecker(checker)
+
+	tools.AttachBackgroundTaskManager(registry, taskMgr)
 	registry.Register(&teams.TeamCreateTool{TeamMgr: teamMgr})
 	registry.Register(&teams.TeamDeleteTool{TeamMgr: teamMgr})
 	registry.Register(&teams.TeamListTool{TeamMgr: teamMgr})
@@ -164,8 +234,49 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 		Loader:        loader,
 		Conversation:  conv,
 		TeamMgr:       teamMgr,
-		ForkDisabled:  !cfg.ForkEnabled(),
 	})
+	workflow.AttachWorkflow(workflow.WorkflowServiceOptions{
+		WorkflowBackendOptions: workflow.WorkflowBackendOptions{
+			Registry:    registry,
+			GetClient:   func() llm.Client { return client },
+			GetProvider: func() *config.ProviderConfig { return p },
+		},
+		Cwd:         wd,
+		TaskManager: taskMgr,
+	})
+
+	if isCmd && cmdName == "workflows" {
+		service := workflow.GetWorkflowService(registry)
+		message := "Workflow service is not initialized"
+		if service != nil {
+			hostCtx := tools.WithExecutionContext(context.Background(), tools.ExecutionContext{
+				WorkDir:   wd,
+				SessionID: sessionID,
+				Plan:      &tools.PlanContext{Owner: checker},
+			})
+			result, err := service.Command(cmdArgs, hostCtx)
+			if err != nil {
+				return err
+			}
+			message = result
+		}
+		if !isJSON {
+			fmt.Printf("%s\n", message)
+		}
+		_ = taskMgr.WaitAll(context.Background(), func(task tools.BackgroundTask) bool { return task.Kind != "shell" })
+		for _, task := range taskMgr.DrainNotifications() {
+			notification := subagent.FormatAgentTaskNotification(task)
+			if isJSON {
+				emitJSON(map[string]any{"type": "task_notification", "notification": notification})
+			} else {
+				fmt.Printf("%s\n", notification)
+			}
+		}
+		if isJSON {
+			emitJSON(printResult{Type: "result", Result: message, DurationMs: time.Since(startTime).Milliseconds(), NumTurns: 0, ToolCalls: []toolCallInfo{}, Usage: usageInfo{}})
+		}
+		return nil
+	}
 
 	ag := agent.New(client, registry, p.Protocol)
 	ag.ContextWindow = config.GetContextWindow(p)
@@ -175,19 +286,14 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 	ag.SkillSection = skillSection
 	ag.FileHistory = fh
 	ag.SetSessionID(sessionID)
-
-	ag.Checker = permissions.NewChecker(
-		permissions.NewPathSandbox(wd, true),
-		permissions.NewRuleEngine(wd),
-		permissions.ModeBypass,
-	)
+	ag.GoalManager = goalManager
+	ag.Checker = checker
 
 	if len(hookCfgs) > 0 {
 		eng := hooks.NewEngine(hookCfgs)
 		ag.Hooks = eng
 	}
 
-	teamMgr.SetPermissionChecker(ag.Checker)
 	ag.NotificationFn = func() []string {
 		var messages []string
 		for _, task := range taskMgr.DrainNotifications() {
@@ -202,14 +308,6 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 		at.ParentChecker = ag.Checker
 	}
 
-	gitRoot := worktree.FindCanonicalGitRoot(wd)
-	registry.Register(&tools.EnterWorktreeTool{SessionID: sessionID, RepoRoot: gitRoot})
-	registry.Register(&tools.ExitWorktreeTool{RepoRoot: gitRoot})
-
-	input, err := history.RecordInput(history.InputOptions{Cwd: wd, SessionID: &sessionID, Source: "print", Text: userPrompt})
-	if err != nil {
-		return err
-	}
 	recorded, err := session.SaveUserMessage(wd, sessionID, input, session.Message{Content: conversation.ExpandAtRefs(userPrompt, wd)})
 	if err != nil {
 		return err
@@ -218,11 +316,9 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 	ctx := context.Background()
 	ch := ag.Run(ctx, conv)
 
-	start := time.Now()
 	var textBuf string
 	var totalInput, totalOutput int
 	var toolCalls []toolCallInfo
-	isJSON := outputFormat == "stream-json"
 
 	for ev := range ch {
 		switch e := ev.(type) {
@@ -280,7 +376,7 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 			}
 
 		case agent.LoopComplete:
-			elapsed := time.Since(start)
+			elapsed := time.Since(startTime)
 			if isJSON {
 				emitJSON(printResult{
 					Type:       "result",

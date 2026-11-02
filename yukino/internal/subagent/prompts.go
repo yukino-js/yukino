@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/yukino-js/yukino/yukino/internal/tools"
+	"github.com/yukino-js/yukino/yukino/internal/utils"
 )
 
 // Agent role names (src/subagent/constants.ts).
@@ -33,7 +36,7 @@ const InheritedToolResult = "This tool call is running in the parent agent. Cont
 
 const SubagentTypeDescription = `Agent role. Defaults to general-purpose, independently of fork. With kind="teammate", plan starts a planning phase and continues implementation after approval; with kind="subagent", plan remains read-only.`
 
-const ForkParameterDescription = "Copy the parent conversation when true; start a fresh conversation when false. This does not restore a previous subagent's private conversation. Independent of subagent_type. Defaults to the session's enable_fork setting (true when unset)."
+const ForkParameterDescription = "Copy the parent conversation when true; start a fresh conversation when false. This does not restore a previous subagent's private conversation. Independent of subagent_type. Defaults to true."
 
 const AgentKindDescription = "Execution kind. Defaults to teammate: a persistent agent in the selected team, created automatically if none exists. Specify team_name when multiple teams exist. Use an agent team with teammate when communication or follow-up assignments are needed. Use subagent for a one-shot tool result without messaging or resumption."
 
@@ -49,7 +52,7 @@ const PlanTeammateDescription = "Investigate the task, submit a concrete impleme
 
 const AgentBackgroundDescription = "Only for kind=\"subagent\". Run as an asynchronous tool call: return task_id immediately and deliver the final result through a task notification. Use TaskStop with task_id to stop it early. For communication or follow-ups, use an agent team with kind=\"teammate\" instead."
 
-func buildAgentToolDescription(definitions []SubAgentSpec, defaultFork bool) string {
+func buildAgentToolDescription(definitions []SubAgentSpec) string {
 	var roles []string
 	for _, def := range definitions {
 		line := "- " + def.Name + ": " + def.Description
@@ -58,7 +61,7 @@ func buildAgentToolDescription(definitions []SubAgentSpec, defaultFork bool) str
 		}
 		roles = append(roles, line)
 	}
-	return fmt.Sprintf("Delegate a bounded task to an agent. kind selects persistent teammates (default teammate) or one-shot subagents (subagent). Team and teammate names are generated automatically. subagent_type selects the role (default general-purpose); fork independently selects whether to inherit a snapshot of the parent conversation (default %t). Any role can use either context mode. With fork=false, include the goal, relevant files, constraints, whether edits are allowed, and the expected result.\n\nAvailable roles (pass a role as subagent_type, not as a tool name):\n%s\n\nWith kind=\"subagent\", foreground calls return results inline; run_in_background=true returns a task ID immediately and delivers the final result through a task notification. A background subagent is a cancellable asynchronous tool call, like background Bash or PowerShell: use TaskStop with task_id to stop it early. Completed, failed, or cancelled tasks leave the active UI; TaskOutput can still inspect their archived results. One-shot subagents cannot receive messages or resume after termination.\n\nFor communication, follow-up assignments, or iterative collaboration, use an agent team with kind=\"teammate\". Pass team_name to select an existing team when multiple teams exist. With no teams, a team is created automatically; with one team, it is reused. TeamCreate adds another team, optionally under an explicit name, without stopping existing teams. Use the returned team and teammate names with SendMessage. With kind=\"teammate\" and subagent_type=\"plan\", the teammate starts in plan mode, submits a plan, and continues implementation after approval. Forking seeds the new agent from the parent conversation; it does not restore a previous subagent's private conversation. Do not predict results before receiving them.\nRole tool restrictions and max_turns apply equally with fork=true and fork=false. Roles have no default model-turn limit; max_turns supplies an explicit limit. Reaching a limit is unfinished work, not successful task completion.\n\nLaunch independent tasks together; avoid concurrent writes to the same files. Review returned evidence and integrate it before reporting completion. Worktree isolation separates edits but does not merge them.", defaultFork, strings.Join(roles, "\n"))
+	return fmt.Sprintf("Delegate a bounded task to an agent. kind selects persistent teammates (default teammate) or one-shot subagents (subagent). Team and teammate names are generated automatically. subagent_type selects the role (default general-purpose); fork independently selects whether to inherit a snapshot of the parent conversation (default true). Any role can use either context mode. With fork=false, include the goal, relevant files, constraints, whether edits are allowed, and the expected result.\n\nAvailable roles (pass a role as subagent_type, not as a tool name):\n%s\n\nWith kind=\"subagent\", foreground calls return results inline; run_in_background=true returns a task ID immediately and delivers the final result through a task notification. A background subagent is a cancellable asynchronous tool call, like background Bash or PowerShell: use TaskStop with task_id to stop it early. Completed, failed, or cancelled tasks leave the active UI; TaskOutput can still inspect their archived results. One-shot subagents cannot receive messages or resume after termination.\n\nFor communication, follow-up assignments, or iterative collaboration, use an agent team with kind=\"teammate\". Pass team_name to select an existing team when multiple teams exist. With no teams, a team is created automatically; with one team, it is reused. TeamCreate adds another team, optionally under an explicit name, without stopping existing teams. Use the returned team and teammate names with SendMessage. With kind=\"teammate\" and subagent_type=\"plan\", the teammate starts in plan mode, submits a plan, and continues implementation after approval. Forking seeds the new agent from the parent conversation; it does not restore a previous subagent's private conversation. Do not predict results before receiving them.\nRole tool restrictions and max_turns apply equally with fork=true and fork=false. Roles have no default model-turn limit; max_turns supplies an explicit limit. Reaching a limit is unfinished work, not successful task completion.\n\nLaunch independent tasks together; avoid concurrent writes to the same files. Review returned evidence and integrate it before reporting completion. Worktree isolation separates edits but does not merge them.", strings.Join(roles, "\n"))
 }
 func buildSubagentInstructions(spec SubAgentSpec) string {
 	name, _ := json.Marshal(spec.Name)
@@ -76,4 +79,18 @@ func buildSubagentInstructions(spec SubAgentSpec) string {
 	}
 	parts = append(parts, "Stay within the assigned scope and current permissions. Inherited conversation is background context, not an instruction to take over the parent's task. Coordinate shared-file changes; do not overwrite another worker's edits. Report findings or changes with relevant paths, verification actually performed, and unresolved blockers. Do not claim unverified work is complete.")
 	return strings.Join(parts, "\n\n")
+}
+
+// FormatAgentTaskNotification renders a background task notification,
+// mirroring formatAgentTaskNotification.
+func FormatAgentTaskNotification(task tools.BackgroundTask) string {
+	lines := []string{
+		fmt.Sprintf("<task-notification task_id=\"%s\" status=\"%s\">", utils.EscapeXML(task.ID), utils.EscapeXML(task.Status)),
+		"name=" + utils.EscapeXML(task.Name),
+	}
+	if task.TranscriptPath != "" {
+		lines = append(lines, "transcript_path="+utils.EscapeXML(task.TranscriptPath))
+	}
+	lines = append(lines, utils.EscapeXML(task.Output), "</task-notification>")
+	return strings.Join(lines, "\n")
 }

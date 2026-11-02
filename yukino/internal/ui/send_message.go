@@ -20,8 +20,12 @@ func (m Model) sendMessage(text string) (tea.Model, tea.Cmd) {
 	if err != nil {
 		return m.inputError(err)
 	}
-	expanded := conversation.ExpandAtRefs(text, wd)
-	recorded, err := session.SaveUserMessage(wd, m.sessionID, input, session.Message{Content: expanded})
+	expanded, blocks := conversation.ExpandAtRefsWithImages(text, wd)
+	userRecord := session.Message{Content: expanded}
+	if blocks != nil {
+		userRecord = session.Message{ContentBlocks: blocks}
+	}
+	recorded, err := session.SaveUserMessage(wd, m.sessionID, input, userRecord)
 	if err != nil {
 		return m.inputError(err)
 	}

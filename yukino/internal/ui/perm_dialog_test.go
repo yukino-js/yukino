@@ -13,7 +13,7 @@ import (
 func newPermDialogModel(t *testing.T) (Model, chan agent.PermissionReply) {
 	t.Helper()
 	provider := config.ProviderConfig{Name: "test", Protocol: "anthropic", Model: "m", APIKey: "k"}
-	m := New([]config.ProviderConfig{provider}, nil, nil, nil, 0)
+	m := New([]config.ProviderConfig{provider}, nil, nil, nil, 0, "", true)
 	ch := make(chan agent.PermissionReply, 1)
 	updated, _ := m.handleAgentEvent(agent.PermissionRequestEvent{ToolName: "Bash", Desc: "rm -rf build", ResponseCh: ch})
 	return updated.(Model), ch

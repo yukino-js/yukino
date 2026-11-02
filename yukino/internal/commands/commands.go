@@ -7,6 +7,7 @@ import (
 
 	"github.com/yukino-js/yukino/yukino/internal/config"
 	"github.com/yukino-js/yukino/yukino/internal/subagent"
+	"github.com/yukino-js/yukino/yukino/internal/workflow"
 )
 
 type CommandType string
@@ -164,6 +165,20 @@ func CreateDefaultRegistry() *Registry {
 	r := NewRegistry()
 
 	r.Register(&Command{
+		Name:        "workflows",
+		Type:        TypeLocalUI,
+		Description: workflow.WorkflowCommandDescription,
+		Handler:     func(ctx *Context) string { return "workflows" },
+	})
+	r.Register(&Command{
+		Name:        "ultracode",
+		Type:        TypePrompt,
+		Description: "Orchestrate and verify a task with workflow subagents",
+		Handler: func(ctx *Context) string {
+			return workflow.UltracodePrompt + "\n\nTask: " + ctx.Args
+		},
+	})
+	r.Register(&Command{
 		Name:        "login",
 		Type:        TypeLocalUI,
 		Description: "Configure, save, and activate LLM provider",
@@ -256,6 +271,12 @@ func CreateDefaultRegistry() *Registry {
 		Agent:       subagent.PlanAgentName,
 		Description: "Plan the current task in a foreground agent",
 		Handler:     func(ctx *Context) string { return BuildPlanPrompt(ctx.Args) },
+	})
+	r.Register(&Command{
+		Name:        "goal",
+		Type:        TypePrompt,
+		Description: "Set or view a persistent goal that drives auto-continuation across turns; status, pause, resume, continue, complete, clear, replace; --budget <tokens>",
+		Handler:     func(ctx *Context) string { return strings.TrimSpace("/goal " + ctx.Args) },
 	})
 	r.Register(&Command{
 		Name:        "resume",
@@ -369,4 +390,15 @@ func CreateDefaultRegistry() *Registry {
 
 func isCommandSpace(r rune) bool {
 	return r == '\u0009' || r == '\u000a' || r == '\u000b' || r == '\u000c' || r == '\u000d' || r == '\u0020' || r == '\u00a0' || r == '\u1680' || r >= '\u2000' && r <= '\u200a' || r == '\u2028' || r == '\u2029' || r == '\u202f' || r == '\u205f' || r == '\u3000' || r == '\ufeff'
+}
+
+// Has reports whether a command is registered.
+func (r *Registry) Has(name string) bool { return r.Find(name) != nil }
+
+// RegisterPromptCommand registers a prompt-type command; used by the
+// workflow service for named workflows.
+func (r *Registry) RegisterPromptCommand(name, description string, handler func(args string) string) {
+	r.Register(&Command{Name: name, Type: TypePrompt, Description: description, Handler: func(ctx *Context) string {
+		return handler(ctx.Args)
+	}})
 }

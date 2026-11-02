@@ -6,17 +6,24 @@ import (
 	"os"
 	"strings"
 
+	"strconv"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/yukino-js/yukino/yukino/internal/bootstrap"
 	"github.com/yukino-js/yukino/yukino/internal/commands"
 	"github.com/yukino-js/yukino/yukino/internal/compact"
 	"github.com/yukino-js/yukino/yukino/internal/config"
 	"github.com/yukino-js/yukino/yukino/internal/file_history"
 	"github.com/yukino-js/yukino/yukino/internal/llm"
+	"github.com/yukino-js/yukino/yukino/internal/memory"
+	"github.com/yukino-js/yukino/yukino/internal/permissions"
+	"github.com/yukino-js/yukino/yukino/internal/sandbox"
 	"github.com/yukino-js/yukino/yukino/internal/session"
 	"github.com/yukino-js/yukino/yukino/internal/skills"
 	"github.com/yukino-js/yukino/yukino/internal/teams"
 	"github.com/yukino-js/yukino/yukino/internal/todo"
+	"github.com/yukino-js/yukino/yukino/internal/tools"
 )
 
 func (m Model) buildCommandContext(args string) *commands.Context {
@@ -101,16 +108,12 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 	// The TUI intercepts these commands by name and renders the real status
 	// itself; the registry handlers are placeholders.
 	switch name {
+	case "status":
+		m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: m.buildSessionStatus()})
+		m.updateViewport()
+		return m, nil
 	case "memory":
-		memories := []string{}
-		if m.memoryMgr != nil {
-			memories = m.memoryMgr.GetMemories()
-		}
-		content := fmt.Sprintf("Auto-memory: %d entries", len(memories))
-		if m.memoryMgr != nil {
-			content += fmt.Sprintf("\nProject: %s\nUser: %s", m.memoryMgr.Dir(), m.memoryMgr.UserDir())
-		}
-		m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: content})
+		m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: m.buildMemoryStatus(args)})
 		m.updateViewport()
 		return m, nil
 	case "mcp":
@@ -149,6 +152,8 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 		m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: sb.String()})
 		m.updateViewport()
 		return m, nil
+	case "goal":
+		return m.runGoalCommand(args)
 	}
 
 	switch cmd.Type {
@@ -181,6 +186,7 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 			if m.ag != nil {
 				m.ag.FileHistory = m.fileHistory
 				m.ag.SetSessionID(m.sessionID)
+				m.ag.GoalManager = m.currentGoal()
 			}
 			store, err := todo.NewStore(m.sessionID)
 			if err != nil {
@@ -210,10 +216,6 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 			m.updateViewport()
 			client := m.client
 			conv := m.conversation
-			window := 200000
-			if m.selectedProvider != nil {
-				window = config.GetContextWindow(m.selectedProvider)
-			}
 			var recovery *compact.RecoveryState
 			var schemas []map[string]any
 			if m.ag != nil {
@@ -222,9 +224,24 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 			}
 			compactWD, _ := os.Getwd()
 			compactSessionID := m.sessionID
+			names := make([]string, 0, len(schemas))
+			for _, schema := range schemas {
+				if name := tools.SchemaName(schema); name != "" {
+					names = append(names, name)
+				}
+			}
+			sessionFilePath := session.SessionFilePath(compactWD, compactSessionID)
+			customInstructions := args
 			return m, func() tea.Msg {
-				msg, err := compact.ForceCompact(context.Background(), conv, client, compactWD, compactSessionID, window, recovery, schemas)
-				return compactDoneMsg{message: msg, err: err}
+				result, err := compact.ForceCompact(context.Background(), conv, client, recovery, names, schemas, sessionFilePath, customInstructions)
+				if err == nil && result.Boundary != nil {
+					_ = session.SaveCompactBoundary(compactWD, compactSessionID, result.Boundary.Summary, result.Boundary.Keep)
+				}
+				message := ""
+				if err == nil {
+					message = result.Message
+				}
+				return compactDoneMsg{message: message, err: err}
 			}
 		case "resume":
 			return m.handleResume(args)
@@ -298,9 +315,7 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 				if err != nil && skill == nil {
 					return forkSkillDoneMsg{name: skillName, err: err}
 				}
-				if m.ag != nil {
-					m.ag.RecoveryState.RecordSkillInvocation(skill.Meta.Name, skill.PromptBody)
-				}
+				m.ActivateSkill(skill.Meta.Name, skill.PromptBody)
 				result, runErr := skills.RunFork(context.Background(), skill, skillArgs, m)
 				return forkSkillDoneMsg{name: skillName, result: result, err: runErr}
 			},
@@ -321,4 +336,92 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 	})
 	m.updateViewport()
 	return m, nil
+}
+
+// buildSessionStatus renders the rich /status block (src/ui/app.tsx parity:
+// provider, sandbox, MCP, session).
+func (m Model) buildSessionStatus() string {
+	permMode := string(permissions.ModeDefault)
+	sandboxEnabled, sandboxAutoAllow := false, false
+	if m.ag != nil && m.ag.Checker != nil {
+		permMode = string(m.ag.Checker.Mode())
+		sandboxEnabled = m.ag.Checker.SandboxEnabled
+		sandboxAutoAllow = m.ag.Checker.SandboxAutoAllow
+	}
+	var model, providerName, protocol string
+	if m.selectedProvider != nil {
+		model = m.selectedProvider.Model
+		providerName = m.selectedProvider.Name
+		protocol = m.selectedProvider.Protocol
+	}
+	sbStatus := "OFF"
+	if sandboxEnabled {
+		sb := sandbox.New()
+		state := "blocked"
+		if sb != nil && sb.Available() {
+			state = "ready"
+		}
+		label := "ON (manual)"
+		if sandboxAutoAllow {
+			label = "ON (auto-allow)"
+		}
+		sbStatus = label + ", " + state
+	}
+	memories := "disabled (enable_memory: false)"
+	if m.memoryEnabled {
+		count := 0
+		if m.memoryMgr != nil {
+			count = len(m.memoryMgr.GetMemories())
+		}
+		memories = strconv.Itoa(count)
+	}
+	skillCount := 0
+	if m.skillCatalog != nil {
+		skillCount = len(m.skillCatalog.List())
+	}
+	mcpServers := 0
+	if m.mcpMgr != nil {
+		mcpServers = len(m.mcpMgr.ConnectedServers())
+	}
+	wd, _ := os.Getwd()
+	lines := []string{
+		"Mode:      " + permMode,
+		"Model:     " + model,
+		fmt.Sprintf("Provider:  %s (%s)", providerName, protocol),
+		fmt.Sprintf("Tokens:    %d in / %d out", m.totalInput, m.totalOutput),
+		fmt.Sprintf("Tools:     %d", len(m.registry.ListTools())),
+		"Sandbox:   " + sbStatus,
+		"Memories:  " + memories,
+		fmt.Sprintf("Skills:    %d", skillCount),
+		fmt.Sprintf("MCP:       %d server(s), %d tool(s)", mcpServers, bootstrap.CountMcpTools(m.registry)),
+		"Session:   " + m.sessionID,
+		"Directory: " + wd,
+	}
+	return strings.Join(lines, "\n")
+}
+
+// buildMemoryStatus renders /memory output (src/ui/app.tsx parity).
+func (m Model) buildMemoryStatus(args string) string {
+	if !m.memoryEnabled {
+		return "Auto memory is disabled (enable_memory: false in config.yaml)."
+	}
+	sub := ""
+	if fields := strings.Fields(strings.TrimSpace(args)); len(fields) > 0 {
+		sub = fields[0]
+	}
+	wd, _ := os.Getwd()
+	mgr := memory.NewManager(wd)
+	if sub == "clear" {
+		mgr.Clear()
+		return "All memories cleared."
+	}
+	mems := mgr.GetMemories()
+	if len(mems) == 0 {
+		return "No memories saved yet. They are auto-extracted; /memory clear wipes them."
+	}
+	lines := make([]string, 0, len(mems))
+	for _, mem := range mems {
+		lines = append(lines, "  "+mem)
+	}
+	return fmt.Sprintf("Memories (%d):\n%s", len(mems), strings.Join(lines, "\n"))
 }

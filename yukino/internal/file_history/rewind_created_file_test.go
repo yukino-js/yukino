@@ -14,14 +14,14 @@ func TestRewindDeletesFileCreatedAfterTargetSnapshot(t *testing.T) {
 	}
 	h := New("session-1")
 
-	h.MakeSnapshot(0, "round one")
+	h.MakeSnapshot(0, "round one", nil)
 
 	newFile := filepath.Join(projectDir, "new_file.go")
 	h.TrackEdit(newFile)
 	if err := os.WriteFile(newFile, []byte("package main"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	h.MakeSnapshot(2, "round two: create file")
+	h.MakeSnapshot(2, "round two: create file", nil)
 
 	if _, err := os.Stat(newFile); err != nil {
 		t.Fatalf("newFile should exist before rewind: %v", err)
@@ -61,12 +61,12 @@ func TestRewindRestoresEditOnExistingFile(t *testing.T) {
 	}
 
 	h.TrackEdit(existing)
-	h.MakeSnapshot(0, "round one: snapshot before edit")
+	h.MakeSnapshot(0, "round one: snapshot before edit", nil)
 
 	if err := os.WriteFile(existing, []byte("modified"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	h.MakeSnapshot(2, "round two: content changed")
+	h.MakeSnapshot(2, "round two: content changed", nil)
 
 	changed, err := h.Rewind(0)
 	if err != nil {
@@ -93,14 +93,14 @@ func TestRewindToLatestSnapshotKeepsCreatedFile(t *testing.T) {
 	}
 	h := New("session-1")
 
-	h.MakeSnapshot(0, "round one")
+	h.MakeSnapshot(0, "round one", nil)
 
 	newFile := filepath.Join(projectDir, "new_file.go")
 	h.TrackEdit(newFile)
 	if err := os.WriteFile(newFile, []byte("package main"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	h.MakeSnapshot(2, "round two: create file")
+	h.MakeSnapshot(2, "round two: create file", nil)
 
 	if _, err := h.Rewind(1); err != nil {
 		t.Fatal(err)

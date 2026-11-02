@@ -12,6 +12,7 @@ import (
 
 	"github.com/goccy/go-yaml"
 
+	"github.com/yukino-js/yukino/yukino/internal/logger"
 	"github.com/yukino-js/yukino/yukino/internal/storage"
 )
 
@@ -93,17 +94,14 @@ type AppConfig struct {
 	Hooks                 []HookConfig
 	Sandbox               *SandboxYamlConfig
 	EnableCoordinatorMode bool
-	// Default for the Agent tool's independent fork parameter. Defaults to
-	// true; an explicit fork argument overrides this setting for any role.
-	EnableFork *bool
 	// Whether auto memory is enabled: gates index injection, recall, and
-	// background extraction, plus consolidation. Defaults to enabled.
+	// background extraction, plus consolidation. Defaults to enabled;
+	// `enable_memory: false` turns the whole automatic memory pipeline off.
+	// Left a pointer so "not set" and "explicitly false" stay distinguishable.
 	EnableMemory *bool
 	// Environment defaults applied only to unset variables.
 	Env map[string]string
 }
-
-func (c *AppConfig) ForkEnabled() bool { return c.EnableFork == nil || *c.EnableFork }
 
 func (c *AppConfig) MemoryEnabled() bool { return c.EnableMemory == nil || *c.EnableMemory }
 
@@ -266,12 +264,6 @@ func parseAppConfig(raw map[string]any) (*AppConfig, error) {
 				return nil, fmt.Errorf("enable_coordinator_mode: %w", err)
 			}
 			cfg.EnableCoordinatorMode = b
-		case "enable_fork":
-			b, err := asBool(value)
-			if err != nil {
-				return nil, fmt.Errorf("enable_fork: %w", err)
-			}
-			cfg.EnableFork = &b
 		case "enable_memory":
 			b, err := asBool(value)
 			if err != nil {
@@ -658,6 +650,8 @@ func objectKeyOrder(raw json.RawMessage) ([]string, error) {
 // entry, so a broken repo-side config does not prevent startup, and an entry
 // that cannot be mapped is skipped so one bad server does not hide its
 // siblings.
+var configLog = logger.CreateChildLogger("config")
+
 func LoadProjectMcpServers(cwd string) []MCPServerConfig {
 	path := filepath.Join(cwd, ProjectMCPFilename)
 	if _, err := os.Stat(path); err != nil {
@@ -665,27 +659,27 @@ func LoadProjectMcpServers(cwd string) []MCPServerConfig {
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "invalid .mcp.json: %s\n", err)
+		configLog.Error(map[string]any{"err": err, "path": path}, "invalid .mcp.json")
 		return nil
 	}
 	names, entries, err := mcpServersInOrder(data)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "invalid .mcp.json (%s): %s\n", path, err)
+		configLog.Error(map[string]any{"error": err, "path": path}, "invalid .mcp.json")
 		return nil
 	}
 	var servers []MCPServerConfig
 	for _, name := range names {
 		if strings.TrimSpace(name) == "" {
-			fmt.Fprintf(os.Stderr, "skipping invalid .mcp.json server entry: empty name\n")
+			configLog.Warn(map[string]any{"name": name, "path": path}, "skipping invalid .mcp.json server entry")
 			continue
 		}
 		var entry mcpJSONEntry
 		if err := json.Unmarshal(entries[name], &entry); err != nil {
-			fmt.Fprintf(os.Stderr, "skipping invalid .mcp.json server entry '%s': %s\n", name, err)
+			configLog.Warn(map[string]any{"name": name, "path": path, "error": err}, "skipping invalid .mcp.json server entry")
 			continue
 		}
 		if entry.Type != "" && entry.Type != "stdio" && entry.Type != "sse" && entry.Type != "http" {
-			fmt.Fprintf(os.Stderr, "skipping invalid .mcp.json server entry '%s': invalid type '%s'\n", name, entry.Type)
+			configLog.Warn(map[string]any{"name": name, "path": path}, "skipping invalid .mcp.json server entry")
 			continue
 		}
 		if entry.Enabled != nil && !*entry.Enabled {
@@ -694,7 +688,7 @@ func LoadProjectMcpServers(cwd string) []MCPServerConfig {
 		if server, ok := mcpServerFromJSONEntry(name, entry); ok {
 			servers = append(servers, server)
 		} else {
-			fmt.Fprintf(os.Stderr, "skipping invalid .mcp.json server entry '%s'\n", name)
+			configLog.Warn(map[string]any{"name": name, "path": path}, "skipping invalid .mcp.json server entry")
 		}
 	}
 	return servers

@@ -231,6 +231,63 @@ func (c *openaiClient) Stream(ctx context.Context, conv *conversation.Manager, t
 	return events, errs
 }
 
+// imageDataURL mirrors the reference imageDataUrl: url sources pass through;
+// base64 sources become data URLs; anything else yields "".
+func imageDataURL(block map[string]any) string {
+	if block["type"] != "image" {
+		return ""
+	}
+	source, _ := block["source"].(map[string]any)
+	if source == nil {
+		return ""
+	}
+	if source["type"] == "url" {
+		url, _ := source["url"].(string)
+		return url
+	}
+	if source["type"] != "base64" {
+		return ""
+	}
+	mediaType, _ := source["media_type"].(string)
+	data, _ := source["data"].(string)
+	if mediaType == "" || data == "" {
+		return ""
+	}
+	return "data:" + mediaType + ";base64," + data
+}
+
+// userContentsFor mirrors the reference: string content stays a string; block
+// arrays become Responses API parts (text -> input_text, image -> input_image
+// data URL with detail auto; other block types are dropped).
+func userContentsFor(m conversation.Message) responses.EasyInputMessageContentUnionParam {
+	if len(m.ContentBlocks) == 0 {
+		return responses.EasyInputMessageContentUnionParam{OfString: param.NewOpt(m.Content)}
+	}
+	var parts responses.ResponseInputMessageContentListParam
+	for _, raw := range m.ContentBlocks {
+		block := conversation.NormalizeToolResultContentBlock(raw)
+		if block == nil {
+			continue
+		}
+		if block["type"] == "text" {
+			text, _ := block["text"].(string)
+			parts = append(parts, responses.ResponseInputContentUnionParam{
+				OfInputText: &responses.ResponseInputTextParam{Text: text},
+			})
+			continue
+		}
+		if url := imageDataURL(block); url != "" {
+			parts = append(parts, responses.ResponseInputContentUnionParam{
+				OfInputImage: &responses.ResponseInputImageParam{
+					Detail:   responses.ResponseInputImageDetailAuto,
+					ImageURL: param.NewOpt(url),
+				},
+			})
+		}
+	}
+	return responses.EasyInputMessageContentUnionParam{OfInputItemContentList: parts}
+}
+
 func buildOpenAIInput(messages []conversation.Message) responses.ResponseInputParam {
 	var input responses.ResponseInputParam
 	for _, m := range messages {
@@ -273,13 +330,19 @@ func buildOpenAIInput(messages []conversation.Message) responses.ResponseInputPa
 					},
 				})
 			}
+			if m.HasContent() {
+				input = append(input, responses.ResponseInputItemUnionParam{
+					OfMessage: &responses.EasyInputMessageParam{
+						Role:    responses.EasyInputMessageRoleUser,
+						Content: userContentsFor(m),
+					},
+				})
+			}
 		} else {
 			input = append(input, responses.ResponseInputItemUnionParam{
 				OfMessage: &responses.EasyInputMessageParam{
-					Role: responses.EasyInputMessageRoleUser,
-					Content: responses.EasyInputMessageContentUnionParam{
-						OfString: param.NewOpt(m.Content),
-					},
+					Role:    responses.EasyInputMessageRoleUser,
+					Content: userContentsFor(m),
 				},
 			})
 		}

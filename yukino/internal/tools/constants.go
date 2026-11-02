@@ -28,3 +28,11 @@ const NotInPlanModeError = "You are not in plan mode. This tool is only for exit
 const NoPlanFileError = "No non-empty plan file found. Write your plan to the declared plan file before calling ExitPlanMode."
 
 const NoPlanApprovalHandlerError = "No leader plan approval handler is available for this teammate."
+
+const GoalMainSessionOnly = "Goals belong to the main session and are unavailable to delegated agents."
+
+const GoalUpdateRequiresStatusReason = "Updating a goal requires status and reason."
+
+const GoalInvalidStatusError = "Goal update accepts only 'in_progress', 'complete', or 'blocked'. A goal is active as soon as the user sets it. Only the user can pause or resume a goal."
+
+const GoalInvalidArgsError = "Goal expects action 'get' or 'update'. Updating requires status 'in_progress', 'complete', or 'blocked' and a non-empty reason; no other fields are accepted."

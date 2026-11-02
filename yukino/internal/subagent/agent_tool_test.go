@@ -58,4 +58,7 @@ func TestAgentArgumentsAndDefaults(t *testing.T) {
 			t.Fatal("legacy schema field", key)
 		}
 	}
+	if got := props["fork"].(map[string]any)["default"]; got != true {
+		t.Fatalf("fork default = %v, want true (no config switch remains)", got)
+	}
 }

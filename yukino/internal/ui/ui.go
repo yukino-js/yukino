@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -11,17 +12,20 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/config"
 	"github.com/yukino-js/yukino/yukino/internal/conversation"
 	"github.com/yukino-js/yukino/yukino/internal/file_history"
+	"github.com/yukino-js/yukino/yukino/internal/goal"
 	"github.com/yukino-js/yukino/yukino/internal/llm"
 	"github.com/yukino-js/yukino/yukino/internal/mcp"
 	"github.com/yukino-js/yukino/yukino/internal/memory"
 	"github.com/yukino-js/yukino/yukino/internal/memory/consolidation"
 	"github.com/yukino-js/yukino/yukino/internal/memory/extractor"
+	"github.com/yukino-js/yukino/yukino/internal/permissions"
 	"github.com/yukino-js/yukino/yukino/internal/session"
 	"github.com/yukino-js/yukino/yukino/internal/skills"
 	"github.com/yukino-js/yukino/yukino/internal/subagent"
 	"github.com/yukino-js/yukino/yukino/internal/teams"
 	"github.com/yukino-js/yukino/yukino/internal/todo"
 	"github.com/yukino-js/yukino/yukino/internal/tools"
+	"github.com/yukino-js/yukino/yukino/internal/vscode"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
@@ -107,7 +111,12 @@ type Model struct {
 	historyIndex   int
 	historyDraft   string
 
-	sessionID    string
+	sessionID  string
+	goalBinder *goalBinder
+
+	ideMentionCh chan vscode.IdeAtMention
+	ideConn      *vscode.IdeConnection
+	ideCancel    context.CancelFunc
 	fileHistory  *file_history.History
 	defaultTools tools.DefaultTools
 
@@ -149,7 +158,12 @@ type Model struct {
 	sandboxCfg            *config.SandboxYamlConfig
 	EnableCoordinatorMode bool
 	MCPLoading            string
-	ForkDisabled          bool
+	// permissionMode is the startup mode from config.yaml (`permission_mode:`);
+	// plan is not a valid startup mode and falls back to default.
+	permissionMode permissions.PermissionMode
+	// memoryEnabled mirrors config.yaml `enable_memory:`; it gates the whole
+	// auto-memory pipeline (injection, recall, extraction, consolidation).
+	memoryEnabled bool
 
 	modelDialog bool
 	modelState  modelPickerState
@@ -202,7 +216,18 @@ func (m Model) dialogAvailableRows() int {
 	return rows
 }
 
-func New(providers []config.ProviderConfig, mcpConfigs []config.MCPServerConfig, hookConfigs []config.HookConfig, sandboxCfg *config.SandboxYamlConfig, defaultProvider int) Model {
+// initialPermissionMode resolves the config.yaml `permission_mode:` value to a
+// startup mode. Plan is excluded: it is entered through the mode cycle or the
+// ExitPlanMode tool, never at startup.
+func initialPermissionMode(mode string) permissions.PermissionMode {
+	switch permissions.PermissionMode(mode) {
+	case permissions.ModeDefault, permissions.ModeAcceptEdits, permissions.ModeBypass:
+		return permissions.PermissionMode(mode)
+	}
+	return permissions.ModeDefault
+}
+
+func New(providers []config.ProviderConfig, mcpConfigs []config.MCPServerConfig, hookConfigs []config.HookConfig, sandboxCfg *config.SandboxYamlConfig, defaultProvider int, permissionMode string, memoryEnabled bool) Model {
 	ta := textarea.New()
 	ta.Placeholder = "Send a message..."
 	ta.Prompt = ""
@@ -226,6 +251,8 @@ func New(providers []config.ProviderConfig, mcpConfigs []config.MCPServerConfig,
 	dt := tools.CreateDefaultTools()
 	reg := dt.Registry
 	reg.Register(&tools.AskUserQuestionTool{RequestCh: askCh})
+	binder := &goalBinder{}
+	reg.Register(&tools.GoalTool{Manager: func() *goal.GoalManager { return binder.get() }})
 
 	sCfg := sandboxCfg
 	initialTodos, _ := todo.NewTaskList(nil)
@@ -239,6 +266,8 @@ func New(providers []config.ProviderConfig, mcpConfigs []config.MCPServerConfig,
 		state:              stateProviderSelect,
 		defaultProvider:    defaultProvider,
 		providerCursor:     defaultProvider,
+		permissionMode:     initialPermissionMode(permissionMode),
+		memoryEnabled:      memoryEnabled,
 		textarea:           ta,
 		conversation:       conversation.NewManager(),
 		registry:           reg,
@@ -247,6 +276,8 @@ func New(providers []config.ProviderConfig, mcpConfigs []config.MCPServerConfig,
 		spinner:            sp,
 		askUserCh:          askCh,
 		subAgentProgressCh: subProgressCh,
+		goalBinder:         binder,
+		ideMentionCh:       make(chan vscode.IdeAtMention, 16),
 	}
 	if m.providerCursor < 0 || m.providerCursor >= len(providers) {
 		m.providerCursor = 0
@@ -264,7 +295,7 @@ func New(providers []config.ProviderConfig, mcpConfigs []config.MCPServerConfig,
 }
 
 func (m Model) Init() tea.Cmd {
-	cmds := []tea.Cmd{textarea.Blink}
+	cmds := []tea.Cmd{textarea.Blink, m.connectIde()}
 	if len(m.providers) > 0 {
 		cmds = append(cmds, func() tea.Msg { return initSingleProviderMsg{} })
 	}
@@ -298,6 +329,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.updateViewport()
 		return m, nil
+
+	case ideConnectedMsg:
+		m.ideConn = msg.connection
+		m.ideCancel = msg.cancel
+		return m, m.listenForIdeMentions()
+
+	case ideAtMentionMsg:
+		wd, _ := os.Getwd()
+		m.textarea.InsertString(ideMentionText(wd, msg.mention))
+		return m, m.listenForIdeMentions()
 
 	case subAgentProgressMsg:
 		p := msg.progress

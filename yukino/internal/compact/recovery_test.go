@@ -3,91 +3,101 @@ package compact
 import (
 	"strings"
 	"testing"
-	"time"
 )
 
-func TestRecoveryStateNilSafe(t *testing.T) {
-	var s *RecoveryState
-	s.RecordFileRead("/x", "ignored")
-	s.RecordSkillInvocation("y", "ignored")
-	if got := BuildRecoveryAttachment(s, nil); got != "" {
-		t.Fatalf("expected empty attachment for nil state + no tools, got %q", got)
+func TestBuildRecoveryAttachmentEmpty(t *testing.T) {
+	s := NewRecoveryState()
+	if got := s.BuildRecoveryAttachment(nil); got != "" {
+		t.Errorf("empty state must produce empty attachment, got %q", got)
 	}
 }
 
 func TestBuildRecoveryAttachmentEmits(t *testing.T) {
 	s := NewRecoveryState()
-	s.RecordFileRead("/tmp/a.go", "package a\n")
-	s.RecordSkillInvocation("planner", "step 1\nstep 2\n")
-	schemas := []map[string]any{
-		{"name": "ReadFile", "description": "Read a file and return its contents.\nWith line numbers."},
-		{"name": "Bash", "description": ""},
+	s.RecordFileRead("/tmp/a.go", "package a")
+	out := s.BuildRecoveryAttachment([]string{"Bash", "ReadFile"})
+	for _, want := range []string{
+		"## Recently read files\n",
+		"These snapshots are what the file-reading tool last returned.",
+		"### /tmp/a.go  (read ",
+		"```\npackage a\n```",
+		"## Available tools\n\nYou still have access to the following tools — call them directly when the task needs one:\n\n- Bash\n- ReadFile",
+		"## Note\n\nEverything above the divider is reconstructed context.",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
 	}
-
-	out := BuildRecoveryAttachment(s, schemas)
-	if !strings.Contains(out, "/tmp/a.go") {
-		t.Errorf("expected file path in attachment, got: %s", out)
-	}
-	if !strings.Contains(out, "planner") {
-		t.Errorf("expected skill name in attachment, got: %s", out)
-	}
-	if !strings.Contains(out, "- ReadFile — Read a file and return its contents.") {
-		t.Errorf("expected tool listing with first-line description, got: %s", out)
-	}
-	if !strings.Contains(out, "- Bash") {
-		t.Errorf("expected bare tool listing without description, got: %s", out)
-	}
-	if !strings.Contains(out, "Note") {
-		t.Errorf("expected closing note about not guessing from summary, got: %s", out)
+	// Sections join with a blank line; the header keeps its trailing newline.
+	if !strings.Contains(out, "## Recently read files\n\n\nThese snapshots") {
+		t.Errorf("section joining mismatch:\n%q", out)
 	}
 }
 
-func TestRecoveryFileLimitAndOrder(t *testing.T) {
+func TestRecordFileReadEvictionAndRefresh(t *testing.T) {
 	s := NewRecoveryState()
-	base := time.Now().Add(-time.Hour)
-	for i := 0; i < 7; i++ {
-		path := "/f" + string(rune('0'+i))
-		s.RecordFileRead(path, "x")
-		rec := s.files[path]
-		rec.Timestamp = base.Add(time.Duration(i) * time.Minute)
-		s.files[path] = rec
+	for i := 0; i < RecoveryFileLimit+2; i++ {
+		s.RecordFileRead(string(rune('a'+i))+".txt", "content")
 	}
-	out := BuildRecoveryAttachment(s, nil)
-	if strings.Count(out, "###") != 5 {
-		t.Fatalf("expected 5 file sections, got: %d in %s", strings.Count(out, "###"), out)
+	files := s.SnapshotFiles(RecoveryFileLimit)
+	if len(files) != RecoveryFileLimit {
+		t.Fatalf("files = %d, want %d", len(files), RecoveryFileLimit)
 	}
-	idxNew := strings.Index(out, "/f6")
-	idxOld := strings.Index(out, "/f2")
-	if idxNew < 0 || idxOld < 0 || idxNew > idxOld {
-		t.Errorf("expected newest file (/f6) to appear before older (/f2); got idx new=%d old=%d", idxNew, idxOld)
+	for _, f := range files {
+		if f.Path == "a.txt" || f.Path == "b.txt" {
+			t.Errorf("oldest entry %q must be evicted", f.Path)
+		}
+	}
+	// Re-recording refreshes recency: the oldest surviving entry stays.
+	s.RecordFileRead("c.txt", "refreshed")
+	files = s.SnapshotFiles(RecoveryFileLimit)
+	found := false
+	for _, f := range files {
+		if f.Path == "c.txt" && f.Content == "refreshed" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("refreshed entry missing: %+v", files)
 	}
 }
 
-func TestRecoveryTruncatesPerFile(t *testing.T) {
-	huge := strings.Repeat("x", int(float64(RecoveryTokensPerFile)*recoveryCharsPerToken)*3)
-	s := NewRecoveryState()
-	s.RecordFileRead("/big", huge)
-	out := BuildRecoveryAttachment(s, nil)
-	if !strings.Contains(out, "(content truncated)") {
-		t.Errorf("expected truncation marker for oversize file, got prefix: %s", out[:200])
+func TestTruncateByTokens(t *testing.T) {
+	short := "abc"
+	if got := truncateByTokens(short, 100); got != short {
+		t.Errorf("short = %q", got)
+	}
+	long := strings.Repeat("x", 100000)
+	got := truncateByTokens(long, 100)
+	if !strings.HasSuffix(got, "\n… (content truncated)") {
+		t.Errorf("suffix missing: %q", got[len(got)-30:])
+	}
+	// Budget: maxChars = floor(100*3.5) = 350; result length = 350.
+	if len([]rune(got)) != 350 {
+		t.Errorf("length = %d, want 350", len([]rune(got)))
+	}
+	// Tiny budgets clip the suffix itself.
+	got = truncateByTokens(long, 1)
+	if len([]rune(got)) != 3 {
+		t.Errorf("tiny budget = %q", got)
+	}
+	if got := truncateByTokens("", 10); got != "" {
+		t.Errorf("empty = %q", got)
+	}
+	if got := truncateByTokens("x", 0); got != "x" {
+		t.Errorf("zero budget = %q", got)
 	}
 }
 
-func TestRecoverySkillsBudget(t *testing.T) {
+func TestRecordFileReadTruncatesAtRecord(t *testing.T) {
 	s := NewRecoveryState()
-	bodyChars := int(float64(RecoveryTokensPerSkill) * recoveryCharsPerToken)
-	body := strings.Repeat("y", bodyChars)
-	base := time.Now()
-	for i := 0; i < 6; i++ {
-		name := "skill-" + string(rune('0'+i))
-		s.RecordSkillInvocation(name, body)
-		rec := s.skills[name]
-		rec.Timestamp = base.Add(time.Duration(i) * time.Minute)
-		s.skills[name] = rec
+	long := strings.Repeat("y", 100000)
+	s.RecordFileRead("/tmp/big.txt", long)
+	files := s.SnapshotFiles(1)
+	if len(files) != 1 {
+		t.Fatal("expected one file")
 	}
-	out := BuildRecoveryAttachment(s, nil)
-	emitted := strings.Count(out, "### skill-")
-	if emitted < 1 || emitted > 5 {
-		t.Errorf("expected at most 5 skills under budget, emitted %d", emitted)
+	if len([]rune(files[0].Content)) > 20000 {
+		t.Errorf("content must be truncated at record time, got %d runes", len([]rune(files[0].Content)))
 	}
 }

@@ -3,11 +3,13 @@ package remote
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -15,11 +17,13 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/yukino-js/yukino/yukino/internal/agent"
+	"github.com/yukino-js/yukino/yukino/internal/bootstrap"
 	"github.com/yukino-js/yukino/yukino/internal/commands"
 	"github.com/yukino-js/yukino/yukino/internal/compact"
 	"github.com/yukino-js/yukino/yukino/internal/config"
 	"github.com/yukino-js/yukino/yukino/internal/conversation"
 	"github.com/yukino-js/yukino/yukino/internal/file_history"
+	"github.com/yukino-js/yukino/yukino/internal/goal"
 	"github.com/yukino-js/yukino/yukino/internal/history"
 	"github.com/yukino-js/yukino/yukino/internal/hooks"
 	"github.com/yukino-js/yukino/yukino/internal/llm"
@@ -28,12 +32,14 @@ import (
 	extractor "github.com/yukino-js/yukino/yukino/internal/memory/extractor"
 	"github.com/yukino-js/yukino/yukino/internal/permissions"
 	"github.com/yukino-js/yukino/yukino/internal/prompt"
+	"github.com/yukino-js/yukino/yukino/internal/sandbox"
 	"github.com/yukino-js/yukino/yukino/internal/session"
 	"github.com/yukino-js/yukino/yukino/internal/skills"
 	"github.com/yukino-js/yukino/yukino/internal/subagent"
 	"github.com/yukino-js/yukino/yukino/internal/teams"
 	"github.com/yukino-js/yukino/yukino/internal/todo"
 	"github.com/yukino-js/yukino/yukino/internal/tools"
+	"github.com/yukino-js/yukino/yukino/internal/workflow"
 	"github.com/yukino-js/yukino/yukino/internal/worktree"
 )
 
@@ -91,10 +97,16 @@ type Server struct {
 	client       llm.Client
 	sessionID    string
 	fileHistory  *file_history.History
+	goalManager  *goal.GoalManager
 
 	streaming    bool
 	cancelStream context.CancelFunc
 	agentCh      <-chan agent.AgentEvent
+
+	// lastUsage mirrors the reference RemoteServer.lastUsage: the most recent
+	// usage event, surfaced by /status and the command context.
+	lastUsageInput  int
+	lastUsageOutput int
 
 	askUserCh chan tools.AskUserRequest
 
@@ -117,10 +129,15 @@ type Server struct {
 	memoryContent         string
 	mcpInstructions       string
 	enableCoordinatorMode bool
-	forkDisabled          bool
+	// memoryEnabled mirrors config.yaml `enable_memory:`; gates injection,
+	// extraction, and consolidation. Defaults to true.
+	memoryEnabled bool
+	sandboxCfg    *config.SandboxYamlConfig
+
+	httpServer *http.Server
 }
 
-func NewServer(providers []config.ProviderConfig, mcpConfigs []config.MCPServerConfig, hookCfgs []config.HookConfig, addr string, enableCoordinatorMode, forkDisabled bool, defaultProvider int) *Server {
+func NewServer(providers []config.ProviderConfig, mcpConfigs []config.MCPServerConfig, hookCfgs []config.HookConfig, addr string, enableCoordinatorMode bool, defaultProvider int, sandboxCfg *config.SandboxYamlConfig, memoryEnabled bool) *Server {
 	return &Server{
 		accessToken:           createAccessToken(),
 		providers:             providers,
@@ -129,7 +146,8 @@ func NewServer(providers []config.ProviderConfig, mcpConfigs []config.MCPServerC
 		addr:                  addr,
 		defaultProvider:       defaultProvider,
 		enableCoordinatorMode: enableCoordinatorMode,
-		forkDisabled:          forkDisabled,
+		memoryEnabled:         memoryEnabled,
+		sandboxCfg:            sandboxCfg,
 		conns:                 make(map[*websocket.Conn]struct{}),
 		pendingPerms:          make(map[string]chan<- agent.PermissionReply),
 		pendingAsks:           make(map[string]chan tools.QuestionResponse),
@@ -161,7 +179,23 @@ func (s *Server) Run() error {
 		return err
 	}
 	fmt.Printf("Remote server listening at http://%s/#token=%s\n", address, s.accessToken)
-	return http.ListenAndServe(address, mux)
+	s.httpServer = &http.Server{Addr: address, Handler: mux}
+	if err := s.httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	return nil
+}
+
+// Stop tears the server down: closes the HTTP/WS listener and disposes the
+// tool registry (MCP children, background tasks). Run returns nil once the
+// server has stopped.
+func (s *Server) Stop() {
+	if s.httpServer != nil {
+		_ = s.httpServer.Close()
+	}
+	if s.registry != nil {
+		_ = s.registry.Dispose()
+	}
 }
 
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
@@ -253,14 +287,13 @@ func (s *Server) initAgent() error {
 	wd, _ := os.Getwd()
 
 	s.askUserCh = make(chan tools.AskUserRequest, 1)
-	s.defaultTools = tools.CreateDefaultToolsWithWorkDir(wd)
-	s.registry = s.defaultTools.Registry
-	s.registry.Register(&tools.AskUserQuestionTool{RequestCh: s.askUserCh})
-
 	s.cmdRegistry = commands.CreateDefaultRegistry()
 	s.skillCatalog = skills.LoadCatalog(wd)
 	s.instructionsContent = loadCustomInstructions(wd)
-	s.memoryContent = memory.LoadAutoMemoryPrompt(wd)
+	s.memoryContent = ""
+	if s.memoryEnabled {
+		s.memoryContent = memory.LoadAutoMemoryPrompt(wd)
+	}
 
 	skillSection := buildSkillSection(s.skillCatalog, wd)
 
@@ -276,10 +309,11 @@ func (s *Server) initAgent() error {
 	s.conv = conversation.NewManager()
 	s.sessionID = session.NewID()
 	s.fileHistory = file_history.New(s.sessionID)
-	s.defaultTools.EditFile.FileHistory = s.fileHistory
-	s.defaultTools.WriteFile.FileHistory = s.fileHistory
 
 	s.registerTools(client, p, wd)
+	if service := workflow.GetWorkflowService(s.registry); service != nil {
+		_ = service.RegisterNamedCommands(s.cmdRegistry)
+	}
 
 	ag := agent.New(client, s.registry, p.Protocol)
 	ag.ContextWindow = config.GetContextWindow(p)
@@ -289,6 +323,7 @@ func (s *Server) initAgent() error {
 	ag.SkillSection = skillSection
 	ag.FileHistory = s.fileHistory
 	ag.SetSessionID(s.sessionID)
+	ag.GoalManager = s.goal()
 
 	ag.Checker = permissions.NewChecker(
 		permissions.NewPathSandbox(wd, true),
@@ -324,11 +359,10 @@ func (s *Server) initAgent() error {
 	}
 
 	s.wireSkillsToAgent(wd)
-	s.memoryExtractor = installMemExtractor(ag, wd, p.Protocol, client, s.registry, s.conv)
+	if s.memoryEnabled {
+		s.memoryExtractor = installMemExtractor(ag, wd, p.Protocol, client, s.registry, s.conv)
+	}
 
-	gitRoot := worktree.FindCanonicalGitRoot(wd)
-	s.registry.Register(&tools.EnterWorktreeTool{SessionID: s.sessionID, RepoRoot: gitRoot})
-	s.registry.Register(&tools.ExitWorktreeTool{RepoRoot: gitRoot})
 	worktree.StartCleanupLoop(context.Background())
 
 	return nil
@@ -339,9 +373,6 @@ func (s *Server) registerTools(client llm.Client, p *config.ProviderConfig, wd s
 	if err := s.taskMgr.UseSession(s.sessionID); err != nil {
 		panic(err)
 	}
-	tools.AttachBackgroundTaskManager(s.registry, s.taskMgr)
-	manager := s.taskMgr
-	s.registry.AddCleanup(func() error { return manager.StopAll(context.Background()) })
 	store, err := todo.NewStore(s.sessionID)
 	if err != nil {
 		panic(err)
@@ -350,17 +381,33 @@ func (s *Server) registerTools(client llm.Client, p *config.ProviderConfig, wd s
 	if err != nil {
 		panic(err)
 	}
-	s.memoryMgr = memory.NewManager(wd)
+	// enable_memory: false keeps the index out of the conversation and nothing
+	// is injected, extracted, or consolidated automatically.
+	if s.memoryEnabled {
+		s.memoryMgr = memory.NewManager(wd)
+	}
 	loader := subagent.NewAgentLoader()
 	loader.LoadAll()
 	s.teamMgr = teams.NewTeamManager(wd)
 	s.teamMgr.CoordinatorMode = s.enableCoordinatorMode
-	s.registry.Register(&teams.TeamTodoWriteTool{TeamMgr: s.teamMgr, Fallback: s.todoList})
+	gitRoot := worktree.FindCanonicalGitRoot(wd)
 
-	s.registry.Register(&tools.ExitPlanModeTool{})
-
-	s.registry.Register(&tools.ToolSearchTool{Registry: s.registry})
-	s.registry.Register(&tools.McpCallTool{Registry: s.registry})
+	s.defaultTools = bootstrap.CreateToolRegistry(s.todoList, bootstrap.ToolRegistryOptions{
+		InteractionMode: "interactive",
+		TeamMgr:         s.teamMgr,
+		WorkDir:         wd,
+		SessionID:       s.sessionID,
+		RepoRoot:        gitRoot,
+		GoalManager:     func() *goal.GoalManager { return s.goal() },
+	})
+	s.registry = s.defaultTools.Registry
+	s.registry.Register(&tools.AskUserQuestionTool{RequestCh: s.askUserCh})
+	bootstrap.ConfigureBashSandbox(s.registry, wd, s.sandboxCfg, nil)
+	s.defaultTools.EditFile.FileHistory = s.fileHistory
+	s.defaultTools.WriteFile.FileHistory = s.fileHistory
+	tools.AttachBackgroundTaskManager(s.registry, s.taskMgr)
+	manager := s.taskMgr
+	s.registry.AddCleanup(func() error { return manager.StopAll(context.Background()) })
 	s.registry.Register(&teams.TeamCreateTool{TeamMgr: s.teamMgr})
 	s.registry.Register(&teams.TeamDeleteTool{TeamMgr: s.teamMgr})
 	s.registry.Register(&teams.TeamListTool{TeamMgr: s.teamMgr})
@@ -379,7 +426,15 @@ func (s *Server) registerTools(client llm.Client, p *config.ProviderConfig, wd s
 		Loader:        loader,
 		Conversation:  s.conv,
 		TeamMgr:       s.teamMgr,
-		ForkDisabled:  s.forkDisabled,
+	})
+	workflow.AttachWorkflow(workflow.WorkflowServiceOptions{
+		WorkflowBackendOptions: workflow.WorkflowBackendOptions{
+			Registry:    s.registry,
+			GetClient:   func() llm.Client { return s.client },
+			GetProvider: func() *config.ProviderConfig { return s.activeProvider() },
+		},
+		Cwd:         wd,
+		TaskManager: s.taskMgr,
 	})
 }
 
@@ -463,8 +518,12 @@ func (s *Server) handleUserMessage(content string) {
 		s.send(wsMessage{Type: "error", Data: map[string]string{"message": err.Error()}})
 		return
 	}
-	expanded := conversation.ExpandAtRefs(content, wd)
-	recorded, err := session.SaveUserMessage(wd, s.sessionID, input, session.Message{Content: expanded})
+	expanded, blocks := conversation.ExpandAtRefsWithImages(content, wd)
+	userRecord := session.Message{Content: expanded}
+	if blocks != nil {
+		userRecord = session.Message{ContentBlocks: blocks}
+	}
+	recorded, err := session.SaveUserMessage(wd, s.sessionID, input, userRecord)
 	if err != nil {
 		s.send(wsMessage{Type: "error", Data: map[string]string{"message": err.Error()}})
 		return
@@ -530,14 +589,27 @@ func (s *Server) handleSlashCommand(input string) {
 	// The remote intercepts these commands by name and renders the real
 	// status itself; the registry handlers are placeholders.
 	switch name {
-	case "memory":
-		count := 0
-		if s.memoryMgr != nil {
-			count = len(s.memoryMgr.GetMemories())
+	case "workflows":
+		service := workflow.GetWorkflowService(s.registry)
+		message := "Workflow service is not initialized"
+		if service != nil {
+			result, err := service.Command(args, s.workflowHostContext(wd))
+			if err != nil {
+				s.send(wsMessage{Type: "error", Data: map[string]string{"message": err.Error()}})
+				s.send(wsMessage{Type: "command_done", Data: nil})
+				return
+			}
+			message = result
 		}
-		s.send(wsMessage{Type: "system", Data: map[string]string{
-			"message": fmt.Sprintf("Auto-memory: %d entries", count),
-		}})
+		s.send(wsMessage{Type: "system", Data: map[string]string{"message": message}})
+		s.send(wsMessage{Type: "command_done", Data: nil})
+		return
+	case "status":
+		s.send(wsMessage{Type: "system", Data: map[string]string{"message": s.buildSessionStatus()}})
+		s.send(wsMessage{Type: "command_done", Data: nil})
+		return
+	case "memory":
+		s.send(wsMessage{Type: "system", Data: map[string]string{"message": s.buildMemoryStatus(args)}})
 		s.send(wsMessage{Type: "command_done", Data: nil})
 		return
 	case "mcp":
@@ -547,6 +619,35 @@ func (s *Server) handleSlashCommand(input string) {
 		}
 		s.send(wsMessage{Type: "system", Data: map[string]string{"message": info}})
 		s.send(wsMessage{Type: "command_done", Data: nil})
+		return
+	case "goal":
+		result := goal.HandleGoalCommand(s.goal(), args)
+		s.send(wsMessage{Type: "system", Data: map[string]string{"message": result.Message}})
+		if result.Prompt == "" {
+			s.send(wsMessage{Type: "command_done", Data: nil})
+			return
+		}
+		c, ok := s.beginRun()
+		if !ok {
+			return
+		}
+		defer s.finishRun()
+		recorded, err := session.SaveUserMessage(wd, s.sessionID, entry, session.Message{Content: result.Prompt})
+		if err != nil {
+			s.send(wsMessage{Type: "error", Data: map[string]string{"message": err.Error()}})
+			return
+		}
+		s.conv.AppendMessages([]conversation.Message{recorded.ToConversation()})
+		if s.mcpInstructions != "" {
+			s.conv.AddSystemReminder(s.mcpInstructions)
+			s.mcpInstructions = ""
+		}
+		s.ag.GoalManager = s.goal()
+		s.agentCh = s.ag.Run(c, s.conv)
+		askDone := make(chan struct{})
+		go s.listenForAskUser(askDone)
+		s.consumeAgentEvents()
+		close(askDone)
 		return
 	}
 
@@ -569,7 +670,7 @@ func (s *Server) handleSlashCommand(input string) {
 			s.send(wsMessage{Type: "clear", Data: nil})
 
 		case "compact":
-			s.handleCompact()
+			s.handleCompact(args)
 			return
 
 		case "resume":
@@ -644,7 +745,7 @@ func (s *Server) buildCommandContext(args string) *commands.Context {
 		Args:       args,
 		Cwd:        wd,
 		Model:      modelName,
-		TokenCount: func() (int, int) { return 0, 0 },
+		TokenCount: func() (int, int) { return s.lastUsageInput, s.lastUsageOutput },
 		PermissionMode: func() string {
 			if s.ag != nil && s.ag.Checker != nil {
 				return string(s.ag.Checker.Mode())
@@ -661,7 +762,7 @@ func (s *Server) buildCommandContext(args string) *commands.Context {
 	}
 }
 
-func (s *Server) handleCompact() {
+func (s *Server) handleCompact(customInstructions string) {
 	if s.client == nil || s.conv == nil {
 		s.send(wsMessage{Type: "error", Data: map[string]string{"message": "Compact requires an active provider."}})
 		s.send(wsMessage{Type: "command_done", Data: nil})
@@ -669,18 +770,27 @@ func (s *Server) handleCompact() {
 	}
 	s.send(wsMessage{Type: "system", Data: map[string]string{"message": "Compacting conversation…"}})
 	wd, _ := os.Getwd()
-	window := config.GetContextWindow(s.activeProvider())
 	var recovery *compact.RecoveryState
 	var schemas []map[string]any
 	if s.ag != nil {
 		recovery = s.ag.RecoveryState
 		schemas = s.ag.Registry.GetAllSchemas(s.ag.Protocol)
 	}
-	msg, err := compact.ForceCompact(context.Background(), s.conv, s.client, wd, s.sessionID, window, recovery, schemas)
+	names := make([]string, 0, len(schemas))
+	for _, schema := range schemas {
+		if name := tools.SchemaName(schema); name != "" {
+			names = append(names, name)
+		}
+	}
+	sessionFilePath := session.SessionFilePath(wd, s.sessionID)
+	result, err := compact.ForceCompact(context.Background(), s.conv, s.client, recovery, names, schemas, sessionFilePath, customInstructions)
 	if err != nil {
 		s.send(wsMessage{Type: "error", Data: map[string]string{"message": err.Error()}})
 	} else {
-		s.send(wsMessage{Type: "system", Data: map[string]string{"message": "⟳ " + msg}})
+		if result.Boundary != nil {
+			_ = session.SaveCompactBoundary(wd, s.sessionID, result.Boundary.Summary, result.Boundary.Keep)
+		}
+		s.send(wsMessage{Type: "system", Data: map[string]string{"message": "⟳ Compacted: " + result.Message}})
 	}
 	s.send(wsMessage{Type: "command_done", Data: nil})
 }
@@ -742,6 +852,7 @@ func (s *Server) handleResume(args string) {
 	s.sessionID = targetID
 	if s.ag != nil {
 		s.ag.SetSessionID(s.sessionID)
+		s.ag.GoalManager = s.goal()
 	}
 
 	boundary, after, compacted := session.FindLastCompactBoundary(msgs)
@@ -851,6 +962,8 @@ func (s *Server) consumeAgentEvents() {
 			}})
 
 		case agent.UsageEvent:
+			s.lastUsageInput = e.InputTokens
+			s.lastUsageOutput = e.OutputTokens
 			s.send(wsMessage{Type: "usage", Data: map[string]int{
 				"inputTokens":  e.InputTokens,
 				"outputTokens": e.OutputTokens,
@@ -980,6 +1093,43 @@ func (s *Server) ToolRegistry() *tools.Registry {
 	return s.registry
 }
 
+// workflowHostContext builds the tool execution context carried into
+// workflow agent runs: the permission checker plus a WS round-trip
+// permission callback, mirroring createPermissionCallback.
+func (s *Server) workflowHostContext(wd string) context.Context {
+	execution := tools.ExecutionContext{
+		WorkDir:           wd,
+		SessionID:         s.sessionID,
+		RequestPermission: s.requestPermissionViaWS,
+	}
+	if s.ag != nil && s.ag.Checker != nil {
+		execution.Plan = &tools.PlanContext{Owner: s.ag.Checker}
+	}
+	return tools.WithExecutionContext(context.Background(), execution)
+}
+
+func (s *Server) requestPermissionViaWS(ctx context.Context, toolName, desc string) (int, string) {
+	id := fmt.Sprintf("perm_%d", time.Now().UnixNano())
+	responseCh := make(chan agent.PermissionReply, 1)
+	s.pendingPermMu.Lock()
+	s.pendingPerms[id] = responseCh
+	s.pendingPermMu.Unlock()
+	s.send(wsMessage{Type: "permission_request", Data: map[string]string{
+		"id":          id,
+		"toolName":    toolName,
+		"description": desc,
+	}})
+	select {
+	case reply := <-responseCh:
+		return int(reply.Response), reply.Feedback
+	case <-ctx.Done():
+		s.pendingPermMu.Lock()
+		delete(s.pendingPerms, id)
+		s.pendingPermMu.Unlock()
+		return int(agent.PermDeny), ""
+	}
+}
+
 func loadCustomInstructions(wd string) string {
 	return memory.LoadInstructions(wd)
 }
@@ -1051,4 +1201,94 @@ func newAgentHookRunner(client llm.Client) func(prompt string, ctx hooks.HookCon
 func mustGetwd() string {
 	wd, _ := os.Getwd()
 	return wd
+}
+
+// buildSessionStatus renders the rich /status block (src/remote/server.ts
+// buildSessionStatus parity: provider, sandbox, MCP, session).
+func (s *Server) buildSessionStatus() string {
+	if s.ag == nil {
+		return "Agent is not ready yet."
+	}
+	p := s.activeProvider()
+	var model, providerName, protocol string
+	if p != nil {
+		model = p.Model
+		providerName = p.Name
+		protocol = p.Protocol
+	}
+	permMode := string(s.ag.Checker.Mode())
+	sbStatus := "OFF"
+	if s.ag.Checker.SandboxEnabled {
+		sb := sandbox.New()
+		state := "blocked"
+		if sb != nil && sb.Available() {
+			state = "ready"
+		}
+		label := "ON (manual)"
+		if s.ag.Checker.SandboxAutoAllow {
+			label = "ON (auto-allow)"
+		}
+		sbStatus = label + ", " + state
+	}
+	memories := "disabled (enable_memory: false)"
+	if s.memoryEnabled {
+		count := 0
+		if s.memoryMgr != nil {
+			count = len(s.memoryMgr.GetMemories())
+		}
+		memories = strconv.Itoa(count)
+	}
+	skillCount := 0
+	if s.skillCatalog != nil {
+		skillCount = len(s.skillCatalog.List())
+	}
+	mcpServers := 0
+	if s.mcpMgr != nil {
+		mcpServers = len(s.mcpMgr.ConnectedServers())
+	}
+	wd, _ := os.Getwd()
+	lines := []string{
+		"Mode:      " + permMode,
+		"Model:     " + model,
+		fmt.Sprintf("Provider:  %s (%s)", providerName, protocol),
+		fmt.Sprintf("Tokens:    %d in / %d out", s.lastUsageInput, s.lastUsageOutput),
+		fmt.Sprintf("Tools:     %d", len(s.registry.ListTools())),
+		"Sandbox:   " + sbStatus,
+		"Memories:  " + memories,
+		fmt.Sprintf("Skills:    %d", skillCount),
+		fmt.Sprintf("MCP:       %d server(s), %d tool(s)", mcpServers, bootstrap.CountMcpTools(s.registry)),
+		"Session:   " + s.sessionID,
+		"Directory: " + wd,
+	}
+	return strings.Join(lines, "\n")
+}
+
+// buildMemoryStatus renders /memory output (src/remote/server.ts
+// buildMemoryStatus parity).
+func (s *Server) buildMemoryStatus(args string) string {
+	if s.ag == nil {
+		return "Memory is not available yet."
+	}
+	if !s.memoryEnabled {
+		return "Auto memory is disabled (enable_memory: false in config.yaml)."
+	}
+	sub := ""
+	if fields := strings.Fields(strings.TrimSpace(args)); len(fields) > 0 {
+		sub = fields[0]
+	}
+	wd, _ := os.Getwd()
+	mgr := memory.NewManager(wd)
+	if sub == "clear" {
+		mgr.Clear()
+		return "All memories cleared."
+	}
+	mems := mgr.GetMemories()
+	if len(mems) == 0 {
+		return "No memories saved yet. They are auto-extracted; /memory clear wipes them."
+	}
+	lines := make([]string, 0, len(mems))
+	for _, mem := range mems {
+		lines = append(lines, "  "+mem)
+	}
+	return fmt.Sprintf("Memories (%d):\n%s", len(mems), strings.Join(lines, "\n"))
 }

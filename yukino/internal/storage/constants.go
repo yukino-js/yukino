@@ -1,6 +1,12 @@
 package storage
 
-import "os"
+import (
+	"os"
+	"regexp"
+)
+
+// SessionIDRe validates session identifiers, mirroring SESSION_ID_RE.
+var SessionIDRe = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 const (
 	YukinoDirName    = ".yukino"

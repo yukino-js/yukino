@@ -12,6 +12,7 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/compact"
 	"github.com/yukino-js/yukino/yukino/internal/conversation"
 	"github.com/yukino-js/yukino/yukino/internal/file_history"
+	"github.com/yukino-js/yukino/yukino/internal/goal"
 	"github.com/yukino-js/yukino/yukino/internal/hooks"
 	"github.com/yukino-js/yukino/yukino/internal/llm"
 	"github.com/yukino-js/yukino/yukino/internal/permissions"
@@ -49,6 +50,8 @@ type Agent struct {
 	ToolNameFilter      func(name string) bool
 	CoordinatorActiveFn func() bool
 	OnLoopComplete      func(conv *conversation.Manager)
+	GoalManager         *goal.GoalManager
+	ShouldContinueGoal  func() bool
 	FileHistory         *file_history.History
 	FileStateCache      *tools.FileStateCache
 	compactTracking     compact.AutoCompactTrackingState
@@ -361,18 +364,6 @@ func (a *Agent) executeSingleTool(ctx context.Context, eventCh chan AgentEvent, 
 		elapsed:       time.Since(start),
 		contentBlocks: result.ContentBlocks,
 	}
-}
-
-func formatToolArgs(args map[string]any) string {
-	var parts []string
-	for k, v := range args {
-		s := fmt.Sprintf("%v", v)
-		if len(s) > 80 {
-			s = s[:80] + "…"
-		}
-		parts = append(parts, fmt.Sprintf("%s: %s", k, s))
-	}
-	return strings.Join(parts, ", ")
 }
 
 func (a *Agent) persistLastMessage(conv *conversation.Manager) {
