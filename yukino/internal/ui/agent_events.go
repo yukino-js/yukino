@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"math"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -256,12 +257,13 @@ func (m Model) handleAgentEvent(ev agent.AgentEvent) (tea.Model, tea.Cmd) {
 	case agent.RetryEvent:
 		m.retryStatus = "Retrying"
 		if e.Wait > 0 {
-			m.retryStatus += fmt.Sprintf(" (%.0fs delay)", e.Wait.Seconds())
+			// Math.round (half-up) in the reference, not Go's half-to-even %.0f.
+			m.retryStatus += fmt.Sprintf(" (%ds delay)", int(math.Round(e.Wait.Seconds())))
 		}
 		m.retryStatus += ": " + e.Reason
 		msg := "↻ " + e.Reason
 		if e.Wait > 0 {
-			msg += fmt.Sprintf(" (waiting %.0fs)", e.Wait.Seconds())
+			msg += fmt.Sprintf(" (waiting %ds)", int(math.Round(e.Wait.Seconds())))
 		}
 		m.chatMessages = append(m.chatMessages, chatMessage{
 			role:    "system",
