@@ -10,6 +10,7 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/permissions"
 	"github.com/yukino-js/yukino/yukino/internal/plan_file"
 	"github.com/yukino-js/yukino/yukino/internal/prompt"
+	"github.com/yukino-js/yukino/yukino/internal/tools"
 )
 
 const LeadName = "leader"
@@ -25,6 +26,7 @@ func RunInProcessTeammate(ctx context.Context, team *Team, member *Member, initi
 	defer func() {
 		if member.Progress != nil {
 			member.Progress.ClearActiveTools()
+			member.Progress.ClearActivity()
 			if ctx.Err() != nil {
 				member.Progress.SetStatus("stopped")
 			} else if runErr != nil {
@@ -67,7 +69,12 @@ func RunInProcessTeammate(ctx context.Context, team *Team, member *Member, initi
 			case agent.ErrorEvent:
 				executionErr = fmt.Errorf("%s", e.Message)
 			case agent.PermissionRequestEvent:
-				e.ResponseCh <- agent.PermissionReply{Response: agent.PermDeny}
+				reply := agent.PermissionReply{Response: agent.PermDeny}
+				if runtime, ok := tools.RuntimeContext(ctx); ok && runtime.RequestPermission != nil {
+					response, feedback := runtime.RequestPermission(ctx, tools.PermissionRequest{ToolName: e.ToolName, Desc: e.Desc, AgentName: e.AgentName, Cwd: e.Cwd, ToolCallID: e.ToolID, Args: e.Args, RememberPatterns: e.Decision.RememberPatterns})
+					reply = agent.PermissionReply{Response: agent.PermissionResponse(response), Feedback: feedback}
+				}
+				e.ResponseCh <- reply
 				continue
 			}
 			if eventOut != nil {
@@ -220,7 +227,11 @@ func waitForMember(ctx context.Context) error {
 func waitForNextPromptOrShutdown(ctx context.Context, team *Team, name string) (string, *FileMailMessage, error) {
 	for {
 		if err := waitForMember(ctx); err != nil {
-			return "", nil, err
+			// The member was deactivated while waiting: surface a synthetic
+			// shutdown request from the leader so the run loop sends a shutdown
+			// acknowledgment, mirroring the reference's idle-deactivation path.
+			synthetic := NewShutdownRequest(LeadName, MemberDeactivatedShutdownReason)
+			return "", &synthetic, nil
 		}
 		messages, err := team.MailBox.ReceiveMatching(name, func(FileMailMessage) bool { return true })
 		if err != nil {
@@ -254,6 +265,26 @@ func formatInboundAsPrompt(messages []FileMailMessage) string {
 	}
 	return "You have new messages from your team:\n\n" + formatMailboxLines(messages)
 }
+
+// HasLeaderNotifications reports whether any team's leader mailbox has unread
+// messages, without consuming them. It mirrors TeamManager.hasLeaderNotifications.
+func HasLeaderNotifications(mgr *TeamManager) bool {
+	if mgr == nil {
+		return false
+	}
+	for _, name := range mgr.ListTeams() {
+		team := mgr.GetTeam(name)
+		if team == nil {
+			continue
+		}
+		messages, err := team.MailBox.ReadUnread(LeadName)
+		if err == nil && len(messages) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func DrainLeadMailbox(mgr *TeamManager) []string {
 	if mgr == nil {
 		return nil

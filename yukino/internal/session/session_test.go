@@ -297,3 +297,29 @@ func TestLoadRejectsLegacyTimestampRecords(t *testing.T) {
 		t.Fatalf("obsolete timestamp records must be rejected, got %+v", loaded)
 	}
 }
+
+func TestSaveTranscriptCompactBoundary(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	transcript := filepath.Join(dir, "custom-transcript.jsonl")
+
+	if err := SaveTranscriptMessage(transcript, Message{Role: "user", Content: "ORIGINAL", Timestamp: 1}); err != nil {
+		t.Fatal(err)
+	}
+	keep := []KeepMessage{{Role: "user", Content: "KEPT-TAIL"}}
+	if err := SaveTranscriptCompactBoundary(transcript, "TRANSCRIPT-SUMMARY", keep); err != nil {
+		t.Fatal(err)
+	}
+
+	msgs := LoadTranscript(transcript)
+	boundary, after, ok := FindLastCompactBoundary(msgs)
+	if !ok {
+		t.Fatal("expected a compact boundary in the custom transcript")
+	}
+	if boundary.Summary != "TRANSCRIPT-SUMMARY" || len(boundary.Keep) != 1 || boundary.Keep[0].Content != "KEPT-TAIL" {
+		t.Fatalf("boundary = %#v", boundary)
+	}
+	if len(after) != 0 {
+		t.Fatalf("expected no after-boundary messages, got %d", len(after))
+	}
+}

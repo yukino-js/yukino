@@ -37,6 +37,7 @@ func sanitizeSlugSegment(s string) string {
 type SubAgentProgress struct {
 	ToolCallID string
 	Role       string
+	Background bool
 	Event      agent.AgentEvent
 	Status     string
 	Output     string
@@ -304,6 +305,7 @@ func (t *AgentTool) runChild(ctx context.Context, spec SubAgentSpec, description
 		return tools.ToolResult{Output: "Agent error: " + err.Error(), IsError: true}
 	}
 	child := agent.New(client, registry, t.Protocol)
+	child.AgentName = spec.Name
 	child.SessionID = sessionID
 	child.TranscriptPath = transcriptPath
 	child.MemoryContent = t.MemoryContent
@@ -341,16 +343,16 @@ func (t *AgentTool) runChild(ctx context.Context, spec SubAgentSpec, description
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var runError string
-	t.reportProgress(SubAgentProgress{ToolCallID: originToolCallID(ctx), Role: spec.Name, Status: "running"})
+	t.reportProgress(SubAgentProgress{ToolCallID: originToolCallID(ctx), Role: spec.Name, Background: background, Status: "running"})
 	for event := range child.Run(runCtx, conv) {
-		t.reportProgress(SubAgentProgress{ToolCallID: originToolCallID(ctx), Role: spec.Name, Event: event})
+		t.reportProgress(SubAgentProgress{ToolCallID: originToolCallID(ctx), Role: spec.Name, Background: background, Event: event})
 		switch e := event.(type) {
 		case agent.StreamText:
 			output.WriteString(e.Text)
 		case agent.PermissionRequestEvent:
 			reply := agent.PermissionReply{Response: agent.PermDeny}
 			if runtime, ok := tools.RuntimeContext(ctx); ok && runtime.RequestPermission != nil {
-				response, feedback := runtime.RequestPermission(ctx, e.ToolName, e.Desc)
+				response, feedback := runtime.RequestPermission(ctx, tools.PermissionRequest{ToolName: e.ToolName, Desc: e.Desc, AgentName: e.AgentName, Cwd: e.Cwd, ToolCallID: e.ToolID, Args: e.Args, RememberPatterns: e.Decision.RememberPatterns})
 				reply = agent.PermissionReply{Response: agent.PermissionResponse(response), Feedback: feedback}
 			}
 			e.ResponseCh <- reply
@@ -374,7 +376,7 @@ func (t *AgentTool) runChild(ctx context.Context, spec SubAgentSpec, description
 	if runError != "" {
 		finalOutput = "Agent error: " + runError
 	}
-	t.reportProgress(SubAgentProgress{ToolCallID: originToolCallID(ctx), Role: spec.Name, Status: status, Output: finalOutput})
+	t.reportProgress(SubAgentProgress{ToolCallID: originToolCallID(ctx), Role: spec.Name, Background: background, Status: status, Output: finalOutput})
 	result := output.String()
 	if runError != "" {
 		session.SaveTranscriptMessage(transcriptPath, session.Message{Role: "system", Type: "subagent_error", Content: runError, Timestamp: time.Now().Unix()})

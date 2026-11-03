@@ -43,7 +43,25 @@ type CompactBoundary struct {
 	Keep    []KeepMessage `json:"keep"`
 }
 
+// SaveCompactBoundary appends a compaction boundary to the session transcript,
+// mirroring saveCompactBoundary in the reference.
 func SaveCompactBoundary(workDir, sessionID, summary string, keep []KeepMessage) error {
+	if err := history.RegisterProject(workDir); err != nil {
+		return err
+	}
+	path := SessionFilePath(workDir, sessionID)
+	if path == "" {
+		return errors.New(storage.InvalidSessionIDError)
+	}
+	return SaveTranscriptCompactBoundary(path, summary, keep)
+}
+
+// SaveTranscriptCompactBoundary appends a compaction boundary to a specific
+// transcript path, mirroring saveTranscriptCompactBoundary in the reference.
+// The summary and the verbatim kept tail are inlined into one COMPACT_BOUNDARY
+// record; this is append-only, so pre-boundary messages stay in the file but
+// are not replayed on resume (see RebuildFromSession).
+func SaveTranscriptCompactBoundary(filePath, summary string, keep []KeepMessage) error {
 	if keep == nil {
 		keep = []KeepMessage{}
 	}
@@ -51,7 +69,7 @@ func SaveCompactBoundary(workDir, sessionID, summary string, keep []KeepMessage)
 	if err != nil {
 		return err
 	}
-	return SaveMessage(workDir, sessionID, Message{
+	return SaveTranscriptMessage(filePath, Message{
 		Role:      "system",
 		Type:      TypeCompactBoundary,
 		Content:   string(blob),

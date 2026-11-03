@@ -62,6 +62,7 @@ func startInProcessMember(ctx context.Context, cfg TeammateSpawnConfig) (<-chan 
 			member.Cancel = nil
 			GetNameRegistry().Unregister(memberName)
 			team.persist()
+			team.pruneTerminatedMembers()
 			team.mu.Unlock()
 			team.releaseMemberTasks(memberName)
 		}()

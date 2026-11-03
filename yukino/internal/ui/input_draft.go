@@ -175,7 +175,17 @@ func layoutInputRows(lines []string, width int, pastes *pasteStore) []inputRow {
 }
 
 func locateInputCursor(rows []inputRow, line, col int) inputPosition {
-	position := inputPosition{}
+	// The fallback position (cursor before the first editable cell, e.g. a line
+	// opening with a skipped ANSI escape) must point at the first wrapped row of
+	// the cursor's logical line, mirroring the reference's firstRow.
+	firstRow := 0
+	for i, row := range rows {
+		if row.line == line {
+			firstRow = i
+			break
+		}
+	}
+	position := inputPosition{row: firstRow}
 	for i, row := range rows {
 		if row.line != line {
 			continue

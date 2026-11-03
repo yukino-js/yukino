@@ -598,6 +598,9 @@ func (e *Executor) consume(session *a2aSession, run *ActiveRun, text string) {
 // handshake and blocks until the client answers, the run is canceled, or the
 // run finishes.
 func (e *Executor) requestPermission(run *ActiveRun, request agent.PermissionRequestEvent) agent.PermissionReply {
+	if request.Context != nil && request.Context.Err() != nil {
+		return agent.PermissionReply{Response: agent.PermDeny}
+	}
 	run.mu.Lock()
 	if run.canceled || run.finished {
 		run.mu.Unlock()
@@ -617,6 +620,9 @@ func (e *Executor) requestPermission(run *ActiveRun, request agent.PermissionReq
 		ToolName:     request.ToolName,
 		Reason:       request.Decision.Reason,
 		Args:         request.Args,
+	}
+	if request.AgentName != "" || request.Cwd != "" {
+		data.Source = &PermissionSource{AgentName: request.AgentName, Cwd: request.Cwd}
 	}
 	decisionCh := make(chan PermissionDecision, 1)
 	pending := &PendingPermission{

@@ -131,6 +131,11 @@ func TestCoordinatorPromptListsOnlyAllowedTools(t *testing.T) {
 	p := prompt.CoordinatorReminder(1)
 	toolsSection := p[strings.Index(p, "## Tools"):strings.Index(p, "## Delegation")]
 	for name := range CoordinatorAllowedTools {
+		// The reference allows Goal in coordinator mode but does not document it
+		// in the prompt's Tools list; mirror that omission.
+		if name == "Goal" {
+			continue
+		}
 		if !strings.Contains(toolsSection, "**"+name+"**") {
 			t.Errorf("whitelisted %s is missing from the prompt tool list", name)
 		}
@@ -230,4 +235,23 @@ func readEntrySource(t *testing.T, paths []string) string {
 		sb.Write(data)
 	}
 	return sb.String()
+}
+
+func TestTaskStopSchemaTaskIDDescriptions(t *testing.T) {
+	tool := &TaskStopTool{TeamMgr: newTestTeamManager(t)}
+	delegated, ok := tool.ForSubagent().(*TaskStopTool)
+	if !ok || !delegated.Delegated {
+		t.Fatal("ForSubagent must produce a delegated TaskStopTool")
+	}
+	delegatedProps := delegated.Schema()["input_schema"].(map[string]any)["properties"].(map[string]any)
+	if got := delegatedProps["task_id"].(map[string]any)["description"]; got != "ID of this agent's background task" {
+		t.Fatalf("delegated task_id description = %q", got)
+	}
+	if _, hasTeammate := delegatedProps["teammate"]; hasTeammate {
+		t.Fatal("delegated schema must not expose teammate")
+	}
+	leaderProps := tool.Schema()["input_schema"].(map[string]any)["properties"].(map[string]any)
+	if got := leaderProps["task_id"].(map[string]any)["description"]; got != "ID of a background task (Agent, Bash, PowerShell)" {
+		t.Fatalf("leader task_id description = %q", got)
+	}
 }

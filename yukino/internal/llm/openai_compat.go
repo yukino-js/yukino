@@ -138,7 +138,11 @@ func (c *openaiCompatClient) Stream(ctx context.Context, conv *conversation.Mana
 			reqParams.ReasoningEffort = shared.ReasoningEffort(effort)
 		}
 
-		stream := c.client.Chat.Completions.NewStreaming(ctx, reqParams)
+		var requestOpts []option.RequestOption
+		if retries, ok := maxRetries(ctx); ok {
+			requestOpts = append(requestOpts, option.WithMaxRetries(retries))
+		}
+		stream := c.client.Chat.Completions.NewStreaming(ctx, reqParams, requestOpts...)
 		defer stream.Close()
 
 		toolCalls := map[int64]*compatToolCall{}

@@ -36,7 +36,12 @@ type runState struct {
 }
 
 func (a *Agent) restoreContext(conv *conversation.Manager) {
-	sections := []string{a.SkillSection}
+	// The reference joins [skillSection, ...activeSkills].filter(Boolean), so an
+	// empty skill section is dropped rather than contributing a blank segment.
+	var sections []string
+	if a.SkillSection != "" {
+		sections = append(sections, a.SkillSection)
+	}
 	names := make([]string, 0, len(a.activeSkills))
 	for name := range a.activeSkills {
 		names = append(names, name)
@@ -57,6 +62,9 @@ func (a *Agent) restoreContext(conv *conversation.Manager) {
 
 func (a *Agent) Run(ctx context.Context, conv *conversation.Manager) <-chan AgentEvent {
 	ch := make(chan AgentEvent, 32)
+	// Store the run context so emitHook can pass it as the hooks' abort signal,
+	// mirroring the reference Agent's stored abortSignal.
+	a.runCtx = ctx
 	go func() {
 		agentTelemetry := telemetry.StartAgentTelemetry(a.SessionID, a.Client)
 		state := runState{maxOutput: a.MaxOutputTokens, outcome: "interrupted", telemetry: agentTelemetry}
@@ -153,6 +161,19 @@ func (a *Agent) sessionLineCount() *int {
 	return &count
 }
 
+// persistLast persists the last conversation message; on failure it records the
+// error outcome, emits an ErrorEvent, and reports false so the caller stops the
+// turn. This mirrors the reference, where a persistence error propagates and
+// fails the run instead of being silently dropped.
+func (a *Agent) persistLast(ch chan AgentEvent, conv *conversation.Manager, state *runState) bool {
+	if err := a.persistLastMessage(conv); err != nil {
+		state.outcome = "error"
+		ch <- ErrorEvent{Message: err.Error()}
+		return false
+	}
+	return true
+}
+
 func (a *Agent) runTurn(ctx context.Context, ch chan AgentEvent, conv *conversation.Manager, iteration int, state *runState) bool {
 	var schemas []map[string]any
 	if !state.summarizingGoal {
@@ -221,19 +242,26 @@ func (a *Agent) runTurn(ctx context.Context, ch chan AgentEvent, conv *conversat
 	if deferredGuidance != "" {
 		conv.AddSystemReminderIfChanged(prompt.DeferredGuidanceMarker, deferredGuidance)
 	}
-	drainHooks := func() {
+	drainHooks := func() bool {
 		if a.Hooks != nil {
 			for _, note := range a.Hooks.DrainNotifications() {
 				conv.AddSystemReminder(note)
-				a.persistLastMessage(conv)
+				if !a.persistLast(ch, conv, state) {
+					return false
+				}
 			}
 		}
+		return true
 	}
-	drainHooks()
+	if !drainHooks() {
+		return false
+	}
 	if a.NotificationFn != nil {
 		for _, note := range a.NotificationFn() {
 			conv.AddSystemReminder(note)
-			a.persistLastMessage(conv)
+			if !a.persistLast(ch, conv, state) {
+				return false
+			}
 		}
 	}
 	if a.SkillDeltaFn != nil {
@@ -244,7 +272,9 @@ func (a *Agent) runTurn(ctx context.Context, ch chan AgentEvent, conv *conversat
 	a.emitHook(hooks.EventTurnStart, "", nil)
 	defer a.emitHook(hooks.EventTurnEnd, "", nil)
 	a.emitHook(hooks.EventPreSend, "", nil)
-	drainHooks()
+	if !drainHooks() {
+		return false
+	}
 	if !state.summarizingGoal {
 		mc, err := compact.ManageContext(ctx, conv, a.Client, a.ContextWindow, state.maxOutput, &a.compactTracking, a.RecoveryState, names, schemas, a.sessionFilePath())
 		if err != nil {
@@ -252,8 +282,10 @@ func (a *Agent) runTurn(ctx context.Context, ch chan AgentEvent, conv *conversat
 			return false
 		}
 		if mc.Message != "" {
-			if mc.Boundary != nil && a.WorkDir != "" && a.SessionID != "" {
-				_ = session.SaveCompactBoundary(a.WorkDir, a.SessionID, mc.Boundary.Summary, mc.Boundary.Keep)
+			if mc.Boundary != nil {
+				if path := a.sessionFilePath(); path != "" {
+					_ = session.SaveTranscriptCompactBoundary(path, mc.Boundary.Summary, mc.Boundary.Keep)
+				}
 			}
 			ch <- CompactEvent{Message: mc.Message, Boundary: mc.Boundary}
 		}
@@ -282,11 +314,18 @@ func (a *Agent) runTurn(ctx context.Context, ch chan AgentEvent, conv *conversat
 			return false
 		}
 		conv.AddUserMessage(summary)
-		a.persistLastMessage(conv)
+		if !a.persistLast(ch, conv, state) {
+			return false
+		}
 	}
 	streamCtx := ctx
 	if state.escalated || a.MaxOutputTokens > 0 {
 		streamCtx = llm.WithMaxOutputTokens(ctx, state.maxOutput)
+	}
+	if state.summarizingGoal {
+		// Goal-summarizing turns skip provider retries (reference passes
+		// maxRetries: 0) so a budget-limited summary is not delayed by backoff.
+		streamCtx = llm.WithMaxRetries(streamCtx, 0)
 	}
 	events, errs := a.Client.Stream(streamCtx, conv, schemas)
 	events, errs = telemetry.ObserveLlmStream(a.Client, events, errs, state.telemetry)
@@ -339,14 +378,17 @@ func (a *Agent) runTurn(ctx context.Context, ch chan AgentEvent, conv *conversat
 			}
 		}
 	}
-	persistPartial := func() {
+	persistPartial := func() bool {
 		if text.Len() > 0 || len(thinking) > 0 {
 			conv.AddAssistantFull(text.String(), thinking, nil)
-			a.persistLastMessage(conv)
+			return a.persistLast(ch, conv, state)
 		}
+		return true
 	}
 	if ctx.Err() != nil {
-		persistPartial()
+		if !persistPartial() {
+			return false
+		}
 		ch <- LoopComplete{TotalTurns: iteration, StopReason: "interrupted"}
 		return false
 	}
@@ -358,15 +400,19 @@ func (a *Agent) runTurn(ctx context.Context, ch chan AgentEvent, conv *conversat
 		if errors.As(streamErr, &tooLong) {
 			result, err := compact.ForceCompact(ctx, conv, a.Client, a.RecoveryState, names, schemas, a.sessionFilePath(), "")
 			if err != nil || !result.Compacted {
-				persistPartial()
+				if !persistPartial() {
+					return false
+				}
 				state.outcome = "error"
 				ch <- ErrorEvent{Message: streamErr.Error()}
 				return false
 			}
 			conv.ClearUsageAnchor()
 			a.restoreContext(conv)
-			if result.Boundary != nil && a.WorkDir != "" && a.SessionID != "" {
-				_ = session.SaveCompactBoundary(a.WorkDir, a.SessionID, result.Boundary.Summary, result.Boundary.Keep)
+			if result.Boundary != nil {
+				if path := a.sessionFilePath(); path != "" {
+					_ = session.SaveTranscriptCompactBoundary(path, result.Boundary.Summary, result.Boundary.Keep)
+				}
 			}
 			ch <- CompactEvent{Message: "Auto-compacted due to context length: " + result.Message, Boundary: result.Boundary}
 			return true
@@ -389,7 +435,9 @@ func (a *Agent) runTurn(ctx context.Context, ch chan AgentEvent, conv *conversat
 				return false
 			}
 		}
-		persistPartial()
+		if !persistPartial() {
+			return false
+		}
 		state.outcome = "error"
 		ch <- ErrorEvent{Message: streamErr.Error()}
 		return false
@@ -421,10 +469,14 @@ func (a *Agent) runTurn(ctx context.Context, ch chan AgentEvent, conv *conversat
 		}
 		if recovery != "" {
 			if text.Len() > 0 || len(thinking) > 0 {
-				persistPartial()
+				if !persistPartial() {
+					return false
+				}
 				anchor()
 				conv.AddUserMessage(recovery)
-				a.persistLastMessage(conv)
+				if !a.persistLast(ch, conv, state) {
+					return false
+				}
 			}
 			ch <- RetryEvent{Reason: reason}
 			return true
@@ -446,7 +498,9 @@ func (a *Agent) runTurn(ctx context.Context, ch chan AgentEvent, conv *conversat
 	}
 	if text.Len() > 0 || len(thinking) > 0 || len(uses) > 0 {
 		conv.AddAssistantFull(text.String(), thinking, uses)
-		a.persistLastMessage(conv)
+		if !a.persistLast(ch, conv, state) {
+			return false
+		}
 	}
 	anchor()
 	if len(calls) == 0 {
@@ -483,7 +537,9 @@ func (a *Agent) runTurn(ctx context.Context, ch chan AgentEvent, conv *conversat
 					a.FileHistory.MakeSnapshot(conv.Len(), string(summary), a.sessionLineCount())
 				}
 				conv.AddUserMessage(contPrompt)
-				a.persistLastMessage(conv)
+				if !a.persistLast(ch, conv, state) {
+					return false
+				}
 				a.GoalManager.BeginTurn()
 				return true
 			}
@@ -528,7 +584,9 @@ func (a *Agent) runTurn(ctx context.Context, ch chan AgentEvent, conv *conversat
 	}
 	tool_result.ApplyBudget(toolResults, artifactSessionID, exempt)
 	conv.AddToolResultsMessage(toolResults)
-	a.persistLastMessage(conv)
+	if !a.persistLast(ch, conv, state) {
+		return false
+	}
 	ch <- TurnComplete{Turn: iteration}
 	if ctx.Err() != nil {
 		ch <- LoopComplete{TotalTurns: iteration, StopReason: "interrupted"}

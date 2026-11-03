@@ -1,7 +1,9 @@
 package tools
 
 import (
+	"fmt"
 	"path"
+	"regexp"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -135,12 +137,7 @@ func matchGlob(pattern, name string) bool {
 			if s >= len(segments) {
 				return false
 			}
-			segment := patterns[p]
-			if strings.HasPrefix(segment, "[") && strings.HasPrefix(segment, "[!") {
-				segment = "[^" + segment[2:]
-			}
-			ok, _ := path.Match(segment, segments[s])
-			return ok && match(p+1, s+1)
+			return matchSegment(patterns[p], segments[s]) && match(p+1, s+1)
 		}
 		if match(0, 0) {
 			return true
@@ -157,4 +154,128 @@ func searchAllowed(ctx ExecutionContext, path string, traverse bool) bool {
 		return ctx.CanReadSearchPath(path)
 	}
 	return true
+}
+
+// matchSegment matches a single path segment against a glob pattern that may use
+// the @(a|b), ?(a|b), *(a|b), +(a|b) extglob forms, mirroring minimatch in the
+// reference. The !(...) negation form is intentionally not treated as extglob:
+// minimatch compiles a leading !(...) with a known quirk that matches almost
+// everything, so it is left to literal path.Match handling. Segments without
+// extglob keep using path.Match unchanged.
+func matchSegment(pattern, name string) bool {
+	if !hasExtglob(pattern) {
+		if strings.HasPrefix(pattern, "[!") {
+			pattern = "[^" + pattern[2:]
+		}
+		ok, _ := path.Match(pattern, name)
+		return ok
+	}
+	re, err := compileGlobSegment(pattern)
+	if err != nil {
+		return false
+	}
+	return re.MatchString(name)
+}
+
+// hasExtglob reports whether the pattern uses one of the supported extglob group
+// forms OP(...) with OP in @ ? * +.
+func hasExtglob(pattern string) bool {
+	for i := 0; i+1 < len(pattern); i++ {
+		if pattern[i+1] == '(' && strings.IndexByte("?*+@", pattern[i]) >= 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// compileGlobSegment converts a glob segment (possibly with extglob) into an
+// anchored regular expression.
+func compileGlobSegment(pattern string) (*regexp.Regexp, error) {
+	body, _, err := globSegmentRegex(pattern, false)
+	if err != nil {
+		return nil, err
+	}
+	return regexp.Compile("^" + body + "$")
+}
+
+// globSegmentRegex builds a regex fragment for pattern and reports the bytes
+// consumed. When inGroup is true, an unescaped '|' or ')' terminates the
+// fragment because it belongs to the enclosing extglob group.
+func globSegmentRegex(pattern string, inGroup bool) (string, int, error) {
+	var sb strings.Builder
+	i := 0
+	for i < len(pattern) {
+		c := pattern[i]
+		if inGroup && (c == '|' || c == ')') {
+			return sb.String(), i, nil
+		}
+		if strings.IndexByte("?*+@", c) >= 0 && i+1 < len(pattern) && pattern[i+1] == '(' {
+			var alternatives []string
+			j := i + 2
+			for {
+				frag, consumed, err := globSegmentRegex(pattern[j:], true)
+				if err != nil {
+					return "", 0, err
+				}
+				alternatives = append(alternatives, frag)
+				j += consumed
+				if j < len(pattern) && pattern[j] == '|' {
+					j++
+					continue
+				}
+				if j < len(pattern) && pattern[j] == ')' {
+					j++
+					break
+				}
+				return "", 0, fmt.Errorf("unbalanced extglob group in %q", pattern)
+			}
+			group := "(?:" + strings.Join(alternatives, "|") + ")"
+			switch c {
+			case '?':
+				sb.WriteString(group + "?")
+			case '*':
+				sb.WriteString(group + "*")
+			case '+':
+				sb.WriteString(group + "+")
+			case '@':
+				sb.WriteString(group)
+			}
+			i = j
+			continue
+		}
+		switch c {
+		case '*':
+			sb.WriteString(".*")
+			i++
+		case '?':
+			sb.WriteString(".")
+			i++
+		case '[':
+			j := i + 1
+			if j < len(pattern) && (pattern[j] == '!' || pattern[j] == '^') {
+				j++
+			}
+			if j < len(pattern) && pattern[j] == ']' {
+				j++
+			}
+			for j < len(pattern) && pattern[j] != ']' {
+				j++
+			}
+			if j >= len(pattern) {
+				sb.WriteString(regexp.QuoteMeta(string(c)))
+				i++
+				continue
+			}
+			class := pattern[i : j+1]
+			if strings.HasPrefix(class, "[!") {
+				class = "[^" + class[2:]
+			}
+			sb.WriteString(class)
+			i = j + 1
+		default:
+			sb.WriteString(regexp.QuoteMeta(string(c)))
+			i++
+		}
+	}
+	return sb.String(), i, nil
 }

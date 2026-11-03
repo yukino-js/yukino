@@ -294,12 +294,40 @@ func (r markdownRenderer) link(href, label string, email bool) string {
 		return ""
 	}
 	if email {
+		// An scp-style git remote (user@host:path) must stay verbatim plain text;
+		// GFM's autolinker otherwise splits the user@host part into a mailto link.
+		// The reference claims such remotes with a tokenizer ahead of the email
+		// rule; goldmark's Linkify has already produced the email node here, so
+		// detect the ":<non-space>" tail in the source and render it plain.
+		if r.isScpStyleRemote(label) {
+			return paint(label, r.color())
+		}
 		return paint(label, Theme.MdLinkURL)
 	}
 	if plainTerminalText(label) == href || label == "" {
 		return paint(href, Theme.MdLinkURL)
 	}
 	return paint(label+" ("+paint(href, Theme.MdLinkURL)+")", Theme.MdLink)
+}
+
+// isScpStyleRemote reports whether the email autolink label is immediately
+// followed by ":<non-space>" anywhere in the source, i.e. it is really an
+// scp-style git remote (user@host:path) rather than a plain email address.
+func (r markdownRenderer) isScpStyleRemote(label string) bool {
+	needle := label + ":"
+	source := string(r.source)
+	for idx := 0; idx < len(source); {
+		i := strings.Index(source[idx:], needle)
+		if i < 0 {
+			return false
+		}
+		pos := idx + i + len(needle)
+		if pos < len(source) && !unicode.IsSpace(rune(source[pos])) {
+			return true
+		}
+		idx += i + 1
+	}
+	return false
 }
 
 var markdownEscape = regexp.MustCompile("\\\\" + "[" + regexp.QuoteMeta("!\"#$%&'()*+,-./:;<=>?@[\\]^_"+string(rune(96))+"{|}~") + "]")

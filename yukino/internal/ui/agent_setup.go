@@ -97,6 +97,8 @@ func (m *Model) registerAgentTools(client llm.Client, providerCfg *config.Provid
 
 	teamMgr := teams.NewTeamManager(wd)
 	teamMgr.CoordinatorMode = m.EnableCoordinatorMode
+	// Restore pending notifications and reclaim interrupted teammates' work.
+	teamMgr.RestoreFromDisk()
 	m.teamMgr = teamMgr
 	m.registry.Register(&teams.TeamTodoWriteTool{TeamMgr: m.teamMgr, Fallback: m.todoList})
 

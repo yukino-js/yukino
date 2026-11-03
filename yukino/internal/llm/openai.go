@@ -138,7 +138,11 @@ func (c *openaiClient) Stream(ctx context.Context, conv *conversation.Manager, t
 			reqParams.Tools = tools
 		}
 
-		stream := c.client.Responses.NewStreaming(ctx, reqParams)
+		var requestOpts []option.RequestOption
+		if retries, ok := maxRetries(ctx); ok {
+			requestOpts = append(requestOpts, option.WithMaxRetries(retries))
+		}
+		stream := c.client.Responses.NewStreaming(ctx, reqParams, requestOpts...)
 		defer stream.Close()
 
 		var currentToolName, currentCallID, jsonAccum string

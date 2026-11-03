@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -81,8 +80,8 @@ func main() {
 	defer signal.Stop(signals)
 	go func() {
 		sig := <-signals
-		if sig == syscall.SIGTERM && telemetry.RemoteSignalHandlersInstalled() {
-			// Remote mode owns SIGINT/SIGTERM shutdown.
+		if sig == syscall.SIGTERM && (telemetry.RemoteSignalHandlersInstalled() || printOwnsSignals.Load()) {
+			// Remote/print mode owns SIGINT/SIGTERM shutdown.
 			return
 		}
 		tools.RunExitCleanups()
@@ -94,6 +93,9 @@ func main() {
 	defer recordExit()
 	defer func() {
 		if r := recover(); r != nil {
+			if err, ok := r.(error); ok && crash_log.IsTerminalGone(err) {
+				crash_log.ExitForTerminalGone("uncaught exception", r)
+			}
 			crash_log.RecordPanic("main", r, debug.Stack())
 			logger.Global().Fatal(map[string]any{"err": r}, "uncaught exception")
 			telemetry.CaptureTelemetryError(fmt.Errorf("%v", r), "uncaught exception")
@@ -138,15 +140,17 @@ func main() {
 			telemetry.ShutdownTelemetry()
 			exitNow(1)
 		}
-		if err := runPrint(mode.Prompt, cfg, validHooks, mode.OutputFormat); err != nil {
+		exitCode, err := runPrint(mode.Prompt, cfg, validHooks, mode.OutputFormat)
+		if err != nil {
 			telemetry.CaptureTelemetryError(err, "print")
-			if !errors.Is(err, errGoalCommand) {
-				fmt.Fprintf(os.Stderr, "Error: %s\n", err)
-			}
+			fmt.Fprintf(os.Stderr, "Error: %s\n", err)
 			telemetry.ShutdownTelemetry()
 			exitNow(1)
 		}
 		telemetry.ShutdownTelemetry()
+		if exitCode != 0 {
+			exitNow(exitCode)
+		}
 		return
 	}
 
@@ -206,6 +210,13 @@ func main() {
 	}
 	defer terminalInput.Close()
 	ui.SetThemeMode(ui.DetectTerminalTheme(terminalInput, os.Stdout, cfg.Theme))
+	// Reset any mouse tracking a previous program (or a crashed yukino) left
+	// enabled, so the terminal does not send mouse escape sequences that
+	// bubbletea would misread as key input. bubbletea only disables mouse on
+	// exit, and never the X10 (?1000) mode, so do the full reset at startup.
+	if term.IsTerminal(os.Stdout.Fd()) {
+		fmt.Print("\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l")
+	}
 	m := ui.New(cfg.Providers, cfg.MCPServers, validHooks, cfg.Sandbox, cfg.DefaultProvider, cfg.PermissionMode, cfg.MemoryEnabled())
 	m.EnableCoordinatorMode = cfg.EnableCoordinatorMode
 	m.MCPLoading = cfg.MCPLoading
@@ -221,6 +232,9 @@ func main() {
 	}
 	terminalInput.Close()
 	if err != nil {
+		if crash_log.IsTerminalGone(err) {
+			crash_log.ExitForTerminalGone("stdio", err)
+		}
 		telemetry.CaptureTelemetryError(err, "main")
 		crash_log.RecordError("main", err)
 		logger.Global().Fatal(map[string]any{"err": err}, "unhandled runtime error")

@@ -897,3 +897,30 @@ func lastUserRequest(messages []conversation.Message) conversation.Message {
 	}
 	return conversation.Message{}
 }
+
+func TestPersistFailurePropagatesAsErrorEvent(t *testing.T) {
+	client := &mockClient{responses: [][]llm.StreamEvent{{
+		llm.TextDelta{Text: "Hello"},
+		llm.StreamEnd{StopReason: "end_turn"},
+	}}}
+	ag := New(client, tools.NewRegistry(), "anthropic")
+	// An unwritable transcript path forces persistence to fail: the parent is a
+	// regular file, so the directory cannot be created. The failure must surface
+	// as an ErrorEvent and stop the turn rather than being silently dropped.
+	blocker := filepath.Join(t.TempDir(), "blocker")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ag.TranscriptPath = filepath.Join(blocker, "transcript.jsonl")
+	conv := conversation.NewManager()
+	_, events := runConversationRound(ag, conv, "hi")
+	sawError := false
+	for _, ev := range events {
+		if _, ok := ev.(ErrorEvent); ok {
+			sawError = true
+		}
+	}
+	if !sawError {
+		t.Fatalf("expected an ErrorEvent from the persistence failure, got %#v", events)
+	}
+}

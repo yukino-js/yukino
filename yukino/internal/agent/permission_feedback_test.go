@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/conversation"
 	"github.com/yukino-js/yukino/yukino/internal/llm"
 	"github.com/yukino-js/yukino/yukino/internal/permissions"
+	"github.com/yukino-js/yukino/yukino/internal/storage"
 	"github.com/yukino-js/yukino/yukino/internal/tools"
 )
 
@@ -152,5 +154,68 @@ func TestPermissionWaitReturnsWhenTurnCancelled(t *testing.T) {
 	}
 	if tool.executed {
 		t.Error("tool must not run when the turn is cancelled during confirmation")
+	}
+}
+
+type commandMockTool struct {
+	executed bool
+}
+
+func (t *commandMockTool) Name() string                 { return "CustomCommand" }
+func (t *commandMockTool) Description() string          { return "mock command" }
+func (t *commandMockTool) Category() tools.ToolCategory { return tools.CategoryCommand }
+func (t *commandMockTool) Schema() map[string]any {
+	return map[string]any{
+		"name": "CustomCommand", "description": "mock",
+		"input_schema": map[string]any{"type": "object", "properties": map[string]any{}},
+	}
+}
+func (t *commandMockTool) Execute(ctx context.Context, args map[string]any) tools.ToolResult {
+	t.executed = true
+	return tools.ToolResult{Output: "done"}
+}
+
+func TestAllowAlwaysWithoutRememberScopesDoesNotPersist(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	tool := &commandMockTool{}
+	client := &mockClient{}
+	dir := t.TempDir()
+	reg := tools.NewRegistry()
+	reg.Register(tool)
+	ag := New(client, reg, "anthropic")
+	ag.Checker = permissions.NewChecker(permissions.NewPathSandbox(dir, true), permissions.NewRuleEngine(dir), permissions.ModeDefault)
+	client.responses = [][]llm.StreamEvent{
+		{
+			llm.ToolCallStart{ToolName: "CustomCommand", ToolID: "c1"},
+			llm.ToolCallComplete{ToolID: "c1", ToolName: "CustomCommand", Arguments: map[string]any{}},
+			llm.StreamEnd{StopReason: "tool_use"},
+		},
+		{
+			llm.TextDelta{Text: "ok"},
+			llm.StreamEnd{StopReason: "end_turn"},
+		},
+	}
+
+	conv := conversation.NewManager()
+	conv.AddUserMessage("run it")
+	var request *PermissionRequestEvent
+	for ev := range ag.Run(context.Background(), conv) {
+		if e, ok := ev.(PermissionRequestEvent); ok {
+			request = &e
+			e.ResponseCh <- PermissionReply{Response: PermAllowAlways}
+		}
+	}
+	if request == nil || len(request.Decision.RememberPatterns) != 0 {
+		t.Fatalf("expected a permission request without remember scopes, got %+v", request)
+	}
+	if !tool.executed {
+		t.Fatal("tool must run after allowAlways is downgraded to allow")
+	}
+	rulesPath, err := storage.ProjectPath(dir, permissions.PermissionsRulesFilename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, statErr := os.Stat(rulesPath); !os.IsNotExist(statErr) {
+		t.Fatalf("allowAlways without scopes must not persist rules: %v", statErr)
 	}
 }

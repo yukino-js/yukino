@@ -91,6 +91,7 @@ func (t *Team) AddMember(name string, client llm.Client, registry *tools.Registr
 		return nil, fmt.Errorf("Teammate '%s' already exists", name)
 	}
 	ag := agent.New(client, registry, protocol)
+	ag.AgentName = name
 	member := &Member{
 		Name:     name,
 		AgentRef: ag,
@@ -141,7 +142,49 @@ func (t *Team) StopMember(name string) {
 	t.releaseMemberTasks(name)
 	t.mu.Lock()
 	t.persist()
+	t.pruneTerminatedMembers()
 	t.mu.Unlock()
+}
+
+// MaxRetainedTerminatedMembers mirrors MAX_RETAINED_TERMINATED_MEMBERS: the cap
+// on terminated members kept in memory and on disk before the oldest are evicted.
+const MaxRetainedTerminatedMembers = 200
+
+// pruneTerminatedMembers evicts the oldest terminated members beyond the
+// retention cap, mirroring Team.pruneTerminatedMembers in the reference. Running
+// members are never dropped. The caller must hold t.mu.
+func (t *Team) pruneTerminatedMembers() {
+	var terminal []*Member
+	for _, name := range t.memberOrder {
+		member := t.Members[name]
+		if member == nil || member.Active || member.Cancel != nil || member.Progress == nil {
+			continue
+		}
+		switch member.Progress.GetStatus() {
+		case "completed", "failed", "stopped":
+			terminal = append(terminal, member)
+		}
+	}
+	excess := len(terminal) - MaxRetainedTerminatedMembers
+	if excess <= 0 {
+		return
+	}
+	removed := terminal[:excess]
+	removedNames := make([]string, 0, len(removed))
+	removedSet := make(map[string]bool, len(removed))
+	for _, member := range removed {
+		delete(t.Members, member.Name)
+		removedNames = append(removedNames, member.Name)
+		removedSet[member.Name] = true
+	}
+	keep := make([]string, 0, len(t.memberOrder)-len(removed))
+	for _, name := range t.memberOrder {
+		if !removedSet[name] {
+			keep = append(keep, name)
+		}
+	}
+	t.memberOrder = keep
+	WriteTeamFile(t.Cwd, t.Name, t.snapshot(), removedNames...)
 }
 
 func (t *Team) GetTeammateProgress() []*TeammateProgress {
@@ -184,6 +227,44 @@ type TeamManager struct {
 	CoordinatorMode bool
 	checker         *permissions.Checker
 	unsubscribe     func()
+
+	// listeners are notified after the team set changes (create/delete),
+	// mirroring the reference TeamManager.subscribe/emitChange.
+	listenersMu  sync.Mutex
+	listeners    map[int]func()
+	nextListener int
+}
+
+// Subscribe registers a listener notified whenever the team set changes. The
+// returned function unsubscribes. Mirrors TeamManager.subscribe.
+func (tm *TeamManager) Subscribe(listener func()) func() {
+	tm.listenersMu.Lock()
+	if tm.listeners == nil {
+		tm.listeners = map[int]func(){}
+	}
+	id := tm.nextListener
+	tm.nextListener++
+	tm.listeners[id] = listener
+	tm.listenersMu.Unlock()
+	return func() {
+		tm.listenersMu.Lock()
+		delete(tm.listeners, id)
+		tm.listenersMu.Unlock()
+	}
+}
+
+// emitChange notifies subscribers. It must be called without tm.mu held, since
+// listeners read the team set back through the manager.
+func (tm *TeamManager) emitChange() {
+	tm.listenersMu.Lock()
+	listeners := make([]func(), 0, len(tm.listeners))
+	for _, listener := range tm.listeners {
+		listeners = append(listeners, listener)
+	}
+	tm.listenersMu.Unlock()
+	for _, listener := range listeners {
+		func() { defer func() { recover() }(); listener() }()
+	}
 }
 
 func NewTeamManager(cwd string) *TeamManager {
@@ -198,7 +279,12 @@ func teamDir(cwd, name string) string {
 	return filepath.Join(TeamsBaseDir(cwd), sanitizeTeamName(name))
 }
 
-func (tm *TeamManager) CreateTeam(name, leadAgentID, description string) (*Team, error) {
+func (tm *TeamManager) CreateTeam(name, leadAgentID, description string) (team *Team, err error) {
+	defer func() {
+		if err == nil {
+			tm.emitChange()
+		}
+	}()
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
 	if name == "" {
@@ -223,7 +309,7 @@ func (tm *TeamManager) CreateTeam(name, leadAgentID, description string) (*Team,
 		}
 		return nil, err
 	}
-	team := NewTeam(tm.cwd, name)
+	team = NewTeam(tm.cwd, name)
 	team.LeadAgentID = leadAgentID
 	team.Description = description
 	team.RequiresLeaderPlanApproval = tm.CoordinatorMode
@@ -253,6 +339,7 @@ func (tm *TeamManager) GetTaskStore(teamName string) *SharedTaskStore {
 }
 
 func (tm *TeamManager) CreateTeamWith(team *Team) {
+	defer tm.emitChange()
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
 	key := sanitizeTeamName(team.Name)
@@ -301,13 +388,17 @@ func (tm *TeamManager) GetTeam(name string) *Team {
 		team.Members[m.Name].Progress.SetStatus(status)
 		team.releaseMemberTasks(m.Name)
 	}
+	// The team is still local (not yet registered), so persist and prune the
+	// hydrated terminated members without contending on the team lock.
+	team.persist()
+	team.pruneTerminatedMembers()
 	tm.teams[sanitizeTeamName(name)] = team
 	tm.order = append(tm.order, sanitizeTeamName(name))
-	team.persist()
 	return team
 }
 
 func (tm *TeamManager) DeleteTeam(name string) {
+	defer tm.emitChange()
 	team := tm.GetTeam(name)
 	if team != nil {
 		for _, member := range team.ListMembers() {
@@ -339,6 +430,32 @@ func (tm *TeamManager) ListTeams() []string {
 	return names
 }
 
+// ListTeamNames lists every team directory name in the project namespace,
+// mirroring listTeamNames in the reference. It returns an empty list when the
+// base directory does not exist.
+func ListTeamNames(cwd string) []string {
+	entries, err := os.ReadDir(TeamsBaseDir(cwd))
+	if err != nil {
+		return []string{}
+	}
+	names := []string{}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			names = append(names, entry.Name())
+		}
+	}
+	return names
+}
+
+// RestoreFromDisk hydrates every team found in the project namespace, restoring
+// pending notifications and reclaiming interrupted teammates' work, mirroring
+// TeamManager.restoreFromDisk in the reference.
+func (tm *TeamManager) RestoreFromDisk() {
+	for _, name := range ListTeamNames(tm.cwd) {
+		tm.GetTeam(name)
+	}
+}
+
 func (tm *TeamManager) GetAllTeammateProgress() []*TeammateProgress {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
@@ -347,6 +464,18 @@ func (tm *TeamManager) GetAllTeammateProgress() []*TeammateProgress {
 		result = append(result, team.GetTeammateProgress()...)
 	}
 	return result
+}
+
+// StopAll stops every teammate runtime across all teams while retaining the
+// teams themselves, mirroring TeamManager.stopAll in the reference.
+func (tm *TeamManager) StopAll() {
+	for _, name := range tm.ListTeams() {
+		if team := tm.GetTeam(name); team != nil {
+			for _, member := range team.ListMembers() {
+				team.StopMember(member.Name)
+			}
+		}
+	}
 }
 
 func (tm *TeamManager) CloseAll() {

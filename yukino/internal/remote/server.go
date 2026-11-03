@@ -2,17 +2,24 @@ package remote
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 
 	"github.com/yukino-js/yukino/yukino/internal/agent"
@@ -21,19 +28,23 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/compact"
 	"github.com/yukino-js/yukino/yukino/internal/config"
 	"github.com/yukino-js/yukino/yukino/internal/conversation"
+	"github.com/yukino-js/yukino/yukino/internal/conversation/userbash"
 	"github.com/yukino-js/yukino/yukino/internal/file_history"
 	"github.com/yukino-js/yukino/yukino/internal/goal"
 	"github.com/yukino-js/yukino/yukino/internal/history"
 	"github.com/yukino-js/yukino/yukino/internal/hooks"
+	"github.com/yukino-js/yukino/yukino/internal/images"
 	"github.com/yukino-js/yukino/yukino/internal/llm"
 	"github.com/yukino-js/yukino/yukino/internal/mcp"
 	"github.com/yukino-js/yukino/yukino/internal/memory"
 	"github.com/yukino-js/yukino/yukino/internal/memory/background"
 	"github.com/yukino-js/yukino/yukino/internal/permissions"
+	"github.com/yukino-js/yukino/yukino/internal/plan_file"
 	"github.com/yukino-js/yukino/yukino/internal/prompt"
 	"github.com/yukino-js/yukino/yukino/internal/sandbox"
 	"github.com/yukino-js/yukino/yukino/internal/session"
 	"github.com/yukino-js/yukino/yukino/internal/skills"
+	"github.com/yukino-js/yukino/yukino/internal/storage"
 	"github.com/yukino-js/yukino/yukino/internal/subagent"
 	"github.com/yukino-js/yukino/yukino/internal/teams"
 	"github.com/yukino-js/yukino/yukino/internal/todo"
@@ -67,6 +78,47 @@ type askUserResponseData struct {
 	Answers map[string]string `json:"answers"`
 }
 
+type permissionRequestPayload struct {
+	ID               string   `json:"id"`
+	ToolName         string   `json:"toolName"`
+	Description      string   `json:"description"`
+	RememberPatterns []string `json:"rememberPatterns,omitempty"`
+	order            uint64
+}
+
+type askUserPayload struct {
+	ID        string           `json:"id"`
+	Questions []map[string]any `json:"questions"`
+	order     uint64
+}
+
+// followUpEntry is a message that could neither run nor steer immediately and
+// is replayed once the streaming slot frees up.
+type followUpEntry struct {
+	text  string
+	input *history.InputEntry
+}
+
+// subagentActiveTool mirrors the browser's per-subagent active tool entry.
+type subagentActiveTool struct {
+	ToolID   string `json:"toolId"`
+	ToolName string `json:"toolName"`
+}
+
+// subagentState tracks one subagent's live activity for the browser display,
+// mirroring RemoteServer.subagentStates entries.
+type subagentState struct {
+	ToolCallID  string               `json:"toolCallId"`
+	Role        string               `json:"role"`
+	Background  bool                 `json:"background"`
+	TurnCount   int                  `json:"turnCount"`
+	Status      string               `json:"status"`
+	ActiveTools []subagentActiveTool `json:"activeTools"`
+}
+
+// goalControlPattern matches the /goal control commands accepted mid-run.
+var goalControlPattern = regexp.MustCompile(`^/goal(?:\s+(status|pause|clear|complete))?$`)
+
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
@@ -78,16 +130,31 @@ type Server struct {
 	planApprovalID       string
 	planApprovalTimer    *time.Timer
 	pendingPlanExecution string
-	MCPLoading           string
-	providers            []config.ProviderConfig
-	mcpConfigs           []config.MCPServerConfig
-	hookCfgs             []config.HookConfig
-	addr                 string
+	// hasExitedPlanMode tracks whether plan mode was exited, so re-entering
+	// replays the reentry reminder (mirrors RemoteServer.hasExitedPlanMode).
+	hasExitedPlanMode bool
+	MCPLoading        string
+	providers         []config.ProviderConfig
+	mcpConfigs        []config.MCPServerConfig
+	hookCfgs          []config.HookConfig
+	addr              string
 
 	defaultProvider int
 
 	mu    sync.Mutex
 	conns map[*websocket.Conn]struct{}
+
+	// lastPongAt tracks the most recent pong per connection and drives the
+	// heartbeat sweep; heartbeatTicker/heartbeatDone run the sweep loop.
+	lastPongAt      map[*websocket.Conn]int64
+	heartbeatTicker *time.Ticker
+	heartbeatDone   chan struct{}
+
+	// fileCache backs @-mention completion, mirroring RemoteServer.fileCache.
+	fileCacheMu   sync.Mutex
+	fileCacheKey  string
+	fileCache     []string
+	fileCacheTime time.Time
 
 	ag           *agent.Agent
 	conv         *conversation.Manager
@@ -99,8 +166,28 @@ type Server struct {
 	goalManager  *goal.GoalManager
 
 	streaming    bool
+	stopping     bool
 	cancelStream context.CancelFunc
 	agentCh      <-chan agent.AgentEvent
+
+	// modelListCancel aborts an in-flight model discovery when a new one starts.
+	modelListMu     sync.Mutex
+	modelListCancel context.CancelFunc
+
+	// followUps queues messages that arrive while a run cannot accept them.
+	followUpsMu sync.Mutex
+	followUps   []followUpEntry
+
+	// activity bridge: live task/teammate/subagent feeds for the browser.
+	activityAttached  bool
+	activityCleanups  []func()
+	teammateSignature string
+	teammateTimer     *time.Ticker
+	teammateDone      chan struct{}
+	wakeupTimer       *time.Ticker
+	wakeupDone        chan struct{}
+	subagentMu        sync.Mutex
+	subagentStates    map[string]*subagentState
 
 	// lastUsage mirrors the reference RemoteServer.lastUsage: the most recent
 	// usage event, surfaced by /status and the command context.
@@ -109,11 +196,16 @@ type Server struct {
 
 	askUserCh chan tools.AskUserRequest
 
-	pendingPermMu sync.Mutex
-	pendingPerms  map[string]chan<- agent.PermissionReply
+	pendingPermMu       sync.Mutex
+	pendingPerms        map[string]chan<- agent.PermissionReply
+	pendingPermPayloads map[string]permissionRequestPayload
+	pendingPermTimers   map[string]*time.Timer
 
-	pendingAskMu sync.Mutex
-	pendingAsks  map[string]chan tools.QuestionResponse
+	pendingAskMu       sync.Mutex
+	pendingAsks        map[string]chan<- tools.QuestionResponse
+	pendingAskPayloads map[string]askUserPayload
+	pendingAskTimers   map[string]*time.Timer
+	requestCounter     atomic.Uint64
 
 	cmdRegistry  *commands.Registry
 	skillCatalog *skills.Catalog
@@ -149,19 +241,28 @@ func NewServer(providers []config.ProviderConfig, mcpConfigs []config.MCPServerC
 		memoryEnabled:         memoryEnabled,
 		sandboxCfg:            sandboxCfg,
 		conns:                 make(map[*websocket.Conn]struct{}),
+		lastPongAt:            make(map[*websocket.Conn]int64),
 		pendingPerms:          make(map[string]chan<- agent.PermissionReply),
-		pendingAsks:           make(map[string]chan tools.QuestionResponse),
+		pendingPermPayloads:   make(map[string]permissionRequestPayload),
+		pendingPermTimers:     make(map[string]*time.Timer),
+		pendingAsks:           make(map[string]chan<- tools.QuestionResponse),
+		pendingAskPayloads:    make(map[string]askUserPayload),
+		pendingAskTimers:      make(map[string]*time.Timer),
 		mcpAnnounced:          map[string]bool{},
 		mcpApps:               newRemoteMcpApps(),
 	}
 }
 
 func (s *Server) activeProvider() *config.ProviderConfig {
+	if len(s.providers) == 0 {
+		return nil
+	}
 	return config.ResolveDefaultProvider(s.providers, s.defaultProvider)
 }
 
 func (s *Server) Run() error {
 	defer func() {
+		s.stopHeartbeat()
 		if s.registry != nil {
 			_ = s.registry.Dispose()
 		}
@@ -171,6 +272,7 @@ func (s *Server) Run() error {
 	}
 
 	s.initMCPServers()
+	s.attachActivityBridge()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handleIndex)
@@ -181,6 +283,7 @@ func (s *Server) Run() error {
 		return err
 	}
 	fmt.Printf("Remote server listening at http://%s/#token=%s\n", address, s.accessToken)
+	s.startHeartbeat()
 	s.httpServer = &http.Server{Addr: address, Handler: mux}
 	if err := s.httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
@@ -188,9 +291,6 @@ func (s *Server) Run() error {
 	return nil
 }
 
-// Stop tears the server down: closes the HTTP/WS listener and disposes the
-// tool registry (MCP children, background tasks). Run returns nil once the
-// server has stopped.
 func (s *Server) mcpAppHandle() mcpAppHandle {
 	handle := mcpAppHandle{SessionID: s.sessionID, Cwd: mustGetwd(), MCPManager: s.mcpMgr}
 	if s.ag != nil {
@@ -224,7 +324,15 @@ func (s *Server) sendTo(ws *websocket.Conn, msg wsMessage) {
 	_ = ws.WriteMessage(websocket.TextMessage, data)
 }
 
+// Stop tears the server down: closes the HTTP/WS listener and disposes the
+// tool registry (MCP children, background tasks). Run returns nil once the
+// server has stopped.
 func (s *Server) Stop() {
+	s.runMu.Lock()
+	s.stopping = true
+	s.runMu.Unlock()
+	s.stopHeartbeat()
+	s.stopActivityBridge()
 	if s.httpServer != nil {
 		_ = s.httpServer.Close()
 	}
@@ -258,17 +366,54 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		conn.Close()
 		s.mu.Lock()
 		delete(s.conns, conn)
+		delete(s.lastPongAt, conn)
 		s.mu.Unlock()
 	}()
 
 	conn.SetReadLimit(4 << 20)
+	conn.SetPongHandler(func(string) error {
+		s.mu.Lock()
+		s.lastPongAt[conn] = time.Now().UnixMilli()
+		s.mu.Unlock()
+		return nil
+	})
 
-	s.send(wsMessage{Type: "connected", Data: map[string]string{
-		"session": s.sessionID,
-		"cwd":     mustGetwd(),
+	// Per-connection bootstrap: every message below is unicasted to the newly
+	// connected client (mirrors the reference wss.on("connection") handler),
+	// not broadcast, so a late joiner syncs without disturbing other clients.
+	s.sendTo(conn, wsMessage{Type: "connected", Data: map[string]any{
+		"session":   s.sessionID,
+		"cwd":       mustGetwd(),
+		"streaming": s.streaming,
 	}})
-
-	s.send(wsMessage{Type: "commands", Data: s.buildCommandList()})
+	if status, ok := s.statusPayload(); ok {
+		s.sendTo(conn, status)
+	}
+	s.sendTo(conn, wsMessage{Type: "commands", Data: s.buildCommandList()})
+	entries, _ := history.LoadInputTexts()
+	if len(entries) > InputHistoryLimit {
+		entries = entries[len(entries)-InputHistoryLimit:]
+	}
+	if entries == nil {
+		entries = []string{}
+	}
+	s.sendTo(conn, wsMessage{Type: "history", Data: map[string]any{"entries": entries}})
+	s.sendTo(conn, wsMessage{Type: "usage", Data: s.usagePayload()})
+	if s.mcpApps != nil {
+		for _, payload := range s.mcpApps.Entries() {
+			s.sendTo(conn, wsMessage{Type: "tool_result", Data: payload})
+		}
+	}
+	if len(s.providers) == 0 {
+		s.sendTo(conn, wsMessage{Type: "provider_list", Data: map[string]any{"providers": []any{}, "current": 0}})
+	}
+	s.planMu.Lock()
+	planID := s.planApprovalID
+	s.planMu.Unlock()
+	if planID != "" {
+		s.sendTo(conn, s.planApprovalMessage(planID))
+	}
+	s.replayPendingRequests(conn)
 
 	for {
 		_, raw, err := conn.ReadMessage()
@@ -288,7 +433,16 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		case "user_message":
 			var data userMessageData
 			json.Unmarshal(msg.Data, &data)
-			go s.handleUserMessage(data.Content)
+			go func() {
+				s.runMu.Lock()
+				streaming := s.streaming
+				s.runMu.Unlock()
+				if streaming {
+					s.handleSteeringMessage(data.Content, nil)
+				} else {
+					s.handleUserMessage(data.Content, nil)
+				}
+			}()
 
 		case "permission_response":
 			var data permResponseData
@@ -323,13 +477,80 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 			if json.Unmarshal(msg.Data, &data) == nil {
 				go s.handlePlanApprovalResponse(data.ID, data.Choice, data.Feedback)
 			}
-		case "cancel":
-			s.runMu.Lock()
-			cancel := s.cancelStream
-			s.runMu.Unlock()
-			if cancel != nil {
-				cancel()
+		case "set_permission_mode":
+			var data struct {
+				Mode string `json:"mode"`
 			}
+			if json.Unmarshal(msg.Data, &data) == nil {
+				switch mode := permissions.PermissionMode(data.Mode); mode {
+				case permissions.ModeDefault, permissions.ModeAcceptEdits, permissions.ModeBypass, permissions.ModePlan:
+					s.applyPermissionMode(mode)
+				}
+			}
+
+		case "file_complete_request":
+			var data struct {
+				RequestID string `json:"requestId"`
+				Query     string `json:"query"`
+			}
+			if json.Unmarshal(msg.Data, &data) == nil {
+				s.sendFileCompletions(conn, data.RequestID, data.Query)
+			}
+
+		case "image_upload":
+			var data imageUploadData
+			if json.Unmarshal(msg.Data, &data) == nil {
+				go s.handleImageUpload(conn, data)
+			}
+
+		case "background_shells":
+			s.backgroundForegroundShells()
+
+		case "rewind_list_request":
+			s.broadcastRewindList()
+
+		case "rewind_action":
+			var data struct {
+				SnapshotID string `json:"snapshotId"`
+				Action     string `json:"action"`
+			}
+			if json.Unmarshal(msg.Data, &data) == nil {
+				switch data.Action {
+				case "code_and_conversation", "conversation_only", "code_only":
+					s.handleRewindAction(data.SnapshotID, data.Action)
+				}
+			}
+
+		case "model_list_request":
+			go s.broadcastModelList()
+
+		case "model_select":
+			var data struct {
+				Model string `json:"model"`
+			}
+			if json.Unmarshal(msg.Data, &data) == nil {
+				go s.changeProviderConfiguration(func() { s.applyModel(data.Model) })
+			}
+
+		case "provider_select":
+			var data struct {
+				Index int `json:"index"`
+			}
+			if json.Unmarshal(msg.Data, &data) == nil {
+				go s.changeProviderConfiguration(func() { s.applyProviderSwitch(data.Index) })
+			}
+
+		case "provider_save":
+			var data map[string]any
+			if json.Unmarshal(msg.Data, &data) == nil {
+				go s.changeProviderConfiguration(func() { s.handleProviderSave(data) })
+			}
+
+		case "provider_list_request":
+			s.broadcastProviderList()
+
+		case "cancel":
+			s.cancelActiveRun()
 
 		case "ping":
 			s.send(wsMessage{Type: "pong", Data: nil})
@@ -408,6 +629,7 @@ func (s *Server) initAgent() error {
 
 	if at, ok := s.registry.Get("Agent").(*subagent.AgentTool); ok {
 		at.ParentChecker = ag.Checker
+		at.OnProgress = s.handleSubagentProgress
 	}
 
 	s.wireSkillsToAgent(wd)
@@ -441,6 +663,8 @@ func (s *Server) registerTools(client llm.Client, p *config.ProviderConfig, wd s
 	loader.LoadAll()
 	s.teamMgr = teams.NewTeamManager(wd)
 	s.teamMgr.CoordinatorMode = s.enableCoordinatorMode
+	// Restore pending notifications and reclaim interrupted teammates' work.
+	s.teamMgr.RestoreFromDisk()
 
 	s.defaultTools = bootstrap.CreateToolRegistry(s.todoList, bootstrap.ToolRegistryOptions{
 		InteractionMode: "interactive",
@@ -503,7 +727,7 @@ func (s *Server) initMCPServers() {
 	}
 }
 
-func (s *Server) handleUserMessage(content string) {
+func (s *Server) handleUserMessage(content string, submittedInput *history.InputEntry) {
 
 	content = strings.TrimSpace(content)
 	if content == "" {
@@ -520,10 +744,22 @@ func (s *Server) handleUserMessage(content string) {
 		return
 	}
 	defer s.finishRun()
+	s.clearSubagents()
 	wd, _ := os.Getwd()
-	input, err := history.RecordInput(history.InputOptions{Cwd: wd, SessionID: &s.sessionID, Source: "ws", Text: content})
-	if err != nil {
-		s.send(wsMessage{Type: "error", Data: map[string]string{"message": err.Error()}})
+	var input history.InputEntry
+	if submittedInput != nil {
+		input = *submittedInput
+	} else {
+		var err error
+		input, err = history.RecordInput(history.InputOptions{Cwd: wd, SessionID: &s.sessionID, Source: "ws", Text: content})
+		if err != nil {
+			s.send(wsMessage{Type: "error", Data: map[string]string{"message": err.Error()}})
+			return
+		}
+	}
+	// A "!command" runs through the Bash tool rather than the model.
+	if command, excluded, isUserBash := userbash.ParseCommand(content); isUserBash {
+		s.runUserBash(ctx, wd, command, excluded, input)
 		return
 	}
 	expanded, blocks := conversation.ExpandAtRefsWithImages(content, wd)
@@ -627,6 +863,25 @@ func (s *Server) handleSlashCommand(input string) {
 		s.send(wsMessage{Type: "system", Data: map[string]string{"message": info}})
 		s.send(wsMessage{Type: "command_done", Data: nil})
 		return
+	case "thinking":
+		// Terminal parity: bare /thinking opens the level picker; with an
+		// argument it sets the level. Either way the status snapshot follows.
+		if strings.TrimSpace(args) == "" {
+			current := config.DefaultThinkingLevel
+			if ctx.ThinkingLevel != nil {
+				current = ctx.ThinkingLevel()
+			}
+			levels := config.ThinkingLevels
+			if ctx.AvailableThinkingLevels != nil {
+				levels = ctx.AvailableThinkingLevels()
+			}
+			s.send(wsMessage{Type: "thinking_form", Data: map[string]any{"current": current, "levels": levels}})
+		} else if cmd.Handler != nil {
+			s.send(wsMessage{Type: "system", Data: map[string]string{"message": cmd.Handler(ctx)}})
+		}
+		s.broadcastStatus()
+		s.send(wsMessage{Type: "command_done", Data: nil})
+		return
 	case "goal":
 		result := goal.HandleGoalCommand(s.goal(), args)
 		s.send(wsMessage{Type: "system", Data: map[string]string{"message": result.Message}})
@@ -668,11 +923,30 @@ func (s *Server) handleSlashCommand(input string) {
 	case commands.TypeLocalUI:
 		switch name {
 		case "clear":
-			s.conv.Reset()
-			if s.ag != nil {
-				s.ag.ClearActiveSkills()
-				s.ag.SetToolFilter(teams.CoordinatorToolFilter(s.enableCoordinatorMode))
+			// Stop background tasks and teammates before rotating the session so
+			// nothing keeps running (or billing/notifying) into the new session.
+			// A stop failure is surfaced and aborts the clear (never masked).
+			var stopErr error
+			if s.taskMgr != nil {
+				stopErr = s.taskMgr.StopAll(context.Background())
 			}
+			if s.teamMgr != nil {
+				s.teamMgr.StopAll()
+			}
+			if stopErr != nil {
+				s.send(wsMessage{Type: "error", Data: map[string]string{
+					"message": "Clear could not stop all background work: " + stopErr.Error(),
+				}})
+				s.send(wsMessage{Type: "command_done", Data: nil})
+				return
+			}
+			s.clearConversation()
+			s.clearSubagents()
+			s.send(wsMessage{Type: "connected", Data: map[string]any{
+				"session":   s.sessionID,
+				"cwd":       mustGetwd(),
+				"streaming": s.streaming,
+			}})
 			s.send(wsMessage{Type: "clear", Data: nil})
 
 		case "compact":
@@ -684,17 +958,53 @@ func (s *Server) handleSlashCommand(input string) {
 			return
 
 		case "rewind":
-			s.send(wsMessage{Type: "system", Data: map[string]string{
-				"message": "Rewind is not yet supported in remote mode.",
-			}})
-		case "login", "model", "worktree", "skills":
-			s.send(wsMessage{Type: "system", Data: map[string]string{
-				"message": fmt.Sprintf("/%s is not yet supported in remote mode.", name),
-			}})
+			s.broadcastRewindList()
+
+		case "login", "provider":
+			// Browser parity: open the provider dialog (switch or add).
+			s.broadcastProviderList()
+
+		case "model":
+			if model := strings.TrimSpace(args); model != "" {
+				s.applyModel(model)
+			} else {
+				s.broadcastModelList()
+			}
+
+		case "skills":
+			if s.skillCatalog == nil {
+				s.send(wsMessage{Type: "system", Data: map[string]string{"message": "No skills loaded."}})
+			} else if list := s.skillCatalog.List(); len(list) == 0 {
+				s.send(wsMessage{Type: "system", Data: map[string]string{"message": "No skills found."}})
+			} else {
+				lines := make([]string, 0, len(list))
+				for _, skill := range list {
+					lines = append(lines, "  "+skill.Name+": "+skill.Description)
+				}
+				s.send(wsMessage{Type: "system", Data: map[string]string{
+					"message": fmt.Sprintf("Available skills (%d):\n\n%s", len(list), strings.Join(lines, "\n")),
+				}})
+			}
+
+		case "worktree":
+			wd := mustGetwd()
+			if s.ag != nil {
+				wd = s.ag.CurrentCwd()
+			}
+			cmd := exec.Command("git", "worktree", "list")
+			cmd.Dir = wd
+			if output, err := cmd.Output(); err == nil {
+				s.send(wsMessage{Type: "system", Data: map[string]string{"message": "Worktree list:\n" + string(output)}})
+			} else {
+				s.send(wsMessage{Type: "system", Data: map[string]string{"message": "Not a git repository or git worktree not available."}})
+			}
+
+		case "sandbox":
+			s.handleSandboxCommand(args)
+
 		case "quit":
-			s.send(wsMessage{Type: "system", Data: map[string]string{
-				"message": "Quit does not apply to the remote server.",
-			}})
+			s.send(wsMessage{Type: "system", Data: map[string]string{"message": "Shutting down the remote server…"}})
+			time.AfterFunc(time.Duration(ShutdownGraceMS)*time.Millisecond, func() { s.Stop() })
 		}
 		s.send(wsMessage{Type: "command_done", Data: nil})
 
@@ -769,6 +1079,48 @@ func (s *Server) buildCommandContext(args string) *commands.Context {
 			}
 			return names
 		},
+		ThinkingLevel: func() string {
+			if tlc, ok := s.client.(llm.ThinkingLevelControl); ok {
+				if level := tlc.GetThinkingLevel(); level != "" {
+					return level
+				}
+			}
+			if p := s.activeProvider(); p != nil && p.Thinking != "" {
+				return p.Thinking
+			}
+			return config.DefaultThinkingLevel
+		},
+		AvailableThinkingLevels: func() []string {
+			if tlc, ok := s.client.(llm.ThinkingLevelControl); ok {
+				if levels := tlc.GetSupportedThinkingLevels(); levels != nil {
+					return levels
+				}
+			}
+			if p := s.activeProvider(); p != nil {
+				return config.GetSupportedThinkingLevels(p)
+			}
+			return config.ThinkingLevels
+		},
+		SetThinkingLevel: func(level string) {
+			tlc, ok := s.client.(llm.ThinkingLevelControl)
+			if !ok {
+				return
+			}
+			tlc.SetThinkingLevel(level)
+			if p := s.activeProvider(); p != nil {
+				if effective := tlc.GetThinkingLevel(); effective != "" {
+					p.Thinking = effective
+				} else {
+					p.Thinking = level
+				}
+			}
+		},
+		PersistThinkingLevel: func(level string) error {
+			if p := s.activeProvider(); p != nil {
+				return config.PersistThinkingLevel(p.BaseURL, level)
+			}
+			return nil
+		},
 	}
 }
 
@@ -815,21 +1167,24 @@ func (s *Server) handleResume(args string) {
 			s.send(wsMessage{Type: "command_done", Data: nil})
 			return
 		}
-		var sb strings.Builder
-		sb.WriteString(fmt.Sprintf("Available sessions (%d):\n\n", len(sessions)))
-		for i, sess := range sessions {
-			if i >= 20 {
-				sb.WriteString(fmt.Sprintf("  … and %d more\n", len(sessions)-20))
-				break
-			}
-			first := sess.FirstMessage
-			if len(first) > 60 {
-				first = first[:60] + "…"
-			}
-			sb.WriteString(fmt.Sprintf("  %d. [%s] %s (%d msgs)\n", i+1, sess.ID, first, sess.MessageCount))
+		list := sessions
+		if len(list) > SessionListLimit {
+			list = list[:SessionListLimit]
 		}
-		sb.WriteString("\nUsage: /resume <number> or /resume <session-id>")
-		s.send(wsMessage{Type: "system", Data: map[string]string{"message": sb.String()}})
+		out := make([]map[string]any, 0, len(list))
+		for _, sess := range list {
+			var lastUser any
+			if sess.LastUserMessageTime != nil {
+				lastUser = sess.LastUserMessageTime.UTC().Format("2006-01-02T15:04:05.000Z")
+			}
+			out = append(out, map[string]any{
+				"id":                  sess.ID,
+				"firstMessage":        sess.FirstMessage,
+				"messageCount":        sess.MessageCount,
+				"lastUserMessageTime": lastUser,
+			})
+		}
+		s.send(wsMessage{Type: "session_list", Data: map[string]any{"sessions": out}})
 		s.send(wsMessage{Type: "command_done", Data: nil})
 		return
 	}
@@ -853,21 +1208,21 @@ func (s *Server) handleResume(args string) {
 		if err := s.taskMgr.StopAll(context.Background()); err != nil {
 			return
 		}
-		if err := s.taskMgr.UseSession(targetID); err != nil {
-			s.send(wsMessage{Type: "error", Data: map[string]string{"message": err.Error()}})
-			return
-		}
 	}
-	s.conv.Reset()
-	s.sessionID = targetID
-	if s.ag != nil {
-		s.ag.SetSessionID(s.sessionID)
-		s.ag.GoalManager = s.goal()
+	if err := s.restoreSession(targetID); err != nil {
+		s.send(wsMessage{Type: "error", Data: map[string]string{"message": err.Error()}})
+		s.send(wsMessage{Type: "command_done", Data: nil})
+		return
 	}
 
 	boundary, after, compacted := session.FindLastCompactBoundary(msgs)
 	replay := session.RebuildFromSession(msgs, false)
 
+	s.send(wsMessage{Type: "connected", Data: map[string]any{
+		"session":   targetID,
+		"cwd":       wd,
+		"streaming": false,
+	}})
 	s.send(wsMessage{Type: "clear", Data: nil})
 	for _, msg := range replay {
 		s.conv.AppendMessages([]conversation.Message{msg})
@@ -889,6 +1244,67 @@ func (s *Server) handleResume(args string) {
 	}
 	s.send(wsMessage{Type: "system", Data: map[string]string{"message": restored}})
 	s.send(wsMessage{Type: "command_done", Data: nil})
+}
+
+// restoreSession mirrors restoreRemoteSession in src/remote/session-state.ts:
+// it rebinds every piece of per-session state to targetID so a resumed session
+// starts clean instead of inheriting the previous session's caches, skills, and
+// tool restrictions.
+// rotateSessionState rebinds every piece of per-session state to sessionID. It
+// is the shared core of restoreSession (resume) and clearConversation (clear),
+// mirroring the reference restoreRemoteSession/clearConversation resets.
+func (s *Server) rotateSessionState(sessionID string) error {
+	if s.taskMgr != nil {
+		if err := s.taskMgr.UseSession(sessionID); err != nil {
+			return err
+		}
+	}
+	s.conv.Reset()
+	s.sessionID = sessionID
+	if s.ag != nil {
+		s.ag.SetSessionID(sessionID)
+		s.ag.Checker.SetPlanFilePath("")
+		s.ag.GoalManager = s.goal()
+		s.ag.FileStateCache = tools.NewFileStateCache()
+		s.ag.RecoveryState = compact.NewRecoveryState()
+		s.ag.ClearActiveSkills()
+		s.ag.SetToolFilter(teams.CoordinatorToolFilter(s.enableCoordinatorMode))
+	}
+	s.fileHistory = file_history.New(sessionID)
+	if s.ag != nil {
+		s.ag.FileHistory = s.fileHistory
+	}
+	s.defaultTools.EditFile.FileHistory = s.fileHistory
+	s.defaultTools.WriteFile.FileHistory = s.fileHistory
+	if s.todoList != nil {
+		store, err := todo.NewStore(sessionID)
+		if err != nil {
+			return err
+		}
+		if err := s.todoList.UseStore(store); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// restoreSession mirrors restoreRemoteSession in src/remote/session-state.ts: it
+// rebinds per-session state to a resumed session so it starts clean instead of
+// inheriting the previous session's caches, skills, and tool restrictions.
+func (s *Server) restoreSession(targetID string) error {
+	if err := s.rotateSessionState(targetID); err != nil {
+		return err
+	}
+	s.clearSubagents()
+	return nil
+}
+
+// clearConversation mirrors AgentHandleImpl.clearConversation: it rotates to a
+// fresh session id and resets every piece of session-scoped state in place, so
+// /resume and the JSONL no longer see the pre-clear history.
+func (s *Server) clearConversation() {
+	_ = s.rotateSessionState(session.NewID())
+	s.mcpAnnounced = map[string]bool{}
 }
 
 var agentEventLogger = AgentEventLogger{}
@@ -946,30 +1362,26 @@ func (s *Server) consumeAgentEvents() {
 			s.send(wsMessage{Type: "tool_result", Data: data})
 
 		case agent.PermissionRequestEvent:
-			id := fmt.Sprintf("perm_%d", time.Now().UnixNano())
-			s.pendingPermMu.Lock()
-			s.pendingPerms[id] = e.ResponseCh
-			s.pendingPermMu.Unlock()
-			s.send(wsMessage{Type: "permission_request", Data: map[string]string{
-				"id":          id,
-				"toolName":    e.ToolName,
-				"description": e.Desc,
-			}})
+			description := formatMcpPermissionDesc(e.Args, e.Decision)
+			if e.AgentName != "" && e.Cwd != "" {
+				description = e.AgentName + " · " + e.Cwd + "\n" + description
+			}
+			s.requestPermission(e.Context, permissionRequestPayload{
+				ToolName:         e.ToolName,
+				Description:      description,
+				RememberPatterns: e.Decision.RememberPatterns,
+			}, e.ResponseCh)
 
 		case agent.AskUserQuestionEvent:
-			id := fmt.Sprintf("ask_%d", time.Now().UnixNano())
 			respCh := make(chan tools.QuestionResponse, 1)
-			s.pendingAskMu.Lock()
-			s.pendingAsks[id] = respCh
-			s.pendingAskMu.Unlock()
-			s.send(wsMessage{Type: "ask_user", Data: map[string]any{
-				"id":        id,
-				"questions": e.Questions,
-			}})
+			s.requestAskUser(context.Background(), e.Questions, respCh)
 			go func() {
 				resp := <-respCh
 				e.ResponseCh <- resp.Answers
 			}()
+
+		case agent.SteeringDelivered:
+			s.send(wsMessage{Type: "steering_delivered", Data: map[string]string{"text": e.Text}})
 
 		case agent.TurnComplete:
 			if streamBuf != "" {
@@ -1024,15 +1436,19 @@ func (s *Server) listenForAskUser(done <-chan struct{}) {
 			if !ok {
 				return
 			}
-			id := fmt.Sprintf("ask_%d", time.Now().UnixNano())
 			respCh := make(chan tools.QuestionResponse, 1)
-			s.pendingAskMu.Lock()
-			s.pendingAsks[id] = respCh
-			s.pendingAskMu.Unlock()
-			s.send(wsMessage{Type: "ask_user", Data: map[string]any{
-				"id":        id,
-				"questions": req.Questions,
-			}})
+			questions := make([]map[string]any, 0, len(req.Questions))
+			for _, question := range req.Questions {
+				encoded, err := json.Marshal(question)
+				if err != nil {
+					continue
+				}
+				var value map[string]any
+				if json.Unmarshal(encoded, &value) == nil {
+					questions = append(questions, value)
+				}
+			}
+			s.requestAskUser(req.Context, questions, respCh)
 			resp := <-respCh
 			req.ResponseCh <- resp
 		}
@@ -1045,6 +1461,12 @@ func (s *Server) handlePermissionResponse(data permResponseData) {
 	if ok {
 		delete(s.pendingPerms, data.ID)
 	}
+	payload := s.pendingPermPayloads[data.ID]
+	if timer := s.pendingPermTimers[data.ID]; timer != nil {
+		timer.Stop()
+	}
+	delete(s.pendingPermPayloads, data.ID)
+	delete(s.pendingPermTimers, data.ID)
 	s.pendingPermMu.Unlock()
 
 	if !ok {
@@ -1058,7 +1480,11 @@ func (s *Server) handlePermissionResponse(data permResponseData) {
 	case "deny":
 		resp = agent.PermDeny
 	case "allowAlways":
-		resp = agent.PermAllowAlways
+		if len(payload.RememberPatterns) == 0 {
+			resp = agent.PermAllow
+		} else {
+			resp = agent.PermAllowAlways
+		}
 	default:
 		resp = agent.PermDeny
 	}
@@ -1067,6 +1493,11 @@ func (s *Server) handlePermissionResponse(data permResponseData) {
 		reply.Feedback = data.Feedback
 	}
 	ch <- reply
+	response := data.Response
+	if resp == agent.PermAllow && data.Response == "allowAlways" {
+		response = "allow"
+	}
+	s.send(wsMessage{Type: "request_expired", Data: map[string]any{"id": data.ID, "kind": "permission", "response": response}})
 }
 
 func (s *Server) handleAskUserResponse(data askUserResponseData) {
@@ -1075,6 +1506,11 @@ func (s *Server) handleAskUserResponse(data askUserResponseData) {
 	if ok {
 		delete(s.pendingAsks, data.ID)
 	}
+	if timer := s.pendingAskTimers[data.ID]; timer != nil {
+		timer.Stop()
+	}
+	delete(s.pendingAskPayloads, data.ID)
+	delete(s.pendingAskTimers, data.ID)
 	s.pendingAskMu.Unlock()
 
 	if !ok {
@@ -1082,6 +1518,1328 @@ func (s *Server) handleAskUserResponse(data askUserResponseData) {
 	}
 
 	ch <- tools.QuestionResponse{Answers: data.Answers}
+	s.send(wsMessage{Type: "request_expired", Data: map[string]string{"id": data.ID, "kind": "ask"}})
+}
+
+func (s *Server) nextRequestID(prefix string) string {
+	return fmt.Sprintf("%s_%s_%d", prefix, strconv.FormatInt(time.Now().UnixMilli(), 36), s.requestCounter.Add(1))
+}
+
+func (s *Server) requestPermission(ctx context.Context, payload permissionRequestPayload, ch chan<- agent.PermissionReply) {
+	payload.ID = s.nextRequestID("perm")
+	payload.order = s.requestCounter.Load()
+	s.pendingPermMu.Lock()
+	s.pendingPerms[payload.ID] = ch
+	s.pendingPermPayloads[payload.ID] = payload
+	s.pendingPermTimers[payload.ID] = time.AfterFunc(PendingRequestTimeoutMS*time.Millisecond, func() {
+		s.expirePermission(payload.ID, true)
+	})
+	s.pendingPermMu.Unlock()
+	s.send(wsMessage{Type: "permission_request", Data: payload})
+	s.watchRequestContext(ctx, func() { s.expirePermission(payload.ID, false) })
+}
+
+func (s *Server) requestAskUser(ctx context.Context, questions []map[string]any, ch chan<- tools.QuestionResponse) {
+	payload := askUserPayload{ID: s.nextRequestID("ask"), Questions: questions, order: s.requestCounter.Load()}
+	s.pendingAskMu.Lock()
+	s.pendingAsks[payload.ID] = ch
+	s.pendingAskPayloads[payload.ID] = payload
+	s.pendingAskTimers[payload.ID] = time.AfterFunc(PendingRequestTimeoutMS*time.Millisecond, func() {
+		s.expireAsk(payload.ID, true)
+	})
+	s.pendingAskMu.Unlock()
+	s.send(wsMessage{Type: "ask_user", Data: payload})
+	s.watchRequestContext(ctx, func() { s.expireAsk(payload.ID, false) })
+}
+
+func (s *Server) watchRequestContext(ctx context.Context, cancel func()) {
+	if ctx == nil || ctx.Done() == nil {
+		return
+	}
+	go func() {
+		select {
+		case <-ctx.Done():
+			cancel()
+		}
+	}()
+}
+
+func (s *Server) expirePermission(id string, timedOut bool) {
+	s.pendingPermMu.Lock()
+	ch, ok := s.pendingPerms[id]
+	if ok {
+		delete(s.pendingPerms, id)
+		delete(s.pendingPermPayloads, id)
+	}
+	if timer := s.pendingPermTimers[id]; timer != nil {
+		timer.Stop()
+		delete(s.pendingPermTimers, id)
+	}
+	s.pendingPermMu.Unlock()
+	if !ok {
+		return
+	}
+	select {
+	case ch <- agent.PermissionReply{Response: agent.PermDeny}:
+	default:
+	}
+	if timedOut {
+		s.send(wsMessage{Type: "system", Data: map[string]string{"message": fmt.Sprintf("Permission request timed out after %d minutes with no response; denying automatically.", PendingRequestTimeoutMinutes)}})
+	}
+	s.send(wsMessage{Type: "request_expired", Data: map[string]string{"id": id, "kind": "permission"}})
+}
+
+func (s *Server) expireAsk(id string, timedOut bool) {
+	s.pendingAskMu.Lock()
+	ch, ok := s.pendingAsks[id]
+	if ok {
+		delete(s.pendingAsks, id)
+		delete(s.pendingAskPayloads, id)
+	}
+	if timer := s.pendingAskTimers[id]; timer != nil {
+		timer.Stop()
+		delete(s.pendingAskTimers, id)
+	}
+	s.pendingAskMu.Unlock()
+	if !ok {
+		return
+	}
+	select {
+	case ch <- tools.QuestionResponse{Answers: map[string]string{}}:
+	default:
+	}
+	if timedOut {
+		s.send(wsMessage{Type: "system", Data: map[string]string{"message": fmt.Sprintf("Question timed out after %d minutes with no answer; continuing with empty answers.", PendingRequestTimeoutMinutes)}})
+	}
+	s.send(wsMessage{Type: "request_expired", Data: map[string]string{"id": id, "kind": "ask"}})
+}
+
+func (s *Server) replayPendingRequests(conn *websocket.Conn) {
+	s.pendingPermMu.Lock()
+	permissions := make([]permissionRequestPayload, 0, len(s.pendingPermPayloads))
+	for _, payload := range s.pendingPermPayloads {
+		permissions = append(permissions, payload)
+	}
+	s.pendingPermMu.Unlock()
+	sort.Slice(permissions, func(i, j int) bool { return permissions[i].order < permissions[j].order })
+	for _, payload := range permissions {
+		s.sendTo(conn, wsMessage{Type: "permission_request", Data: payload})
+	}
+
+	s.pendingAskMu.Lock()
+	asks := make([]askUserPayload, 0, len(s.pendingAskPayloads))
+	for _, payload := range s.pendingAskPayloads {
+		asks = append(asks, payload)
+	}
+	s.pendingAskMu.Unlock()
+	sort.Slice(asks, func(i, j int) bool { return asks[i].order < asks[j].order })
+	for _, payload := range asks {
+		s.sendTo(conn, wsMessage{Type: "ask_user", Data: payload})
+	}
+}
+
+func (s *Server) cancelActiveRun() {
+	s.runMu.Lock()
+	cancel := s.cancelStream
+	s.runMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	s.pendingPermMu.Lock()
+	permissionIDs := make([]string, 0, len(s.pendingPerms))
+	for id := range s.pendingPerms {
+		permissionIDs = append(permissionIDs, id)
+	}
+	s.pendingPermMu.Unlock()
+	for _, id := range permissionIDs {
+		s.expirePermission(id, false)
+	}
+	s.pendingAskMu.Lock()
+	askIDs := make([]string, 0, len(s.pendingAsks))
+	for id := range s.pendingAsks {
+		askIDs = append(askIDs, id)
+	}
+	s.pendingAskMu.Unlock()
+	for _, id := range askIDs {
+		s.expireAsk(id, false)
+	}
+}
+
+// broadcastRewindList mirrors RemoteServer.broadcastRewindList: it sends the
+// checkpoint list, or a notice when there is nothing to rewind to.
+func (s *Server) broadcastRewindList() {
+	if s.ag == nil || s.fileHistory == nil {
+		return
+	}
+	if !s.fileHistory.HasSnapshots() {
+		s.send(wsMessage{Type: "system", Data: map[string]string{"message": "No checkpoints to rewind to."}})
+		return
+	}
+	snapshots := s.fileHistory.GetSnapshots()
+	out := make([]map[string]any, 0, len(snapshots))
+	for i, snap := range snapshots {
+		out = append(out, map[string]any{
+			"index":     i,
+			"id":        snap.ID,
+			"userText":  snap.UserText,
+			"timestamp": snap.Timestamp,
+			"fileCount": len(snap.Backups),
+		})
+	}
+	s.send(wsMessage{Type: "rewind_list", Data: map[string]any{"snapshots": out}})
+}
+
+// handleRewindAction mirrors RemoteServer.handleRewindAction: it restores code
+// and/or conversation to the checkpoint identified by snapshot UUID.
+func (s *Server) handleRewindAction(snapshotID, action string) {
+	if s.ag == nil || s.fileHistory == nil {
+		return
+	}
+	s.runMu.Lock()
+	streaming := s.streaming
+	s.runMu.Unlock()
+	if streaming {
+		s.send(wsMessage{Type: "system", Data: map[string]string{"message": "Cannot rewind while a run is in progress."}})
+		return
+	}
+	snapshots := s.fileHistory.GetSnapshots()
+	snapshotIndex := -1
+	for i, candidate := range snapshots {
+		if candidate.ID == snapshotID {
+			snapshotIndex = i
+			break
+		}
+	}
+	if snapshotIndex < 0 {
+		s.send(wsMessage{Type: "error", Data: map[string]string{
+			"message": "That checkpoint is no longer available (the list changed or the session was reset). Reopen /rewind.",
+		}})
+		return
+	}
+	snap := snapshots[snapshotIndex]
+	// The reference stops memory tasks here for non-code-only rewinds. Go's
+	// background extractor drains a copied snapshot of the messages, so
+	// truncating the live conversation cannot corrupt in-flight extraction;
+	// there is nothing to stop.
+	fileList := func(changed []string) string {
+		if len(changed) == 0 {
+			return ""
+		}
+		lines := make([]string, 0, len(changed))
+		for _, file := range changed {
+			lines = append(lines, "  "+file)
+		}
+		return "\n" + strings.Join(lines, "\n")
+	}
+	rewindFiles := func() ([]string, bool) {
+		changed, err := s.fileHistory.Rewind(snapshotIndex)
+		if err != nil {
+			s.send(wsMessage{Type: "error", Data: map[string]string{"message": err.Error()}})
+			return nil, false
+		}
+		return changed, true
+	}
+	switch action {
+	case "code_and_conversation":
+		changed, ok := rewindFiles()
+		if !ok {
+			return
+		}
+		s.rewindConversation(snap)
+		s.send(wsMessage{Type: "system", Data: map[string]string{
+			"message": fmt.Sprintf("⟲ Rewound to checkpoint. Restored %d file(s) and conversation.%s", len(changed), fileList(changed)),
+		}})
+	case "conversation_only":
+		s.rewindConversation(snap)
+		s.send(wsMessage{Type: "system", Data: map[string]string{"message": "⟲ Rewound conversation. Files unchanged."}})
+	case "code_only":
+		changed, ok := rewindFiles()
+		if !ok {
+			return
+		}
+		s.send(wsMessage{Type: "system", Data: map[string]string{
+			"message": fmt.Sprintf("⟲ Restored %d file(s). Conversation unchanged.%s", len(changed), fileList(changed)),
+		}})
+	}
+}
+
+// rewindConversation mirrors RemoteServer.rewindConversation: it truncates the
+// live conversation to a snapshot and replays the visible transcript. The
+// snapshot's sessionLineCount is authoritative; messageIndex is the fallback.
+func (s *Server) rewindConversation(snap file_history.Snapshot) {
+	s.send(wsMessage{Type: "clear", Data: nil})
+	replayMessage := func(role, content string) {
+		if content == "" || strings.HasPrefix(content, conversation.SystemReminderOpen) {
+			return
+		}
+		msgType := "replay_assistant"
+		if role == "user" {
+			msgType = "replay_user"
+		}
+		s.send(wsMessage{Type: msgType, Data: map[string]string{"content": content}})
+	}
+	wd := mustGetwd()
+	if s.ag != nil {
+		wd = s.ag.CurrentCwd()
+	}
+	if snap.SessionLineCount != nil {
+		sessionFilePath := session.SessionFilePath(wd, s.sessionID)
+		if sessionFilePath != "" {
+			if _, err := os.Stat(sessionFilePath); err == nil {
+				if terr := session.TruncateSessionLines(sessionFilePath, *snap.SessionLineCount); terr != nil {
+					s.send(wsMessage{Type: "error", Data: map[string]string{"message": terr.Error()}})
+					return
+				}
+				saved := session.LoadSession(wd, s.sessionID)
+				rebuilt := session.RebuildFromSession(saved, false)
+				s.conv.Reset()
+				s.conv.AppendMessages(rebuilt)
+				s.goalManager = nil
+				if s.ag != nil {
+					s.ag.GoalManager = s.goal()
+				}
+				for _, msg := range rebuilt {
+					replayMessage(msg.Role, msg.ContentText())
+				}
+				return
+			}
+		}
+	}
+	s.conv.TruncateTo(snap.MessageIndex)
+	for _, msg := range s.conv.GetMessages() {
+		if msg.Role == "system" {
+			continue
+		}
+		replayMessage(msg.Role, msg.ContentText())
+	}
+}
+
+// attachActivityBridge mirrors RemoteServer.attachActivityBridge: it wires the
+// live activity feeds (background tasks, teammate states) the browser activity
+// display consumes. Subagent progress is fed through the Agent tool's
+// OnProgress callback.
+func (s *Server) attachActivityBridge() {
+	if s.activityAttached {
+		return
+	}
+	s.activityAttached = true
+	if s.taskMgr != nil {
+		unsubscribe := s.taskMgr.Subscribe(func(tasks []tools.BackgroundTask) {
+			list := make([]map[string]any, 0, len(tasks))
+			for _, task := range tasks {
+				kind := task.Kind
+				if kind == "" {
+					kind = "agent"
+				}
+				list = append(list, map[string]any{
+					"id":     task.ID,
+					"name":   task.Name,
+					"kind":   kind,
+					"status": task.Status,
+				})
+			}
+			s.send(wsMessage{Type: "background_tasks", Data: map[string]any{"list": list}})
+		})
+		s.activityCleanups = append(s.activityCleanups, unsubscribe)
+	}
+	if s.teamMgr != nil && s.todoList != nil {
+		unsubscribe := teams.SubscribeLeaderTasks(s.teamMgr, s.todoList, func(tasks []*todo.Task, boardID string) {
+			list := make([]map[string]string, 0, len(tasks))
+			for _, task := range tasks {
+				list = append(list, map[string]string{
+					"id":      task.ID,
+					"subject": task.Subject,
+					"status":  string(task.Status),
+				})
+			}
+			s.send(wsMessage{Type: "todo_update", Data: map[string]any{"boardId": boardID, "tasks": list}})
+		})
+		s.activityCleanups = append(s.activityCleanups, unsubscribe)
+	}
+	s.teammateTimer = time.NewTicker(time.Duration(TeammatePollIntervalMS) * time.Millisecond)
+	done := make(chan struct{})
+	s.teammateDone = done
+	ticker := s.teammateTimer
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				s.broadcastTeammates()
+			case <-done:
+				return
+			}
+		}
+	}()
+	s.wakeupTimer = time.NewTicker(time.Duration(WakeupPollIntervalMS) * time.Millisecond)
+	wakeupDone := make(chan struct{})
+	s.wakeupDone = wakeupDone
+	wakeupTicker := s.wakeupTimer
+	go func() {
+		for {
+			select {
+			case <-wakeupTicker.C:
+				s.runMu.Lock()
+				blocked := s.streaming || s.stopping || s.ag == nil
+				s.runMu.Unlock()
+				s.followUpsMu.Lock()
+				hasFollowUps := len(s.followUps) > 0
+				s.followUpsMu.Unlock()
+				if blocked || hasFollowUps {
+					continue
+				}
+				if teams.HasLeaderNotifications(s.teamMgr) || (s.taskMgr != nil && s.taskMgr.HasNotifications()) {
+					go s.runNotificationTurn()
+				}
+			case <-wakeupDone:
+				return
+			}
+		}
+	}()
+}
+
+// stopActivityBridge tears down the activity-bridge subscriptions and timers.
+func (s *Server) stopActivityBridge() {
+	for _, cleanup := range s.activityCleanups {
+		cleanup()
+	}
+	s.activityCleanups = nil
+	if s.teammateTimer != nil {
+		s.teammateTimer.Stop()
+		s.teammateTimer = nil
+	}
+	if s.teammateDone != nil {
+		close(s.teammateDone)
+		s.teammateDone = nil
+	}
+	if s.wakeupTimer != nil {
+		s.wakeupTimer.Stop()
+		s.wakeupTimer = nil
+	}
+	if s.wakeupDone != nil {
+		close(s.wakeupDone)
+		s.wakeupDone = nil
+	}
+	s.activityAttached = false
+}
+
+// broadcastTeammates mirrors the reference teammate poll: it diffs the teammate
+// states by signature and broadcasts only on change.
+func (s *Server) broadcastTeammates() {
+	if s.teamMgr == nil {
+		return
+	}
+	states := s.teamMgr.GetAllTeammateStates()
+	signatureBytes, _ := json.Marshal(states)
+	signature := string(signatureBytes)
+	if signature == s.teammateSignature {
+		return
+	}
+	s.teammateSignature = signature
+	list := make([]map[string]any, 0, len(states))
+	for _, state := range states {
+		var lastMessage any
+		if state.LastMessage != "" {
+			lastMessage = state.LastMessage
+		}
+		activeTools := make([]map[string]string, 0, len(state.Progress.ActiveTools))
+		for _, tool := range state.Progress.ActiveTools {
+			activeTools = append(activeTools, map[string]string{"toolId": tool.ToolID, "toolName": tool.ToolName})
+		}
+		list = append(list, map[string]any{
+			"name":         state.Name,
+			"teamName":     state.TeamName,
+			"status":       state.Status,
+			"spinnerVerb":  state.SpinnerVerb,
+			"lastMessage":  lastMessage,
+			"turnCount":    state.Progress.TurnCount,
+			"toolUseCount": state.Progress.ToolUseCount,
+			"tokenCount":   state.Progress.TokenCount,
+			"activeTools":  activeTools,
+		})
+	}
+	s.send(wsMessage{Type: "teammates", Data: map[string]any{"list": list}})
+}
+
+// handleSubagentProgress mirrors RemoteServer.handleSubagentEvent: it folds a
+// subagent lifecycle report into the tracked state and rebroadcasts.
+func (s *Server) handleSubagentProgress(p subagent.SubAgentProgress) {
+	s.subagentMu.Lock()
+	if s.subagentStates == nil {
+		s.subagentStates = map[string]*subagentState{}
+	}
+	existing := s.subagentStates[p.ToolCallID]
+	switch {
+	case p.Event == nil && p.Status == "running":
+		s.subagentStates[p.ToolCallID] = &subagentState{
+			ToolCallID:  p.ToolCallID,
+			Role:        p.Role,
+			Background:  p.Background,
+			Status:      "running",
+			ActiveTools: []subagentActiveTool{},
+		}
+	case p.Event != nil:
+		if existing != nil {
+			switch ev := p.Event.(type) {
+			case agent.ToolUseEvent:
+				filtered := make([]subagentActiveTool, 0, len(existing.ActiveTools))
+				for _, tool := range existing.ActiveTools {
+					if tool.ToolID != ev.ToolID {
+						filtered = append(filtered, tool)
+					}
+				}
+				existing.ActiveTools = append(filtered, subagentActiveTool{ToolID: ev.ToolID, ToolName: ev.ToolName})
+			case agent.ToolResultEvent:
+				filtered := make([]subagentActiveTool, 0, len(existing.ActiveTools))
+				for _, tool := range existing.ActiveTools {
+					if tool.ToolID != ev.ToolID {
+						filtered = append(filtered, tool)
+					}
+				}
+				existing.ActiveTools = filtered
+			case agent.TurnComplete:
+				existing.TurnCount++
+				existing.ActiveTools = []subagentActiveTool{}
+			}
+		}
+	case p.Status == "completed" || p.Status == "failed" || p.Status == "stopped":
+		if existing != nil {
+			existing.Status = p.Status
+			existing.ActiveTools = []subagentActiveTool{}
+		} else {
+			s.subagentStates[p.ToolCallID] = &subagentState{
+				ToolCallID:  p.ToolCallID,
+				Role:        p.Role,
+				Background:  p.Background,
+				Status:      p.Status,
+				ActiveTools: []subagentActiveTool{},
+			}
+		}
+	}
+	s.subagentMu.Unlock()
+	s.broadcastSubagents()
+}
+
+// clearSubagents resets the tracked subagent state and rebroadcasts, mirroring
+// the reference subagentStates.clear() at run start, /clear, and /resume.
+func (s *Server) clearSubagents() {
+	s.subagentMu.Lock()
+	s.subagentStates = map[string]*subagentState{}
+	s.subagentMu.Unlock()
+	s.broadcastSubagents()
+}
+
+// broadcastSubagents mirrors RemoteServer.broadcastSubagents.
+func (s *Server) broadcastSubagents() {
+	s.subagentMu.Lock()
+	ids := make([]string, 0, len(s.subagentStates))
+	for id := range s.subagentStates {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	list := make([]map[string]any, 0, len(ids))
+	for _, id := range ids {
+		entry := s.subagentStates[id]
+		activeTools := make([]map[string]string, 0, len(entry.ActiveTools))
+		for _, tool := range entry.ActiveTools {
+			activeTools = append(activeTools, map[string]string{"toolId": tool.ToolID, "toolName": tool.ToolName})
+		}
+		list = append(list, map[string]any{
+			"toolCallId":  entry.ToolCallID,
+			"role":        entry.Role,
+			"background":  entry.Background,
+			"turnCount":   entry.TurnCount,
+			"status":      entry.Status,
+			"activeTools": activeTools,
+		})
+	}
+	s.subagentMu.Unlock()
+	s.send(wsMessage{Type: "subagents", Data: map[string]any{"list": list}})
+}
+
+// runUserBash mirrors RemoteServer.runUserBash: it runs a "!command" through
+// the Bash tool, streaming output to the browser and recording the result in
+// the session transcript.
+func (s *Server) runUserBash(ctx context.Context, wd, command string, excluded bool, input history.InputEntry) {
+	if command == "" {
+		prefix := "!"
+		if excluded {
+			prefix = "!!"
+		}
+		s.send(wsMessage{Type: "system", Data: map[string]string{"message": "Warning: Enter a Bash command after " + prefix + "."}})
+		return
+	}
+	bashTool, _ := s.registry.Get("Bash").(*tools.BashTool)
+	if bashTool == nil {
+		s.send(wsMessage{Type: "error", Data: map[string]string{"message": "Bash tool is unavailable"}})
+		return
+	}
+	toolID := s.nextRequestID("user-bash")
+	started := time.Now()
+	s.send(wsMessage{Type: "tool_use", Data: map[string]any{"toolId": toolID, "toolName": "Bash", "args": map[string]any{"command": command}}})
+
+	execution := tools.ExecutionContext{WorkDir: wd, SessionID: s.sessionID, TaskManager: s.taskMgr}
+	if s.ag != nil {
+		execution.Worktrees = s.ag.Checker
+	}
+	execution.OnOutput = func(output string) {
+		s.send(wsMessage{Type: "tool_output", Data: map[string]any{"toolId": toolID, "output": utils.PlainTerminalText(output)}})
+	}
+	result := userbash.Execute(tools.WithExecutionContext(ctx, execution), bashTool, command, excluded)
+
+	elapsed := time.Since(started).Seconds()
+	status := "completed"
+	if result.IsError {
+		status = "failed"
+	}
+	if ctx.Err() != nil {
+		status = "stopped"
+	}
+	s.send(wsMessage{Type: "tool_result", Data: map[string]any{
+		"toolId":   toolID,
+		"toolName": "Bash",
+		"output":   result.Output,
+		"isError":  result.IsError,
+		"elapsed":  elapsed,
+	}})
+	recorded := conversation.UserBashResult{
+		Command:            command,
+		Output:             result.Output,
+		IsError:            result.IsError,
+		Elapsed:            elapsed,
+		Status:             status,
+		ExcludeFromContext: excluded,
+	}
+	message := session.Message{Content: conversation.UserBashContext(recorded), UserBash: &recorded}
+	saved, err := session.SaveUserMessage(wd, s.sessionID, input, message)
+	if err != nil {
+		s.send(wsMessage{Type: "error", Data: map[string]string{"message": err.Error()}})
+		return
+	}
+	s.conv.AppendMessages(session.RebuildFromSession([]session.Message{saved}, false))
+}
+
+// runNotificationTurn mirrors RemoteServer.runNotificationTurn: it runs the
+// agent with no new user message so the notification hook can drain pending
+// task/teammate notifications into a turn.
+func (s *Server) runNotificationTurn() {
+	s.runMu.Lock()
+	if s.stopping || s.ag == nil {
+		s.runMu.Unlock()
+		return
+	}
+	s.runMu.Unlock()
+	ctx, ok := s.beginRun()
+	if !ok {
+		return
+	}
+	defer s.finishRun()
+	s.clearSubagents()
+	s.agentCh = s.ag.Run(ctx, s.conv)
+	askDone := make(chan struct{})
+	go s.listenForAskUser(askDone)
+	s.consumeAgentEvents()
+	close(askDone)
+}
+
+// handleSandboxCommand mirrors RemoteServer.handleSandboxCommand: it toggles the
+// OS sandbox at runtime (terminal /sandbox parity) or reports its status.
+func (s *Server) handleSandboxCommand(args string) {
+	if s.ag == nil || s.ag.Checker == nil {
+		return
+	}
+	var bashTool *tools.BashTool
+	if s.registry != nil {
+		bashTool, _ = s.registry.Get("Bash").(*tools.BashTool)
+	}
+	wd := s.ag.CurrentCwd()
+	switch arg := strings.TrimSpace(args); arg {
+	case "off":
+		s.ag.Checker.SandboxEnabled = false
+		s.ag.Checker.SandboxAutoAllow = false
+		if bashTool != nil {
+			bashTool.Sandbox = nil
+			bashTool.SandboxRequired = false
+			bashTool.SandboxConfig = sandbox.Config{}
+		}
+		s.send(wsMessage{Type: "system", Data: map[string]string{"message": "Sandbox: OFF"}})
+		s.broadcastStatus()
+	case "auto", "manual":
+		sb := sandbox.New()
+		available := sb != nil && sb.Available()
+		if bashTool != nil {
+			networkEnabled := true
+			if s.sandboxCfg != nil && s.sandboxCfg.NetworkEnabled != nil {
+				networkEnabled = *s.sandboxCfg.NetworkEnabled
+			}
+			bashTool.Sandbox = sb
+			bashTool.SandboxRequired = true
+			bashTool.SandboxConfig = sandbox.Config{
+				AllowWrite:     []string{wd, os.TempDir()},
+				DenyWrite:      nil,
+				NetworkEnabled: networkEnabled,
+			}
+		}
+		s.ag.Checker.SandboxEnabled = true
+		s.ag.Checker.SandboxAutoAllow = arg == "auto"
+		mode := "manual permissions"
+		if arg == "auto" {
+			mode = "auto-allow"
+		}
+		message := "Sandbox: ON + " + mode
+		if !available {
+			message += " (blocked: sandbox unavailable)"
+		}
+		s.send(wsMessage{Type: "system", Data: map[string]string{"message": message}})
+		s.broadcastStatus()
+	default:
+		status := "OFF"
+		if s.ag.Checker.SandboxEnabled {
+			status = "ON + manual"
+			if s.ag.Checker.SandboxAutoAllow {
+				status = "ON + auto-allow"
+			}
+		}
+		runtime := "not initialized"
+		if s.ag.Checker.SandboxEnabled {
+			if sb := sandbox.New(); sb != nil && sb.Available() {
+				runtime = "ready"
+			} else {
+				runtime = "blocked (sandbox unavailable)"
+			}
+		}
+		lines := []string{
+			"Sandbox status: " + status,
+			"Runtime: " + runtime,
+			"",
+			"Usage: /sandbox <mode>",
+			"  auto   — Enable sandbox + auto-allow (recommended)",
+			"  manual — Enable sandbox + manual permission confirmation",
+			"  off    — Disable sandbox",
+		}
+		s.send(wsMessage{Type: "system", Data: map[string]string{"message": strings.Join(lines, "\n")}})
+	}
+}
+
+// broadcastStatus mirrors RemoteServer.broadcastStatus: it pushes the current
+// model/mode/thinking snapshot to every client.
+func (s *Server) broadcastStatus() {
+	if status, ok := s.statusPayload(); ok {
+		s.send(status)
+	}
+}
+
+// applyPermissionMode mirrors RemoteServer.applyPermissionMode, including the
+// plan-mode entry/exit system reminders and conversation reminders.
+func (s *Server) applyPermissionMode(mode permissions.PermissionMode) {
+	if s.ag == nil || s.ag.Checker == nil || s.ag.Checker.Mode() == mode {
+		return
+	}
+	checker := s.ag.Checker
+	switch {
+	case mode == permissions.ModePlan:
+		checker.EnterPlanMode()
+		planPath, err := plan_file.GetOrCreatePlanPath(checker)
+		if err != nil {
+			planPath = ""
+		}
+		s.send(wsMessage{Type: "system", Data: map[string]string{"message": "Entered plan mode (read-only). Plan file: " + planPath}})
+		s.planMu.Lock()
+		exited := s.hasExitedPlanMode
+		s.hasExitedPlanMode = false
+		s.planMu.Unlock()
+		if exited && plan_file.PlanExists(checker) {
+			if reentry := prompt.BuildPlanModeReentryReminder(planPath, true); reentry != "" {
+				s.conv.AddSystemReminder(reentry)
+				s.send(wsMessage{Type: "system", Data: map[string]string{"message": reentry}})
+			}
+		}
+	case checker.Mode() == permissions.ModePlan:
+		planPath := checker.CurrentPlanPath()
+		s.planMu.Lock()
+		s.hasExitedPlanMode = true
+		s.planMu.Unlock()
+		checker.ExitPlanMode(mode)
+		s.conv.AddSystemReminder(prompt.BuildPlanModeExitReminder(planPath, planPath != "" && plan_file.PlanExists(checker)))
+		message := "Exited plan mode. Each edit requires confirmation."
+		if mode == permissions.ModeBypass {
+			message = "Exited plan mode. Entered YOLO mode."
+		}
+		s.send(wsMessage{Type: "system", Data: map[string]string{"message": message}})
+	default:
+		checker.SetMode(mode)
+	}
+	s.broadcastStatus()
+}
+
+var (
+	unsafeNameChars = regexp.MustCompile(`[^a-zA-Z0-9._-]`)
+	trailingNameExt = regexp.MustCompile(`\.[^.]*$`)
+)
+
+type imageUploadData struct {
+	ClientID   string `json:"clientId"`
+	Name       string `json:"name"`
+	DataBase64 string `json:"dataBase64"`
+}
+
+// handleImageUpload mirrors RemoteServer.handleImageUpload: it decodes the
+// base64 payload, validates size and magic bytes, stores the image in the
+// session's file-history directory, and unicasts image_saved/image_error.
+func (s *Server) handleImageUpload(conn *websocket.Conn, upload imageUploadData) {
+	reply := func(msg wsMessage) { s.sendTo(conn, msg) }
+	fail := func(message string) {
+		reply(wsMessage{Type: "image_error", Data: map[string]string{"clientId": upload.ClientID, "message": message}})
+	}
+	if s.ag == nil {
+		fail("Agent is not ready yet.")
+		return
+	}
+	data, err := base64.StdEncoding.DecodeString(upload.DataBase64)
+	if err != nil {
+		if data, err = base64.RawStdEncoding.DecodeString(upload.DataBase64); err != nil {
+			fail("Invalid base64 image data.")
+			return
+		}
+	}
+	if len(data) == 0 {
+		fail("Uploaded image is empty.")
+		return
+	}
+	if len(data) > MaxUploadImageBytes {
+		fail(fmt.Sprintf("Uploaded image is too large (%d bytes, limit %d).", len(data), MaxUploadImageBytes))
+		return
+	}
+	mediaType, ok := images.SniffMediaType(data)
+	if !ok {
+		fail("Uploaded file is not a recognized image (png, jpeg, gif, webp).")
+		return
+	}
+	ext := ".webp"
+	switch mediaType {
+	case images.MediaTypePNG:
+		ext = ".png"
+	case images.MediaTypeJPEG:
+		ext = ".jpg"
+	case images.MediaTypeGIF:
+		ext = ".gif"
+	}
+	dir, err := file_history.FileHistoryDir(s.sessionID)
+	if err != nil {
+		fail(err.Error())
+		return
+	}
+	if err := storage.MkdirPrivateSync(dir); err != nil {
+		fail(err.Error())
+		return
+	}
+	safeName := trailingNameExt.ReplaceAllString(unsafeNameChars.ReplaceAllString(upload.Name, "_"), "")
+	if len(safeName) > 80 {
+		safeName = safeName[:80]
+	}
+	if safeName == "" {
+		safeName = "image"
+	}
+	path := filepath.Join(dir, fmt.Sprintf("upload-%s-%s%s", uuid.NewString(), safeName, ext))
+	if err := storage.WritePrivateFileSync(path, data, os.O_WRONLY|os.O_CREATE|os.O_TRUNC); err != nil {
+		fail(err.Error())
+		return
+	}
+	reply(wsMessage{Type: "image_saved", Data: map[string]string{"clientId": upload.ClientID, "path": path}})
+}
+
+// sendFileCompletions mirrors RemoteServer.sendFileCompletions: it scans the
+// agent cwd (cached for FileCacheTTLMS) and unicasts the filtered matches.
+func (s *Server) sendFileCompletions(conn *websocket.Conn, requestID, query string) {
+	root := mustGetwd()
+	if s.ag != nil {
+		root = s.ag.CurrentCwd()
+	}
+	s.fileCacheMu.Lock()
+	var files []string
+	if s.fileCacheKey == root && time.Since(s.fileCacheTime) < FileCacheTTLMS*time.Millisecond {
+		files = s.fileCache
+	} else {
+		files = utils.ScanCwdFiles(root, 0)
+		s.fileCacheKey = root
+		s.fileCache = files
+		s.fileCacheTime = time.Now()
+	}
+	s.fileCacheMu.Unlock()
+	matches := utils.FilterFileMatches(files, query, 0)
+	if matches == nil {
+		matches = []string{}
+	}
+	s.sendTo(conn, wsMessage{Type: "file_complete_response", Data: map[string]any{"requestId": requestID, "matches": matches}})
+}
+
+// backgroundForegroundShells mirrors RemoteServer.backgroundForegroundShells
+// (Ctrl+B parity): running foreground shells move to the background.
+func (s *Server) backgroundForegroundShells() {
+	if s.registry == nil || !tools.HasAnyForegroundTasks(s.registry) {
+		return
+	}
+	count := tools.BackgroundAllForegroundTasks(s.registry)
+	s.send(wsMessage{Type: "system", Data: map[string]string{
+		"message": fmt.Sprintf("Moved %d foreground shell task(s) to the background.", count),
+	}})
+}
+
+// steer mirrors AgentHandleImpl.steer: it queues a mid-run steering message and
+// reports whether a run was active to receive it.
+func (s *Server) steer(text string, input *history.InputEntry) bool {
+	s.runMu.Lock()
+	streaming := s.streaming
+	s.runMu.Unlock()
+	if !streaming || s.ag == nil {
+		return false
+	}
+	if _, err := s.ag.Steer(text, input); err != nil {
+		return false
+	}
+	return true
+}
+
+// handleSteeringMessage mirrors RemoteServer.handleSteeringMessage: it routes a
+// message that arrived mid-run to goal control, a follow-up, or model steering.
+func (s *Server) handleSteeringMessage(content string, submittedInput *history.InputEntry) {
+	text := strings.TrimSpace(content)
+	if text == "" {
+		return
+	}
+	wd := mustGetwd()
+	if s.ag != nil {
+		wd = s.ag.CurrentCwd()
+	}
+	if matches := goalControlPattern.FindStringSubmatch(text); matches != nil && s.ag != nil {
+		cmdName := "goal"
+		_, _ = history.RecordInput(history.InputOptions{Text: text, Cwd: wd, SessionID: &s.sessionID, Source: "ws", CommandName: &cmdName})
+		result := goal.HandleGoalCommand(s.goal(), matches[1])
+		s.send(wsMessage{Type: "system", Data: map[string]string{"message": result.Message}})
+		return
+	}
+	// Slash and Bash commands run as follow-ups instead of model steering.
+	isSlashCommand := false
+	if strings.HasPrefix(text, "/") {
+		_, _, isSlashCommand = commands.Parse(text)
+	}
+	_, _, isUserBash := userbash.ParseCommand(text)
+	if isSlashCommand || isUserBash {
+		s.enqueueFollowUp(text, nil)
+		return
+	}
+	if s.ag == nil {
+		s.enqueueFollowUp(text, submittedInput)
+		return
+	}
+	var input history.InputEntry
+	if submittedInput != nil {
+		input = *submittedInput
+	} else {
+		var err error
+		input, err = history.RecordInput(history.InputOptions{Text: text, Cwd: wd, SessionID: &s.sessionID, Source: "ws"})
+		if err != nil {
+			s.enqueueFollowUp(text, nil)
+			return
+		}
+	}
+	if !s.steer(text, &input) {
+		s.enqueueFollowUp(text, &input)
+		return
+	}
+	s.send(wsMessage{Type: "steering_queued", Data: map[string]string{"text": text}})
+}
+
+// enqueueFollowUp mirrors RemoteServer.enqueueFollowUp.
+func (s *Server) enqueueFollowUp(text string, input *history.InputEntry) {
+	s.followUpsMu.Lock()
+	s.followUps = append(s.followUps, followUpEntry{text: text, input: input})
+	s.followUpsMu.Unlock()
+	s.broadcastFollowUps()
+}
+
+// broadcastFollowUp mirrors RemoteServer.broadcastFollowUps.
+func (s *Server) broadcastFollowUps() {
+	s.followUpsMu.Lock()
+	list := make([]string, 0, len(s.followUps))
+	for _, entry := range s.followUps {
+		list = append(list, entry.text)
+	}
+	s.followUpsMu.Unlock()
+	s.send(wsMessage{Type: "followups", Data: map[string]any{"list": list}})
+}
+
+// drainFollowUps mirrors RemoteServer.drainFollowUps: it replays queued
+// follow-ups one at a time once the streaming slot is free.
+func (s *Server) drainFollowUps() {
+	for {
+		s.runMu.Lock()
+		blocked := s.streaming || s.stopping
+		s.runMu.Unlock()
+		if blocked {
+			return
+		}
+		s.followUpsMu.Lock()
+		if len(s.followUps) == 0 {
+			s.followUpsMu.Unlock()
+			return
+		}
+		next := s.followUps[0]
+		s.followUps = s.followUps[1:]
+		s.followUpsMu.Unlock()
+		s.broadcastFollowUps()
+		s.handleUserMessage(next.text, next.input)
+	}
+}
+
+// replaySteeringLeftovers mirrors the reference post-run replay of steering
+// messages queued too late for in-run delivery.
+func (s *Server) replaySteeringLeftovers() {
+	if s.ag == nil {
+		return
+	}
+	for _, leftover := range s.ag.DrainSteering() {
+		input := leftover.Input
+		s.runMu.Lock()
+		streaming := s.streaming
+		s.runMu.Unlock()
+		if streaming {
+			s.handleSteeringMessage(leftover.Text, &input)
+		} else {
+			s.handleUserMessage(leftover.Text, &input)
+		}
+	}
+}
+
+// changeProviderConfiguration mirrors RemoteServer.changeProviderConfiguration:
+// it blocks model/provider changes while a run is in flight and holds the
+// streaming slot for the duration of the reconfiguration.
+func (s *Server) changeProviderConfiguration(change func()) {
+	s.runMu.Lock()
+	if s.streaming || s.stopping {
+		s.runMu.Unlock()
+		s.send(wsMessage{Type: "system", Data: map[string]string{
+			"message": "Cannot change models or providers while a run is in progress.",
+		}})
+		return
+	}
+	s.streaming = true
+	s.runMu.Unlock()
+	s.send(wsMessage{Type: "run_state", Data: map[string]any{"streaming": true}})
+	defer func() {
+		s.runMu.Lock()
+		s.streaming = false
+		s.runMu.Unlock()
+		s.send(wsMessage{Type: "run_state", Data: map[string]any{"streaming": false}})
+	}()
+	change()
+}
+
+// rebuildClientFor mirrors the reference applyModel/applyProviderSwitch client
+// rebuild: it constructs a fresh LLM client for the provider and rebinds the
+// agent, Agent tool, and MCP loading strategy.
+func (s *Server) rebuildClientFor(provider *config.ProviderConfig) error {
+	wd := mustGetwd()
+	if s.ag != nil {
+		wd = s.ag.CurrentCwd()
+	}
+	env := prompt.DetectEnvironment(wd)
+	env.Model = provider.Model
+	client, err := llm.NewClient(provider, prompt.BuildSystemPrompt(env))
+	if err != nil {
+		return err
+	}
+	s.client = client
+	if s.ag != nil {
+		s.ag.Client = client
+		s.ag.ContextWindow = config.GetContextWindow(provider)
+		s.ag.MaxOutputTokens = config.GetMaxOutputTokens(provider)
+	}
+	if at, ok := s.registry.Get("Agent").(*subagent.AgentTool); ok {
+		at.Client = client
+	}
+	mcp.DecideAndApply(s.registry, provider.BaseURL, provider.Protocol, config.GetContextWindow(provider), s.MCPLoading)
+	return nil
+}
+
+// applyModel mirrors RemoteServer.applyModel: it switches the active model,
+// rebuilding the client (terminal /model parity).
+func (s *Server) applyModel(modelID string) {
+	if s.ag == nil {
+		return
+	}
+	p := s.activeProvider()
+	if p == nil {
+		return
+	}
+	nextModel := strings.TrimSpace(modelID)
+	if nextModel == "" {
+		return
+	}
+	if nextModel == p.Model {
+		s.send(wsMessage{Type: "system", Data: map[string]string{"message": fmt.Sprintf("Model already set to %s.", nextModel)}})
+		return
+	}
+	updated := *p
+	updated.Model = nextModel
+	if err := s.rebuildClientFor(&updated); err != nil {
+		s.send(wsMessage{Type: "error", Data: map[string]string{"message": fmt.Sprintf("Failed to switch model: %s", err)}})
+		return
+	}
+	for i := range s.providers {
+		if s.providers[i].BaseURL == updated.BaseURL {
+			s.providers[i].Model = updated.Model
+		}
+	}
+	// A save failure must not undo the runtime switch.
+	saved := config.PersistModel(updated.BaseURL, updated.Model) == nil
+	s.broadcastStatus()
+	note := fmt.Sprintf("Model set to %s and saved.", updated.Model)
+	if !saved {
+		note = fmt.Sprintf("Model set to %s for this session.", updated.Model)
+	}
+	s.send(wsMessage{Type: "system", Data: map[string]string{"message": note}})
+}
+
+// applyProviderSwitch mirrors RemoteServer.applyProviderSwitch: it switches the
+// active provider, rebuilding the client (terminal parity).
+func (s *Server) applyProviderSwitch(index int) {
+	if index < 0 || index >= len(s.providers) {
+		s.send(wsMessage{Type: "error", Data: map[string]string{"message": fmt.Sprintf("Unknown provider index: %d", index)}})
+		return
+	}
+	provider := s.providers[index]
+	if s.ag == nil {
+		s.defaultProvider = index
+		return
+	}
+	if err := s.rebuildClientFor(&provider); err != nil {
+		s.send(wsMessage{Type: "error", Data: map[string]string{"message": fmt.Sprintf("Failed to switch provider: %s", err)}})
+		return
+	}
+	s.defaultProvider = index
+	saved := config.PersistDefaultProvider(index) == nil
+	s.broadcastStatus()
+	message := fmt.Sprintf("Provider switched to %s · %s.", provider.Name, provider.Model)
+	if !saved {
+		message += " Default provider could not be saved."
+	}
+	s.send(wsMessage{Type: "system", Data: map[string]string{"message": message}})
+}
+
+// handleProviderSave mirrors RemoteServer.handleProviderSave: it saves a
+// provider from the browser login form and activates it.
+func (s *Server) handleProviderSave(form map[string]any) {
+	saved, err := config.SaveProvider(form, s.providers)
+	if err != nil {
+		s.send(wsMessage{Type: "error", Data: map[string]string{"message": fmt.Sprintf("Failed to save provider: %s", err)}})
+		return
+	}
+	s.providers = saved.Providers
+	message := fmt.Sprintf("Provider %s saved.", saved.Provider.Name)
+	if saved.Replaced {
+		message = fmt.Sprintf("Provider %s saved (replaced existing entry).", saved.Provider.Name)
+	}
+	s.send(wsMessage{Type: "system", Data: map[string]string{"message": message}})
+	index := 0
+	for i, entry := range s.providers {
+		if entry.BaseURL == saved.Provider.BaseURL {
+			index = i
+			break
+		}
+	}
+	s.applyProviderSwitch(index)
+}
+
+// broadcastModelList mirrors RemoteServer.broadcastModelList: it discovers the
+// provider's models and streams loading/ready/empty/error states.
+func (s *Server) broadcastModelList() {
+	p := s.activeProvider()
+	if p == nil {
+		return
+	}
+	s.modelListMu.Lock()
+	if s.modelListCancel != nil {
+		s.modelListCancel()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	s.modelListCancel = cancel
+	s.modelListMu.Unlock()
+	current := p.Model
+	discovery := llm.DiscoveryConfig{Protocol: p.Protocol, BaseURL: p.BaseURL, APIKey: p.APIKey}
+	s.send(wsMessage{Type: "model_list", Data: map[string]any{"status": "loading", "models": []any{}, "current": current}})
+	go func() {
+		models, err := llm.DiscoverModels(ctx, discovery)
+		if ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			s.send(wsMessage{Type: "model_list", Data: map[string]any{"status": "error", "models": []any{}, "current": current}})
+			return
+		}
+		status := "empty"
+		if len(models) > 0 {
+			status = "ready"
+		}
+		out := make([]map[string]any, 0, len(models))
+		for _, m := range models {
+			name := m.DisplayName
+			if name == "" {
+				name = m.Name
+			}
+			var nameValue any
+			if name != "" {
+				nameValue = name
+			}
+			out = append(out, map[string]any{"id": m.ID, "name": nameValue})
+		}
+		s.send(wsMessage{Type: "model_list", Data: map[string]any{"status": status, "models": out, "current": current}})
+	}()
+}
+
+// broadcastProviderList mirrors RemoteServer.broadcastProviderList: it sends the
+// configured providers plus the index of the active one to every client.
+func (s *Server) broadcastProviderList() {
+	currentIndex := 0
+	if p := s.activeProvider(); p != nil {
+		for i, entry := range s.providers {
+			if entry.BaseURL == p.BaseURL {
+				currentIndex = i
+				break
+			}
+		}
+	}
+	providers := make([]map[string]string, 0, len(s.providers))
+	for _, entry := range s.providers {
+		providers = append(providers, map[string]string{
+			"name":     entry.Name,
+			"protocol": entry.Protocol,
+			"base_url": entry.BaseURL,
+			"model":    entry.Model,
+		})
+	}
+	s.send(wsMessage{Type: "provider_list", Data: map[string]any{"providers": providers, "current": currentIndex}})
+}
+
+// statusPayload builds the "status" snapshot message, mirroring
+// RemoteServer.statusPayload. It reports false before the agent exists.
+func (s *Server) statusPayload() (wsMessage, bool) {
+	if s.ag == nil || s.ag.Checker == nil {
+		return wsMessage{}, false
+	}
+	p := s.activeProvider()
+	model, providerName := "", ""
+	if p != nil {
+		model = p.Model
+		providerName = p.Name
+	}
+	thinkingLevel := ""
+	var thinkingLevels []string
+	if tlc, ok := s.client.(llm.ThinkingLevelControl); ok {
+		thinkingLevel = tlc.GetThinkingLevel()
+		thinkingLevels = tlc.GetSupportedThinkingLevels()
+	}
+	if thinkingLevel == "" && p != nil {
+		thinkingLevel = p.Thinking
+	}
+	if thinkingLevel == "" {
+		thinkingLevel = config.DefaultThinkingLevel
+	}
+	if thinkingLevels == nil && p != nil {
+		thinkingLevels = config.GetSupportedThinkingLevels(p)
+	}
+	if thinkingLevels == nil {
+		thinkingLevels = []string{}
+	}
+	return wsMessage{Type: "status", Data: map[string]any{
+		"model":            model,
+		"provider":         providerName,
+		"permissionMode":   string(s.ag.Checker.Mode()),
+		"thinkingLevel":    thinkingLevel,
+		"thinkingLevels":   thinkingLevels,
+		"sandboxEnabled":   s.ag.Checker.SandboxEnabled,
+		"sandboxAutoAllow": s.ag.Checker.SandboxAutoAllow,
+		"contextWindow":    s.ag.ContextWindow,
+	}}, true
+}
+
+// usagePayload builds the "usage" snapshot data, mirroring
+// RemoteServer.usagePayload.
+func (s *Server) usagePayload() map[string]any {
+	contextTokens, contextWindow := 0, 0
+	if s.conv != nil {
+		contextTokens = compact.CurrentContextTokens(s.conv)
+	}
+	if s.ag != nil {
+		contextWindow = s.ag.ContextWindow
+	}
+	return map[string]any{
+		"inputTokens":   s.lastUsageInput,
+		"outputTokens":  s.lastUsageOutput,
+		"contextTokens": contextTokens,
+		"contextWindow": contextWindow,
+	}
+}
+
+// startHeartbeat launches the ping/sweep loop that reaps half-open
+// connections: a browser tab killed without a close frame would otherwise stay
+// in the conns set forever, receiving broadcasts into a dead socket.
+func (s *Server) startHeartbeat() {
+	s.mu.Lock()
+	if s.heartbeatDone != nil {
+		s.mu.Unlock()
+		return
+	}
+	ticker := time.NewTicker(time.Duration(HeartbeatIntervalMS) * time.Millisecond)
+	done := make(chan struct{})
+	s.heartbeatTicker = ticker
+	s.heartbeatDone = done
+	s.mu.Unlock()
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				s.sweepHeartbeat()
+			case <-done:
+				return
+			}
+		}
+	}()
+}
+
+func (s *Server) sweepHeartbeat() {
+	now := time.Now().UnixMilli()
+	var ping []*websocket.Conn
+	s.mu.Lock()
+	for conn := range s.conns {
+		last, ok := s.lastPongAt[conn]
+		if !ok {
+			last = now
+		}
+		if now-last > HeartbeatStaleMS {
+			conn.Close()
+			delete(s.conns, conn)
+			delete(s.lastPongAt, conn)
+			continue
+		}
+		ping = append(ping, conn)
+	}
+	s.mu.Unlock()
+	for _, conn := range ping {
+		_ = conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(time.Second))
+	}
+}
+
+func (s *Server) stopHeartbeat() {
+	s.mu.Lock()
+	if s.heartbeatTicker != nil {
+		s.heartbeatTicker.Stop()
+		s.heartbeatTicker = nil
+	}
+	if s.heartbeatDone != nil {
+		close(s.heartbeatDone)
+		s.heartbeatDone = nil
+	}
+	s.mu.Unlock()
 }
 
 func (s *Server) send(msg wsMessage) {
@@ -1212,26 +2970,15 @@ func (s *Server) workflowHostContext(wd string) context.Context {
 	return tools.WithExecutionContext(context.Background(), execution)
 }
 
-func (s *Server) requestPermissionViaWS(ctx context.Context, toolName, desc string) (int, string) {
-	id := fmt.Sprintf("perm_%d", time.Now().UnixNano())
+func (s *Server) requestPermissionViaWS(ctx context.Context, request tools.PermissionRequest) (int, string) {
 	responseCh := make(chan agent.PermissionReply, 1)
-	s.pendingPermMu.Lock()
-	s.pendingPerms[id] = responseCh
-	s.pendingPermMu.Unlock()
-	s.send(wsMessage{Type: "permission_request", Data: map[string]string{
-		"id":          id,
-		"toolName":    toolName,
-		"description": desc,
-	}})
-	select {
-	case reply := <-responseCh:
-		return int(reply.Response), reply.Feedback
-	case <-ctx.Done():
-		s.pendingPermMu.Lock()
-		delete(s.pendingPerms, id)
-		s.pendingPermMu.Unlock()
-		return int(agent.PermDeny), ""
+	description := request.Desc
+	if request.AgentName != "" && request.Cwd != "" {
+		description = request.AgentName + " · " + request.Cwd + "\n" + description
 	}
+	s.requestPermission(ctx, permissionRequestPayload{ToolName: request.ToolName, Description: description, RememberPatterns: request.RememberPatterns}, responseCh)
+	reply := <-responseCh
+	return int(reply.Response), reply.Feedback
 }
 
 func loadCustomInstructions(wd string) string {

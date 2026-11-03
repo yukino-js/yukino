@@ -157,8 +157,13 @@ func (mb *FileMailBox) readInbox(agentID string) ([]FileMailMessage, error) {
 	err = json.Unmarshal(data, &messages)
 	return messages, err
 }
+
+// MaxReadMessages mirrors MAX_READ_MESSAGES: the cap on read messages retained
+// on disk; unread messages are never dropped.
+const MaxReadMessages = 500
+
 func pruneReadMessages(messages []FileMailMessage) []FileMailMessage {
-	excess := -500
+	excess := -MaxReadMessages
 	for _, m := range messages {
 		if m.Read {
 			excess++

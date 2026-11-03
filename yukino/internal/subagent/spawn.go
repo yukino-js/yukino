@@ -179,6 +179,10 @@ func SpawnSubagent(ctx context.Context, definition *AgentDefinition, userPrompt 
 		}
 
 		child := agent.New(client, registry, provider.Protocol)
+		child.AgentName = options.AgentName
+		if child.AgentName == "" {
+			child.AgentName = definition.AgentType
+		}
 		child.SessionID = sessionID
 		child.TranscriptPath = transcriptPath
 		child.WorkDir = cwd

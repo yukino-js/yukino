@@ -9,6 +9,15 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/utils"
 )
 
+const (
+	// MaxRecentActivities mirrors MAX_RECENT_ACTIVITIES: the cap on retained
+	// recent-activity history per teammate.
+	MaxRecentActivities = 5
+	// MaxLastMessageChars mirrors MAX_LAST_MESSAGE_CHARS: the truncation limit
+	// for the last-message preview shown in the teammate UI.
+	MaxLastMessageChars = 200
+)
+
 type ToolActivity struct {
 	Input       map[string]any
 	ToolName    string
@@ -84,7 +93,7 @@ func (p *TeammateProgress) RecordToolUse(toolName string, input map[string]inter
 	act := NewToolActivity(toolName, input)
 	p.LastActivity = &act
 	p.RecentActivities = append(p.RecentActivities, act)
-	if len(p.RecentActivities) > 5 {
+	if len(p.RecentActivities) > MaxRecentActivities {
 		p.RecentActivities = p.RecentActivities[1:]
 	}
 }
@@ -169,12 +178,21 @@ func (p *TeammateProgress) RecordTurnComplete() {
 	p.ActiveTools = nil
 }
 func (p *TeammateProgress) ClearActiveTools() { p.mu.Lock(); defer p.mu.Unlock(); p.ActiveTools = nil }
+
+// ClearActivity resets the transient activity trace, mirroring the reference's
+// termination cleanup (lastActivity = undefined, recentActivities = []).
+func (p *TeammateProgress) ClearActivity() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.LastActivity = nil
+	p.RecentActivities = nil
+}
 func (p *TeammateProgress) SetLastMessage(message string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	r := []rune(message)
-	if len(r) > 200 {
-		message = string(r[:200]) + "..."
+	if len(r) > MaxLastMessageChars {
+		message = string(r[:MaxLastMessageChars]) + "..."
 	}
 	p.LastMessage = message
 }

@@ -1,13 +1,17 @@
 package crash_log
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"runtime/debug"
 	"sync/atomic"
+	"syscall"
 	"time"
 
+	"github.com/yukino-js/yukino/yukino/internal/logger"
 	"github.com/yukino-js/yukino/yukino/internal/storage"
+	"github.com/yukino-js/yukino/yukino/internal/tools"
 )
 
 func logPath() string {
@@ -34,6 +38,38 @@ func RecordPanic(context string, value any, stack []byte) {
 // identifies the originating layer.
 func RecordError(context string, err error) {
 	Record(fmt.Sprintf("crash [%s] %s", context, err))
+}
+
+// A terminal that goes away (window closed, ssh dropped, pty torn down) makes
+// every later stdio write fail: EIO from the dead pty, EPIPE once the reader is
+// gone, or a write to an already-closed stream. That is the session's terminal
+// disappearing, not a yukino fault, so it must not be logged as a crash.
+//
+// IsTerminalGone reports whether err is such a write failure.
+func IsTerminalGone(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, syscall.EIO) ||
+		errors.Is(err, syscall.EPIPE) ||
+		errors.Is(err, os.ErrClosed)
+}
+
+var terminalGoneRecorded atomic.Bool
+
+// ExitForTerminalGone ends the process when the terminal is gone: it records
+// the condition once and exits 0, so crash.log shows a start + exit pair with
+// no crash line. os.Exit skips deferred teardown, so the sync cleanup registry
+// is swept first — detached background shells must not outlive the session as
+// orphans — then the logger is flushed and the exit marker written.
+func ExitForTerminalGone(context string, detail any) {
+	if terminalGoneRecorded.CompareAndSwap(false, true) {
+		Record(fmt.Sprintf("terminal closed [%s] %v", context, detail))
+	}
+	tools.RunExitCleanups()
+	logger.CloseLogger()
+	RecordExit(0)
+	os.Exit(0)
 }
 
 var exitRecorded atomic.Bool

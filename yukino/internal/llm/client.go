@@ -83,3 +83,16 @@ func answerReserveTokens(ctx context.Context) int {
 	}
 	return 0
 }
+
+type maxRetriesKey struct{}
+
+// WithMaxRetries overrides the provider SDK's per-request retry count
+// (StreamOptions.maxRetries in the reference). Goal-summarizing turns use 0 to
+// avoid retry delays.
+func WithMaxRetries(ctx context.Context, retries int) context.Context {
+	return context.WithValue(ctx, maxRetriesKey{}, retries)
+}
+func maxRetries(ctx context.Context) (int, bool) {
+	retries, ok := ctx.Value(maxRetriesKey{}).(int)
+	return retries, ok
+}

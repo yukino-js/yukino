@@ -74,6 +74,9 @@ func (s *Server) handlePlanApprovalResponse(id, choice, feedback string) {
 		mode = permissions.ModeBypass
 		message = "Plan approved. Entered YOLO mode."
 	}
+	s.planMu.Lock()
+	s.hasExitedPlanMode = true
+	s.planMu.Unlock()
 	checker.ExitPlanMode(mode)
 	s.conv.AddSystemReminder(prompt.BuildPlanModeExitReminder(path, content != ""))
 	s.send(wsMessage{Type: "system", Data: map[string]string{"message": message}})
@@ -89,28 +92,36 @@ func (s *Server) queuePlanExecution(text string) {
 		return
 	}
 	s.runMu.Unlock()
-	go s.handleUserMessage(text)
+	go s.handleUserMessage(text, nil)
 }
 func (s *Server) beginRun() (context.Context, bool) {
 	s.runMu.Lock()
-	defer s.runMu.Unlock()
 	if s.streaming {
+		s.runMu.Unlock()
 		return nil, false
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s.streaming = true
 	s.cancelStream = cancel
+	s.runMu.Unlock()
+	s.send(wsMessage{Type: "run_state", Data: map[string]any{"streaming": true}})
 	return ctx, true
 }
 func (s *Server) finishRun() {
 	s.runMu.Lock()
+	wasStreaming := s.streaming
 	s.streaming = false
 	s.cancelStream = nil
 	s.agentCh = nil
 	pending := s.pendingPlanExecution
 	s.pendingPlanExecution = ""
 	s.runMu.Unlock()
-	if pending != "" {
-		go s.handleUserMessage(pending)
+	if wasStreaming {
+		s.send(wsMessage{Type: "run_state", Data: map[string]any{"streaming": false}})
 	}
+	if pending != "" {
+		s.handleUserMessage(pending, nil)
+	}
+	s.replaySteeringLeftovers()
+	s.drainFollowUps()
 }

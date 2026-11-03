@@ -75,3 +75,16 @@ func TestPermissionFrameShowsScopeAndKeepsFocusVisible(t *testing.T) {
 		t.Fatal("obsolete feedback editor")
 	}
 }
+
+func TestPermissionDialogShowsSourceAndArgs(t *testing.T) {
+	m := newChatModel(t)
+	ch := make(chan agent.PermissionReply, 1)
+	next, _ := m.handleAgentEvent(agent.PermissionRequestEvent{AgentName: "plan", Cwd: "/tmp/project", ToolName: "Bash", Args: map[string]any{"command": "go test"}, Decision: permissions.Decision{Reason: "Approval required"}, Desc: "ignored", ResponseCh: ch})
+	m = asModel(t, next)
+	m.width = 80
+	m.height = 24
+	rendered := plainTerminalText(m.renderPermDialog())
+	if !strings.Contains(rendered, "plan: Bash requires approval") || !strings.Contains(rendered, "/tmp/project") || !strings.Contains(rendered, "go test") {
+		t.Fatalf("source/args missing: %q", rendered)
+	}
+}

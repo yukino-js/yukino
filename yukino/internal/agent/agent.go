@@ -25,6 +25,7 @@ type Agent struct {
 	Client              llm.Client
 	Registry            *tools.Registry
 	Protocol            string
+	AgentName           string
 	WorkDir             string
 	MaxIterations       int
 	ContextWindow       int
@@ -53,6 +54,7 @@ type Agent struct {
 	compactTracking     compact.AutoCompactTrackingState
 	RecoveryState       *compact.RecoveryState
 	eventCh             chan AgentEvent
+	runCtx              context.Context
 	activeSkills        map[string]string
 	announcedDeferred   []string
 	recallMu            sync.Mutex
@@ -147,6 +149,13 @@ func (a *Agent) CurrentCwd() string {
 		}
 	}
 	return a.WorkDir
+}
+
+func (a *Agent) agentName() string {
+	if a.AgentName != "" {
+		return a.AgentName
+	}
+	return "main"
 }
 
 type RecallResult struct {
@@ -255,7 +264,7 @@ func (a *Agent) emitHook(event hooks.EventName, message string, args map[string]
 		Event:   event,
 		Args:    args,
 		Message: message,
-	}, hooks.HookRuntimeOptions{Cwd: a.CurrentCwd()}) {
+	}, hooks.HookRuntimeOptions{Cwd: a.CurrentCwd(), Abort: a.runCtx}) {
 		a.Hooks.RecordNotification(result.Output)
 	}
 }
@@ -363,7 +372,7 @@ func (a *Agent) executeSingleTool(ctx context.Context, eventCh chan AgentEvent, 
 			patterns := append([]string{}, a.Checker.RememberPatterns(tc.toolName, tc.arguments)...)
 			decision.RememberPatterns = patterns
 			response := make(chan PermissionReply, 1)
-			request := PermissionRequestEvent{Context: ctx, Cwd: a.CurrentCwd(), ToolName: tc.toolName, ToolID: tc.toolID, Args: tc.arguments, Decision: decision, Desc: permissions.DescribeToolAction(tc.toolName, tc.arguments), ResponseCh: response}
+			request := PermissionRequestEvent{Context: ctx, AgentName: a.agentName(), Cwd: a.CurrentCwd(), ToolName: tc.toolName, ToolID: tc.toolID, Args: tc.arguments, Decision: decision, Desc: permissions.DescribeToolAction(tc.toolName, tc.arguments), ResponseCh: response}
 			select {
 			case eventCh <- request:
 			case <-ctx.Done():
@@ -380,6 +389,9 @@ func (a *Agent) executeSingleTool(ctx context.Context, eventCh chan AgentEvent, 
 			}
 			if ctx.Err() != nil {
 				return fail(tools.CommandInterruptedError)
+			}
+			if reply.Response == PermAllowAlways && len(patterns) == 0 {
+				reply.Response = PermAllow
 			}
 			if reply.Response == PermAllowAlways {
 				if err := a.Checker.AllowAlways(tc.toolName, tc.arguments, patterns); err != nil {
@@ -401,10 +413,18 @@ func (a *Agent) executeSingleTool(ctx context.Context, eventCh chan AgentEvent, 
 	if a.Checker != nil {
 		worktrees = a.Checker
 	}
-	ctx = tools.WithExecutionContext(ctx, tools.ExecutionContext{Worktrees: worktrees, Plan: planning, RequestPermission: func(requestCtx context.Context, name, desc string) (int, string) {
+	ctx = tools.WithExecutionContext(ctx, tools.ExecutionContext{Worktrees: worktrees, Plan: planning, RequestPermission: func(requestCtx context.Context, request tools.PermissionRequest) (int, string) {
 		response := make(chan PermissionReply, 1)
+		agentName := request.AgentName
+		if agentName == "" {
+			agentName = a.agentName()
+		}
+		cwd := request.Cwd
+		if cwd == "" {
+			cwd = a.CurrentCwd()
+		}
 		select {
-		case eventCh <- PermissionRequestEvent{Context: requestCtx, Cwd: a.CurrentCwd(), ToolName: name, Desc: desc, ResponseCh: response}:
+		case eventCh <- PermissionRequestEvent{Context: requestCtx, AgentName: agentName, Cwd: cwd, ToolName: request.ToolName, ToolID: request.ToolCallID, Args: request.Args, Desc: request.Desc, Decision: permissions.Decision{RememberPatterns: request.RememberPatterns}, ResponseCh: response}:
 		case <-requestCtx.Done():
 			return int(PermDeny), ""
 		}

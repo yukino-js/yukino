@@ -83,7 +83,7 @@ func (r *remoteMcpApps) Clear() {
 	}
 }
 
-func (r *remoteMcpApps) Request(ctx context.Context, request mcp.McpAppRequest, handle mcpAppHandle, onPermission func(context.Context, string, string) (int, string)) (any, error) {
+func (r *remoteMcpApps) Request(ctx context.Context, request mcp.McpAppRequest, handle mcpAppHandle, onPermission tools.PermissionHandler) (any, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	r.mu.Lock()
@@ -162,7 +162,7 @@ func (r *remoteMcpApps) Request(ctx context.Context, request mcp.McpAppRequest, 
 	if decision.Effect == permissions.Ask {
 		patterns := handle.Checker.RememberPatterns(toolName, args)
 		desc := formatMcpPermissionDesc(args, decision)
-		response, _ := onPermission(ctx, toolName, desc)
+		response, _ := onPermission(ctx, tools.PermissionRequest{ToolName: toolName, Desc: desc, Args: args, RememberPatterns: patterns, ToolCallID: request.RequestID})
 		if _, validateErr := validate(); validateErr != nil {
 			return nil, validateErr
 		}

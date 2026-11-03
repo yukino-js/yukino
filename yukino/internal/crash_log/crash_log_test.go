@@ -1,9 +1,11 @@
 package crash_log
 
 import (
+	"fmt"
 	"os"
 	"runtime/debug"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/yukino-js/yukino/yukino/internal/storage"
@@ -52,5 +54,26 @@ func TestInstallWritesStartAndExit(t *testing.T) {
 	log := readLog(t)
 	if !strings.Contains(log, "exit pid=") || !strings.Contains(log, "code=0") {
 		t.Errorf("exit record missing: %s", log)
+	}
+}
+
+func TestIsTerminalGone(t *testing.T) {
+	if IsTerminalGone(nil) {
+		t.Error("nil must not be terminal-gone")
+	}
+	if !IsTerminalGone(syscall.EIO) {
+		t.Error("EIO must be terminal-gone")
+	}
+	if !IsTerminalGone(syscall.EPIPE) {
+		t.Error("EPIPE must be terminal-gone")
+	}
+	if !IsTerminalGone(os.ErrClosed) {
+		t.Error("closed file must be terminal-gone")
+	}
+	if IsTerminalGone(os.ErrNotExist) {
+		t.Error("ENOENT must not be terminal-gone")
+	}
+	if !IsTerminalGone(fmt.Errorf("write: %w", syscall.EIO)) {
+		t.Error("wrapped EIO must be terminal-gone")
 	}
 }

@@ -144,9 +144,18 @@ func TestWaitForNextPromptOrShutdownCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, _, err := waitForNextPromptOrShutdown(ctx, team, "alice")
-	if err == nil {
-		t.Error("expected ctx error, got nil")
+	// A member deactivated while idle surfaces a synthetic leader shutdown
+	// request (reference parity) rather than an error, so the run loop can send
+	// a shutdown acknowledgment before exiting.
+	_, shutdown, err := waitForNextPromptOrShutdown(ctx, team, "alice")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if shutdown == nil || shutdown.Type != MsgShutdownRequest || shutdown.From != LeadName {
+		t.Fatalf("expected a synthetic leader shutdown request, got %#v", shutdown)
+	}
+	if shutdown.RequestID == "" {
+		t.Fatal("synthetic shutdown request must carry a request id for the ack")
 	}
 }
 
@@ -196,4 +205,31 @@ func TestSpawnTeammateValidation(t *testing.T) {
 		t.Error("expected error when MemberName is empty")
 	}
 
+}
+
+func TestHasLeaderNotifications(t *testing.T) {
+	mgr := NewTeamManager(t.TempDir())
+	if HasLeaderNotifications(mgr) {
+		t.Fatal("expected no notifications for an empty manager")
+	}
+	if HasLeaderNotifications(nil) {
+		t.Fatal("nil manager must report no notifications")
+	}
+	team := &Team{Name: "alpha", Members: map[string]*Member{}, MailBox: NewFileMailBox(t.TempDir())}
+	mgr.CreateTeamWith(team)
+	if HasLeaderNotifications(mgr) {
+		t.Fatal("expected no notifications before any message")
+	}
+	if err := team.MailBox.Send(LeadName, NewFileMailMessage("member", "hello leader")); err != nil {
+		t.Fatal(err)
+	}
+	if !HasLeaderNotifications(mgr) {
+		t.Fatal("expected a leader notification after Send")
+	}
+	if notes := DrainLeadMailbox(mgr); len(notes) == 0 {
+		t.Fatal("expected DrainLeadMailbox to return the message")
+	}
+	if HasLeaderNotifications(mgr) {
+		t.Fatal("expected no notifications after draining")
+	}
 }

@@ -2,8 +2,12 @@ package teams
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/yukino-js/yukino/yukino/internal/todo"
 	"github.com/yukino-js/yukino/yukino/internal/tools"
@@ -174,4 +178,144 @@ func (tm *TeamManager) ResolveTeamForMember(name, member string) (*Team, error) 
 		return nil, nil
 	}
 	return matches[0], nil
+}
+
+const (
+	// TeamBoardIDPrefix and PrivateBoardIDPrefix mirror the reference board-id
+	// prefixes; SubscribeLeaderTasks composes them with a generation counter.
+	TeamBoardIDPrefix    = "team:"
+	PrivateBoardIDPrefix = "private:"
+	// LeaderTaskRefreshIntervalMS mirrors LEADER_TASK_REFRESH_INTERVAL_MS.
+	LeaderTaskRefreshIntervalMS = 500
+)
+
+func jsonStringArray(items []string) string {
+	data, _ := json.Marshal(items)
+	return string(data)
+}
+
+func remapTaskIDs(teamName string, ids []string) []string {
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, jsonStringArray([]string{teamName, id}))
+	}
+	return out
+}
+
+func sameStringSlice(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// SubscribeLeaderTasks mirrors subscribeLeaderTasks in the reference: it tracks
+// the leader's task board (the aggregated team stores when teams exist,
+// otherwise the private fallback list) and invokes listener with the tasks and a
+// stable board id whenever they change. The returned function unsubscribes.
+func SubscribeLeaderTasks(manager *TeamManager, fallback *todo.TaskList, listener func(tasks []*todo.Task, boardID string)) func() {
+	var (
+		mu          sync.Mutex
+		teamNames   []string
+		storeUnsubs []func()
+		signature   string
+		generation  int
+		disposed    bool
+	)
+	var refresh func()
+	refresh = func() {
+		mu.Lock()
+		if disposed {
+			mu.Unlock()
+			return
+		}
+		nextTeams := manager.ListTeams()
+		if !sameStringSlice(nextTeams, teamNames) {
+			for _, unsubscribe := range storeUnsubs {
+				unsubscribe()
+			}
+			teamNames = nextTeams
+			generation++
+			storeUnsubs = make([]func(), 0, len(teamNames))
+			for _, name := range teamNames {
+				store := manager.GetTaskStore(name)
+				storeUnsubs = append(storeUnsubs, store.Subscribe(func([]*todo.Task) { refresh() }))
+			}
+		}
+		var tasks []*todo.Task
+		if len(teamNames) > 0 {
+			for _, name := range teamNames {
+				storeTasks, err := manager.GetTaskStore(name).ListTasks("", "")
+				if err != nil {
+					continue
+				}
+				for _, task := range storeTasks {
+					if len(teamNames) == 1 {
+						tasks = append(tasks, task)
+						continue
+					}
+					remapped := *task
+					remapped.ID = jsonStringArray([]string{name, task.ID})
+					remapped.Subject = "[" + name + "] " + task.Subject
+					remapped.Blocks = remapTaskIDs(name, task.Blocks)
+					remapped.BlockedBy = remapTaskIDs(name, task.BlockedBy)
+					tasks = append(tasks, &remapped)
+				}
+			}
+		} else if fallback != nil {
+			tasks = fallback.List()
+		}
+		var boardID string
+		if len(teamNames) > 0 {
+			boardID = TeamBoardIDPrefix + jsonStringArray(teamNames) + ":" + strconv.Itoa(generation)
+		} else {
+			boardID = PrivateBoardIDPrefix + strconv.Itoa(generation)
+		}
+		sigBytes, _ := json.Marshal([]any{boardID, tasks})
+		nextSignature := string(sigBytes)
+		changed := signature != nextSignature
+		signature = nextSignature
+		mu.Unlock()
+		if changed {
+			listener(tasks, boardID)
+		}
+	}
+	var unsubscribePrivate func()
+	if fallback != nil {
+		unsubscribePrivate = fallback.Subscribe(func([]*todo.Task) { refresh() })
+	}
+	unsubscribeTeams := manager.Subscribe(refresh)
+	ticker := time.NewTicker(time.Duration(LeaderTaskRefreshIntervalMS) * time.Millisecond)
+	done := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				refresh()
+			case <-done:
+				return
+			}
+		}
+	}()
+	return func() {
+		mu.Lock()
+		disposed = true
+		stores := storeUnsubs
+		storeUnsubs = nil
+		mu.Unlock()
+		ticker.Stop()
+		close(done)
+		for _, unsubscribe := range stores {
+			unsubscribe()
+		}
+		if unsubscribePrivate != nil {
+			unsubscribePrivate()
+		}
+		unsubscribeTeams()
+	}
 }

@@ -32,7 +32,13 @@ func (t *TaskStopTool) ForSubagent() tools.Tool {
 	return &TaskStopTool{TeamMgr: t.TeamMgr, Delegated: true}
 }
 func (t *TaskStopTool) Schema() map[string]any {
-	properties := map[string]any{"task_id": map[string]any{"type": "string", "description": "ID of a background task (Agent, Bash, PowerShell)"}}
+	// The delegated (subagent) form scopes task_id to the agent's own tasks,
+	// mirroring TASK_STOP_SUBAGENT_TASK_ID_DESCRIPTION vs TASK_STOP_TASK_ID_DESCRIPTION.
+	taskIDDescription := "ID of a background task (Agent, Bash, PowerShell)"
+	if t.Delegated {
+		taskIDDescription = "ID of this agent's background task"
+	}
+	properties := map[string]any{"task_id": map[string]any{"type": "string", "description": taskIDDescription}}
 	schema := map[string]any{"type": "object", "properties": properties}
 	if t.Delegated {
 		schema["required"] = []string{"task_id"}

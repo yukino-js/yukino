@@ -65,3 +65,70 @@ func TestGlobPlainPatternStillWorks(t *testing.T) {
 		t.Errorf("plain pattern should still match base names, got:\n%s", res.Output)
 	}
 }
+
+func TestMatchGlobExtglob(t *testing.T) {
+	cases := []struct {
+		pattern string
+		name    string
+		want    bool
+	}{
+		// @(a|b): exactly one of the alternatives.
+		{"@(foo|bar)", "foo", true},
+		{"@(foo|bar)", "bar", true},
+		{"@(foo|bar)", "baz", false},
+		{"@(foo|bar)", "foobar", false},
+		// ?(a): zero or one occurrence.
+		{"foo?(bar)", "foo", true},
+		{"foo?(bar)", "foobar", true},
+		{"foo?(bar)", "foobarbar", false},
+		// *(a): zero or more occurrences.
+		{"foo*(bar)", "foo", true},
+		{"foo*(bar)", "foobar", true},
+		{"foo*(bar)", "foobarbar", true},
+		{"foo*(bar)", "foobaz", false},
+		// +(a): one or more occurrences.
+		{"foo+(bar)", "foo", false},
+		{"foo+(bar)", "foobar", true},
+		{"foo+(bar)", "foobarbar", true},
+		// Extglob combined with wildcards and alternatives.
+		{"@(*.ts|*.tsx)", "app.ts", true},
+		{"@(*.ts|*.tsx)", "app.tsx", true},
+		{"@(*.ts|*.tsx)", "app.go", false},
+		{"src/@(a|b)/*.go", "src/a/x.go", true},
+		{"src/@(a|b)/*.go", "src/c/x.go", false},
+		// Non-extglob patterns must keep working.
+		{"*.go", "main.go", true},
+		{"*.go", "main.ts", false},
+		{"[!abc].go", "d.go", true},
+		{"[!abc].go", "a.go", false},
+	}
+	for _, tc := range cases {
+		if got := matchGlob(tc.pattern, tc.name); got != tc.want {
+			t.Errorf("matchGlob(%q, %q) = %v, want %v", tc.pattern, tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestGlobExtglobPattern(t *testing.T) {
+	root := t.TempDir()
+	for _, rel := range []string{"app.ts", "app.tsx", "app.go"} {
+		if err := os.WriteFile(filepath.Join(root, rel), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tool := &GlobTool{}
+	res := tool.Execute(context.Background(), map[string]any{
+		"pattern": "@(*.ts|*.tsx)",
+		"path":    root,
+	})
+	if res.IsError {
+		t.Fatalf("glob errored: %s", res.Output)
+	}
+	output := strings.ReplaceAll(res.Output, "\\", "/")
+	if !strings.Contains(output, "app.ts") || !strings.Contains(output, "app.tsx") {
+		t.Errorf("expected app.ts and app.tsx in output, got:\n%s", output)
+	}
+	if strings.Contains(output, "app.go") {
+		t.Errorf("app.go should NOT match @(*.ts|*.tsx), got:\n%s", output)
+	}
+}

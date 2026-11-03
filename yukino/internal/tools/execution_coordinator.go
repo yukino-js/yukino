@@ -21,9 +21,21 @@ type PlanContext struct {
 	IsTeammate    bool
 }
 
+type PermissionRequest struct {
+	ToolName         string
+	Desc             string
+	AgentName        string
+	Cwd              string
+	ToolCallID       string
+	Args             map[string]any
+	RememberPatterns []string
+}
+
+type PermissionHandler func(context.Context, PermissionRequest) (int, string)
+
 type ExecutionContext struct {
 	Worktrees             WorktreeRuntime
-	RequestPermission     func(context.Context, string, string) (int, string)
+	RequestPermission     PermissionHandler
 	Plan                  *PlanContext
 	FileStateCache        *FileStateCache
 	FileHistory           *file_history.History

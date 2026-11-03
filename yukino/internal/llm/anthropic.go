@@ -116,6 +116,45 @@ func (c *anthropicClient) GetOutputBudget() OutputBudget {
 	}
 }
 
+// toAnthropicToolSchema converts a provider tool schema (Anthropic shape with
+// input_schema) into the SDK tool param, preserving extra JSON Schema fields
+// and applying the explicit custom tool type only for official endpoints.
+func toAnthropicToolSchema(s map[string]any, useExplicitCustomType bool) anthropic.ToolUnionParam {
+	inputSchema, _ := s["input_schema"].(map[string]any)
+	required, _ := inputSchema["required"].([]string)
+	desc, _ := s["description"].(string)
+	schemaParam := anthropic.ToolInputSchemaParam{
+		Properties: inputSchema["properties"],
+		Required:   required,
+	}
+	// The reference spreads the whole input_schema into the tool, so keep any
+	// extra JSON Schema fields (e.g. additionalProperties). The typed fields
+	// cover properties/required, and type defaults to "object".
+	var extra map[string]any
+	for key, value := range inputSchema {
+		if key == "type" || key == "properties" || key == "required" {
+			continue
+		}
+		if extra == nil {
+			extra = map[string]any{}
+		}
+		extra[key] = value
+	}
+	schemaParam.ExtraFields = extra
+	tool := &anthropic.ToolParam{
+		Name:        s["name"].(string),
+		Description: param.NewOpt(desc),
+		InputSchema: schemaParam,
+	}
+	if deferLoading, _ := s["defer_loading"].(bool); deferLoading {
+		tool.DeferLoading = param.NewOpt(true)
+	}
+	if useExplicitCustomType {
+		tool.Type = anthropic.ToolTypeCustom
+	}
+	return anthropic.ToolUnionParam{OfTool: tool}
+}
+
 func (c *anthropicClient) Stream(ctx context.Context, conv *conversation.Manager, toolSchemas []map[string]any) (<-chan StreamEvent, <-chan error) {
 	events := make(chan StreamEvent, 64)
 	errs := make(chan error, 1)
@@ -129,28 +168,10 @@ func (c *anthropicClient) Stream(ctx context.Context, conv *conversation.Manager
 		return events, errs
 	}
 
-	var sdkTools []anthropic.ToolUnionParam
 	sendToolSearchBeta := needsToolSearchBeta(toolSchemas)
+	var sdkTools []anthropic.ToolUnionParam
 	for _, s := range toolSchemas {
-		inputSchema, _ := s["input_schema"].(map[string]any)
-		props, _ := inputSchema["properties"]
-		required, _ := inputSchema["required"].([]string)
-		desc, _ := s["description"].(string)
-		tool := &anthropic.ToolParam{
-			Name:        s["name"].(string),
-			Description: param.NewOpt(desc),
-			InputSchema: anthropic.ToolInputSchemaParam{
-				Properties: props,
-				Required:   required,
-			},
-		}
-		if deferLoading, _ := s["defer_loading"].(bool); deferLoading {
-			tool.DeferLoading = param.NewOpt(true)
-		}
-		if useExplicitCustomType {
-			tool.Type = anthropic.ToolTypeCustom
-		}
-		sdkTools = append(sdkTools, anthropic.ToolUnionParam{OfTool: tool})
+		sdkTools = append(sdkTools, toAnthropicToolSchema(s, useExplicitCustomType))
 	}
 
 	go func() {
@@ -216,6 +237,9 @@ func (c *anthropicClient) Stream(ctx context.Context, conv *conversation.Manager
 		var reqOpts []option.RequestOption
 		if sendToolSearchBeta {
 			reqOpts = append(reqOpts, option.WithHeaderAdd("anthropic-beta", nativeToolSearchBeta))
+		}
+		if retries, ok := maxRetries(ctx); ok {
+			reqOpts = append(reqOpts, option.WithMaxRetries(retries))
 		}
 
 		stream := c.client.Messages.NewStreaming(ctx, params, reqOpts...)

@@ -3,10 +3,13 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"strings"
+	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/yukino-js/yukino/yukino/internal/agent"
@@ -31,31 +34,35 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/workflow"
 )
 
-// errGoalCommand signals that a /goal print-mode invocation failed; main exits
-// with code 1 without printing an extra error since the message is already shown.
-var errGoalCommand = errors.New("goal command failed")
+// printOwnsSignals marks that print mode installed its own SIGINT/SIGTERM
+// handlers, so main.go's global handler defers shutdown to it.
+var printOwnsSignals atomic.Bool
 
 type printResult struct {
-	Type       string         `json:"type"`
-	Result     string         `json:"result"`
-	DurationMs int64          `json:"duration_ms"`
-	NumTurns   int            `json:"num_turns"`
-	ToolCalls  []toolCallInfo `json:"tool_calls"`
-	Usage      usageInfo      `json:"usage"`
-	StopReason string         `json:"stop_reason"`
+	Type       string          `json:"type"`
+	Result     string          `json:"result"`
+	DurationMs int64           `json:"duration_ms"`
+	NumTurns   int             `json:"num_turns"`
+	ToolCalls  []*toolCallInfo `json:"tool_calls"`
+	Usage      resultUsage     `json:"usage"`
 }
 
+// toolCallInfo mirrors the reference result line's tool_calls entry.
 type toolCallInfo struct {
-	Name    string `json:"name"`
-	IsError bool   `json:"is_error"`
+	Tool    string  `json:"tool"`
+	ToolID  string  `json:"tool_id"`
+	Elapsed float64 `json:"elapsed"`
 }
 
-type usageInfo struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
+// resultUsage mirrors the reference result line's usage object (camelCase).
+type resultUsage struct {
+	InputTokens              int `json:"inputTokens"`
+	OutputTokens             int `json:"outputTokens"`
+	CacheReadInputTokens     int `json:"cacheReadInputTokens"`
+	CacheCreationInputTokens int `json:"cacheCreationInputTokens"`
 }
 
-func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookConfig, outputFormat string) error {
+func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookConfig, outputFormat string) (int, error) {
 	p := config.ResolveDefaultProvider(cfg.Providers, cfg.DefaultProvider)
 	wd, _ := os.Getwd()
 	startTime := time.Now()
@@ -74,7 +81,7 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 	}
 	input, err := history.RecordInput(history.InputOptions{Cwd: wd, SessionID: &sessionID, Source: "print", Text: userPrompt, CommandName: commandName})
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if isCmd && cmdName == "goal" {
 		result := goal.HandleGoalCommand(goalManager, cmdArgs)
@@ -85,12 +92,12 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 		}
 		if result.Prompt == "" {
 			if isJSON {
-				emitJSON(printResult{Type: "result", Result: result.Message, DurationMs: time.Since(startTime).Milliseconds(), NumTurns: 0, ToolCalls: []toolCallInfo{}, Usage: usageInfo{}})
+				emitJSON(printResult{Type: "result", Result: result.Message, DurationMs: time.Since(startTime).Milliseconds(), NumTurns: 0, ToolCalls: []*toolCallInfo{}, Usage: resultUsage{}})
 			}
 			if result.IsError {
-				return errGoalCommand
+				return 1, nil
 			}
-			return nil
+			return 0, nil
 		}
 		userPrompt = result.Prompt
 	}
@@ -114,7 +121,7 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 
 	client, err := llm.NewClient(p, systemPrompt)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	conv := conversation.NewManager()
@@ -122,22 +129,23 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 
 	taskMgr := subagent.NewTaskManager()
 	if err := taskMgr.UseSession(sessionID); err != nil {
-		return err
+		return 0, err
 	}
 	defer taskMgr.StopAll(context.Background())
 	store, err := todo.NewStore(sessionID)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	todoList, err := todo.NewTaskList(store)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	loader := subagent.NewAgentLoader()
 	loader.LoadAll()
 
 	teamMgr := teams.NewTeamManager(wd)
 	teamMgr.CoordinatorMode = cfg.EnableCoordinatorMode
+	defer teamMgr.StopAll()
 
 	defaultTools := bootstrap.CreateToolRegistry(todoList, bootstrap.ToolRegistryOptions{
 		InteractionMode: "non-interactive",
@@ -211,7 +219,7 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 			})
 			result, err := service.Command(cmdArgs, hostCtx)
 			if err != nil {
-				return err
+				return 0, err
 			}
 			message = result
 		}
@@ -228,9 +236,9 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 			}
 		}
 		if isJSON {
-			emitJSON(printResult{Type: "result", Result: message, DurationMs: time.Since(startTime).Milliseconds(), NumTurns: 0, ToolCalls: []toolCallInfo{}, Usage: usageInfo{}})
+			emitJSON(printResult{Type: "result", Result: message, DurationMs: time.Since(startTime).Milliseconds(), NumTurns: 0, ToolCalls: []*toolCallInfo{}, Usage: resultUsage{}})
 		}
-		return nil
+		return 0, nil
 	}
 
 	ag := agent.New(client, registry, p.Protocol)
@@ -248,11 +256,11 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 	}
 
 	ag.NotificationFn = func() []string {
-		var messages []string
+		messages := teams.DrainLeadMailbox(teamMgr)
 		for _, task := range taskMgr.DrainNotifications() {
-			messages = append(messages, fmt.Sprintf("<task-notification>\n<task_id>%s</task_id>\n<status>%s</status>\n<result>%s</result>\n</task-notification>", task.ID, task.Status, task.Output))
+			messages = append(messages, subagent.FormatAgentTaskNotification(task))
 		}
-		return append(messages, teams.DrainLeadMailbox(teamMgr)...)
+		return messages
 	}
 	ag.ToolNameFilter = teams.CoordinatorToolFilter(cfg.EnableCoordinatorMode)
 	ag.CoordinatorActiveFn = teams.CoordinatorActiveFn(cfg.EnableCoordinatorMode)
@@ -261,110 +269,145 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 		at.ParentChecker = ag.Checker
 	}
 
-	recorded, err := session.SaveUserMessage(wd, sessionID, input, session.Message{Content: conversation.ExpandAtRefs(userPrompt, wd)})
+	// Print mode feeds the raw prompt to the agent and session; @ref expansion
+	// is a UI/remote concern only (mirrors the reference).
+	recorded, err := session.SaveUserMessage(wd, sessionID, input, session.Message{Content: userPrompt})
 	if err != nil {
-		return err
+		return 0, err
 	}
 	conv.AppendMessages([]conversation.Message{recorded.ToConversation()})
-	ctx := context.Background()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	printOwnsSignals.Store(true)
+	defer printOwnsSignals.Store(false)
+	var aborted atomic.Bool
+	var signalExit atomic.Int32
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
+	go func() {
+		sig := <-sigCh
+		if sig == syscall.SIGTERM {
+			signalExit.Store(143)
+		} else {
+			signalExit.Store(130)
+		}
+		aborted.Store(true)
+		cancel()
+		for _, task := range taskMgr.List() {
+			taskMgr.Stop(task.ID)
+		}
+	}()
+
 	ch := ag.Run(ctx, conv)
 
-	var textBuf string
-	var totalInput, totalOutput int
-	var toolCalls []toolCallInfo
+	var resultText string
+	var numTurns int
+	var exitCode int
+	var totalUsage resultUsage
+	var toolCalls []*toolCallInfo
+	callsByID := make(map[string]*toolCallInfo)
 
 	for ev := range ch {
+		if isJSON {
+			emitStreamJSON(ev)
+		} else if st, ok := ev.(agent.StreamText); ok {
+			fmt.Print(st.Text)
+		}
+
 		switch e := ev.(type) {
 		case agent.StreamText:
-			textBuf += e.Text
-			if isJSON {
-				emitJSON(map[string]any{"type": "assistant", "text": e.Text})
-			}
-
-		case agent.ThinkingText:
-			if isJSON {
-				emitJSON(map[string]any{"type": "thinking", "text": e.Text})
-			}
-
+			resultText += e.Text
 		case agent.ToolUseEvent:
-			toolCalls = append(toolCalls, toolCallInfo{Name: e.ToolName})
-			if isJSON {
-				emitJSON(map[string]any{
-					"type":      "tool_use",
-					"tool_name": e.ToolName,
-					"tool_id":   e.ToolID,
-					"args":      e.Args,
-				})
-			}
-
+			call := &toolCallInfo{Tool: e.ToolName, ToolID: e.ToolID}
+			toolCalls = append(toolCalls, call)
+			callsByID[e.ToolID] = call
 		case agent.ToolResultEvent:
-			if len(toolCalls) > 0 {
-				toolCalls[len(toolCalls)-1].IsError = e.IsError
+			if call, ok := callsByID[e.ToolID]; ok {
+				call.Elapsed = e.Elapsed.Seconds()
 			}
-			if isJSON {
-				emitJSON(map[string]any{
-					"type":      "tool_result",
-					"tool_name": e.ToolName,
-					"tool_id":   e.ToolID,
-					"output":    e.Output,
-					"is_error":  e.IsError,
-					"elapsed":   e.Elapsed.Seconds(),
-				})
-			}
-
-		case agent.UsageEvent:
-			totalInput += e.InputTokens
-			totalOutput += e.OutputTokens
-			if isJSON {
-				emitJSON(map[string]any{
-					"type":          "usage",
-					"input_tokens":  e.InputTokens,
-					"output_tokens": e.OutputTokens,
-				})
-			}
-
 		case agent.TurnComplete:
-			if isJSON {
-				emitJSON(map[string]any{"type": "turn_complete", "turn": e.Turn})
-			}
-
-		case agent.LoopComplete:
-			elapsed := time.Since(startTime)
-			if isJSON {
-				emitJSON(printResult{
-					Type:       "result",
-					Result:     textBuf,
-					DurationMs: elapsed.Milliseconds(),
-					NumTurns:   e.TotalTurns,
-					ToolCalls:  toolCalls,
-					Usage:      usageInfo{InputTokens: totalInput, OutputTokens: totalOutput},
-					StopReason: "end_turn",
-				})
-			} else {
-				fmt.Print(textBuf)
-			}
-			return nil
-
+			numTurns++
+		case agent.UsageEvent:
+			totalUsage.InputTokens += e.InputTokens
+			totalUsage.OutputTokens += e.OutputTokens
+			totalUsage.CacheReadInputTokens += e.CacheReadTokens
+			totalUsage.CacheCreationInputTokens += e.CacheCreationTokens
 		case agent.ErrorEvent:
-			if isJSON {
-				emitJSON(map[string]any{"type": "error", "message": e.Message})
-			} else {
-				fmt.Fprintf(os.Stderr, "Error: %s\n", e.Message)
+			if !aborted.Load() {
+				exitCode = 1
 			}
-
-		case agent.CompactEvent:
-			if isJSON {
-				emitJSON(map[string]any{"type": "compact", "message": e.Message})
+			if !isJSON {
+				fmt.Fprintf(os.Stderr, "\nError: %s\n", e.Message)
 			}
-
-		case agent.RetryEvent:
-			if isJSON {
-				emitJSON(map[string]any{"type": "retry", "reason": e.Reason})
+		case agent.LoopComplete:
+			if e.StopReason == "interrupted" && !aborted.Load() {
+				exitCode = 1
 			}
 		}
 	}
 
-	return nil
+	// Wait only for background Agent tasks: their results feed the final
+	// answer. Shell tasks (backgrounded Bash/PowerShell commands) can run
+	// indefinitely (dev servers, auto-backgrounded timeouts) and would hang
+	// -p mode forever; whatever finished is drained below and the deferred
+	// StopAll kills the rest.
+	_ = taskMgr.WaitAll(context.Background(), func(task tools.BackgroundTask) bool { return task.Kind != "shell" })
+	notifications := taskMgr.DrainNotifications()
+	durationMs := time.Since(startTime).Milliseconds()
+
+	if !isJSON && resultText != "" && !strings.HasSuffix(resultText, "\n") {
+		fmt.Print("\n")
+	}
+	for _, task := range notifications {
+		notification := subagent.FormatAgentTaskNotification(task)
+		conv.AddSystemReminder(notification)
+		last := conv.GetMessages()[conv.Len()-1]
+		_ = session.SaveMessage(wd, sessionID, session.Message{Role: last.Role, Content: last.Content, Timestamp: time.Now().Unix()})
+		if isJSON {
+			emitJSON(map[string]any{"type": "task_notification", "notification": notification})
+		} else {
+			fmt.Printf("%s\n", notification)
+		}
+	}
+	if isJSON {
+		emitJSON(printResult{Type: "result", Result: resultText, DurationMs: durationMs, NumTurns: numTurns, ToolCalls: toolCalls, Usage: totalUsage})
+	}
+
+	if aborted.Load() {
+		exitCode = int(signalExit.Load())
+	}
+	return exitCode, nil
+}
+
+// emitStreamJSON mirrors the reference emitStreamJson: each agent event becomes
+// a single JSON line on stdout. Events not listed here are not emitted.
+func emitStreamJSON(ev agent.AgentEvent) {
+	switch e := ev.(type) {
+	case agent.StreamText:
+		emitJSON(map[string]any{"type": "stream_text", "text": e.Text})
+	case agent.ThinkingText:
+		emitJSON(map[string]any{"type": "thinking_text", "text": e.Text})
+	case agent.ToolUseEvent:
+		emitJSON(map[string]any{"type": "tool_use", "tool_name": e.ToolName, "tool_id": e.ToolID, "args": e.Args})
+	case agent.ToolResultEvent:
+		emitJSON(map[string]any{"type": "tool_result", "tool_name": e.ToolName, "tool_id": e.ToolID, "output": e.Output, "is_error": e.IsError, "elapsed": e.Elapsed.Seconds()})
+	case agent.UsageEvent:
+		emitJSON(map[string]any{"type": "usage", "input_tokens": e.InputTokens, "output_tokens": e.OutputTokens, "cache_read_input_tokens": e.CacheReadTokens, "cache_creation_input_tokens": e.CacheCreationTokens})
+	case agent.ErrorEvent:
+		emitJSON(map[string]any{"type": "error", "message": e.Message})
+	case agent.TurnComplete:
+		emitJSON(map[string]any{"type": "turn_complete"})
+	case agent.LoopComplete:
+		emitJSON(map[string]any{"type": "loop_complete", "stopReason": e.StopReason})
+	case agent.SteeringDelivered:
+		emitJSON(map[string]any{"type": "steering_delivered", "text": e.Text, "inputId": e.InputID})
+	case agent.RetryEvent:
+		emitJSON(map[string]any{"type": "retry", "reason": e.Reason, "delay": e.Wait.Milliseconds()})
+	case agent.CompactEvent:
+		emitJSON(map[string]any{"type": "compact", "message": e.Message})
+	}
 }
 
 func emitJSON(v any) {

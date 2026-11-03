@@ -46,3 +46,19 @@ func TestOutputLimitIsScopedToOneRequest(t *testing.T) {
 		})
 	}
 }
+
+func TestWithMaxRetriesScopedToContext(t *testing.T) {
+	ctx := context.Background()
+	if _, ok := maxRetries(ctx); ok {
+		t.Fatal("expected no maxRetries override on a bare context")
+	}
+	ctx = WithMaxRetries(ctx, 0)
+	retries, ok := maxRetries(ctx)
+	if !ok || retries != 0 {
+		t.Fatalf("maxRetries = %d, %v; want 0, true", retries, ok)
+	}
+	// A non-zero override round-trips too.
+	if retries, ok := maxRetries(WithMaxRetries(context.Background(), 5)); !ok || retries != 5 {
+		t.Fatalf("maxRetries = %d, %v; want 5, true", retries, ok)
+	}
+}

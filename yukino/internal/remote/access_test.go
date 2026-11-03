@@ -32,10 +32,16 @@ func TestWebSocketTokenAndOrigin(t *testing.T) {
 	for _, tc := range []struct {
 		path, origin string
 		want         int
-	}{{"/ws?token=" + token, "", 0}, {"/ws?token=" + token, "http://localhost:18888", 0}, {"/other?token=" + token, "", 404}, {"/ws", "", 401}, {"/ws?token=wrong", "", 401}, {"/ws?token=" + token, "https://localhost:18888", 403}, {"/ws?token=" + token, "http://other", 403}, {"/ws?token=" + token, "null", 403}} {
+	}{{"/ws?token=" + token, "", 0}, {"/ws?token=" + token, "http://localhost:18888", 0}, {"/ws?token=" + token, "HTTP://LOCALHOST:18888", 0}, {"/ws?token=" + token, "http://LOCALHOST:80", 0}, {"/ws?token=" + token, "http://[::1]:80", 0}, {"/other?token=" + token, "", 404}, {"/ws", "", 401}, {"/ws?token=wrong", "", 401}, {"/ws?token=" + token, "https://localhost:18888", 403}, {"/ws?token=" + token, "http://other", 403}, {"/ws?token=" + token, "null", 403}} {
 		r := httptest.NewRequest("GET", "http://localhost:18888"+tc.path, nil)
 		if tc.origin != "" {
 			r.Header.Set("Origin", tc.origin)
+		}
+		if tc.origin == "http://LOCALHOST:80" {
+			r.Host = "localhost"
+		}
+		if tc.origin == "http://[::1]:80" {
+			r.Host = "[::1]"
 		}
 		status, _ := authorizeWebSocket(r, "/ws", token)
 		if status != tc.want {

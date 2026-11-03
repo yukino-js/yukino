@@ -73,11 +73,25 @@ func authorizeWebSocket(r *http.Request, path, token string) (int, string) {
 			return http.StatusForbidden, "Forbidden"
 		}
 		parsed, err := url.Parse(origin[0])
-		if err != nil || parsed.Scheme != "http" || parsed.Host != r.Host {
+		if err != nil || parsed.Scheme != "http" || canonicalOriginHost(parsed) != r.Host {
 			return http.StatusForbidden, "Forbidden"
 		}
 	}
 	return 0, ""
+}
+
+func canonicalOriginHost(parsed *url.URL) string {
+	host := strings.ToLower(parsed.Hostname())
+	port := parsed.Port()
+	if port == "80" {
+		port = ""
+	}
+	if port != "" {
+		host = net.JoinHostPort(host, port)
+	} else if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	return host
 }
 func (s *Server) listenAddress() (string, error) {
 	host, port, err := ParseRemoteAddress(s.addr, 18888, false)

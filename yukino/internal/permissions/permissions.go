@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -420,12 +421,13 @@ func (e *RuleEngine) AppendProjectRule(rule Rule) error {
 			}
 		}
 		rules = append(rules, rule)
-		entries := make([]map[string]string, 0, len(rules))
+		type ruleEntry struct {
+			Rule   string `yaml:"rule"`
+			Effect string `yaml:"effect"`
+		}
+		entries := make([]ruleEntry, 0, len(rules))
 		for _, r := range rules {
-			entries = append(entries, map[string]string{
-				"rule":   fmt.Sprintf("%s(%s)", r.Tool, r.Pattern),
-				"effect": string(r.Effect),
-			})
+			entries = append(entries, ruleEntry{Rule: fmt.Sprintf("%s(%s)", r.Tool, r.Pattern), Effect: string(r.Effect)})
 		}
 		data, err := yaml.Marshal(entries)
 		if err != nil {
@@ -829,8 +831,14 @@ func DescribeToolAction(toolName string, args map[string]any) string {
 	if content := ExtractContent(toolName, args); content != "" {
 		return content
 	}
+	keys := make([]string, 0, len(args))
+	for k := range args {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
 	var parts []string
-	for k, v := range args {
+	for _, k := range keys {
+		v := args[k]
 		s := fmt.Sprintf("%v", v)
 		if len(s) > MaxActionArgValueChars {
 			s = s[:MaxActionArgValueChars] + "..."

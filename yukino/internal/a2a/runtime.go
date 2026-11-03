@@ -126,6 +126,8 @@ func CreateA2aRuntime(cwd string, sessionID string) (Runtime, error) {
 		mcpAnnounced:          map[string]bool{},
 	}
 	r.teamMgr.CoordinatorMode = cfg.EnableCoordinatorMode
+	// Restore pending notifications and reclaim interrupted teammates' work.
+	r.teamMgr.RestoreFromDisk()
 	_ = history.RegisterProject(cwd)
 
 	store, err := todo.NewStore(sessionID)

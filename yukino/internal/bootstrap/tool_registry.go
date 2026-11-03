@@ -1,7 +1,6 @@
 package bootstrap
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/yukino-js/yukino/yukino/internal/commands"
@@ -97,7 +96,8 @@ func WireSkillsToRegistry(catalog *skills.Catalog, commandRegistry *commands.Reg
 		if commandRegistry.Find(meta.Name) != nil {
 			continue
 		}
-		if catalog.Get(meta.Name) == nil {
+		skill := catalog.Get(meta.Name)
+		if skill == nil {
 			continue
 		}
 		command := &commands.Command{
@@ -105,17 +105,12 @@ func WireSkillsToRegistry(catalog *skills.Catalog, commandRegistry *commands.Reg
 			Description: meta.Description + " [skill]",
 			IsSkill:     true,
 		}
-		if meta.IsFork() {
+		if skill.Meta.IsFork() {
 			command.Type = commands.TypeSkillFork
 			command.Handler = func(ctx *commands.Context) string { return "" }
 		} else {
 			command.Type = commands.TypePrompt
-			captured := meta.Name
 			command.Handler = func(ctx *commands.Context) string {
-				skill := catalog.Get(captured)
-				if skill == nil {
-					return fmt.Sprintf("[skill error] unknown skill: %s", captured)
-				}
 				return skills.RunInline(skill, ctx.Args, host)
 			}
 		}

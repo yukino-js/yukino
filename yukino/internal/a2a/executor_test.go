@@ -161,6 +161,8 @@ func TestExecutorPermissionHandshake(t *testing.T) {
 			emit(agent.StreamText{Text: "before"})
 			emit(agent.TurnComplete{})
 			emit(agent.PermissionRequestEvent{
+				AgentName:  "main",
+				Cwd:        "/srv/a2a",
 				ToolID:     "tc-1",
 				ToolName:   "Bash",
 				Args:       map[string]any{"command": "ls"},
@@ -192,6 +194,9 @@ func TestExecutorPermissionHandshake(t *testing.T) {
 	request, ok := requestData.Value.(PermissionRequestData)
 	if !ok || request.Yukino != PermissionRequestKind || request.ToolName != "Bash" || request.PermissionID == "" || request.Reason != "Mode: default" {
 		t.Fatalf("permission request = %#v", requestData.Value)
+	}
+	if request.Source == nil || request.Source.AgentName != "main" || request.Source.Cwd != "/srv/a2a" {
+		t.Fatalf("permission source = %#v", request.Source)
 	}
 
 	// Answer with a permission-response data part on the same task.
