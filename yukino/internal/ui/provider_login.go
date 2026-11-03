@@ -135,10 +135,8 @@ func (m Model) loginInput() map[string]any {
 			input["thinking_level_map"] = levels
 		}
 		for _, extra := range initial.Extra {
-			if key, ok := extra.Key.(string); ok {
-				if _, exists := input[key]; !exists {
-					input[key] = extra.Value
-				}
+			if _, exists := input[extra.Key]; !exists {
+				input[extra.Key] = extra.Value
 			}
 		}
 	}

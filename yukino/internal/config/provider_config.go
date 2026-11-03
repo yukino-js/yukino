@@ -4,13 +4,18 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/goccy/go-yaml"
-
 	"github.com/yukino-js/yukino/yukino/internal/storage"
 )
 
 func GlobalConfigPath() string {
 	return storage.YukinoPath(GlobalConfigFilename)
+}
+
+// ExtraField is one unrecognized provider field, retained so provider-login
+// round-trips preserve future capability metadata.
+type ExtraField struct {
+	Key   string
+	Value any
 }
 
 // LevelOverride is one thinking_level_map entry: a null value disables the
@@ -39,7 +44,7 @@ type ProviderConfig struct {
 	MaxOutputTokens float64
 	// Unrecognized fields, retained so provider-login round-trips preserve
 	// future capability metadata.
-	Extra yaml.MapSlice
+	Extra []ExtraField
 }
 
 var reasoningEfforts = map[string]bool{
@@ -222,7 +227,7 @@ func parseProviderConfig(raw map[string]any) (ProviderConfig, error) {
 	var err error
 	for key, value := range raw {
 		if !providerKnownKeys[key] {
-			p.Extra = append(p.Extra, yaml.MapItem{Key: key, Value: value})
+			p.Extra = append(p.Extra, ExtraField{Key: key, Value: value})
 		}
 	}
 	if p.Name, err = requireString(raw, "name"); err != nil {

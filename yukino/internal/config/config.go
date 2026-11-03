@@ -3,14 +3,14 @@ package config
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
-	"github.com/goccy/go-yaml"
+	"gopkg.in/yaml.v3"
 
 	"github.com/yukino-js/yukino/yukino/internal/logger"
 	"github.com/yukino-js/yukino/yukino/internal/storage"
@@ -124,26 +124,30 @@ func HydrateConfigEnv() {
 	_, _ = LoadConfig("", LoadOptions{AllowEmptyProviders: true})
 }
 
-// yamlErrorDetail reports a parse failure as reason + line/column only. The
-// full message embeds a source snippet, which could contain secrets, so it is
-// deliberately not surfaced.
+// yamlLineRE extracts the position from yaml.v3 messages such as
+// "line 3: mapping values are not allowed in this context" and from the
+// per-error lines of its unmarshal TypeErrors.
+var yamlLineRE = regexp.MustCompile(`line (\d+): ?`)
+
+// yamlErrorDetail reports a parse failure as reason + line only, keeping the
+// message shape stable and free of raw parser internals.
 func yamlErrorDetail(err error) string {
-	var syntaxErr *yaml.SyntaxError
-	if !errors.As(err, &syntaxErr) {
+	message := strings.TrimPrefix(err.Error(), "yaml: ")
+	if loc := yamlLineRE.FindStringSubmatchIndex(message); loc != nil {
+		reason := strings.TrimSpace(message[loc[1]:])
+		if newline := strings.IndexByte(reason, '\n'); newline >= 0 {
+			reason = strings.TrimSpace(reason[:newline])
+		}
+		if reason == "" {
+			reason = YAMLParseError
+		}
+		return fmt.Sprintf("%s (line %s)", reason, message[loc[2]:loc[3]])
+	}
+	message = strings.TrimSpace(message)
+	if message == "" {
 		return YAMLParseError
 	}
-	reason := syntaxErr.Message
-	if reason == "" {
-		reason = YAMLParseError
-	}
-	if syntaxErr.Token != nil && syntaxErr.Token.Position != nil {
-		line := strconv.Itoa(syntaxErr.Token.Position.Line)
-		if column := syntaxErr.Token.Position.Column; column > 0 {
-			return fmt.Sprintf("%s (line %s, column %d)", reason, line, column)
-		}
-		return fmt.Sprintf("%s (line %s)", reason, line)
-	}
-	return reason
+	return message
 }
 
 func loadSingleFile(path string) (*AppConfig, error) {
@@ -475,6 +479,8 @@ func envValueString(v any) (string, error) {
 		return t, nil
 	case bool:
 		return strconv.FormatBool(t), nil
+	case int:
+		return strconv.Itoa(t), nil
 	case int64:
 		return strconv.FormatInt(t, 10), nil
 	case uint64:

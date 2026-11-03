@@ -15,7 +15,6 @@ require (
 	github.com/dlclark/regexp2/v2 v2.12.0
 	github.com/dop251/goja v0.0.0-20261031103838-cf2ff0ec0b31
 	github.com/getsentry/sentry-go v0.50.0
-	github.com/goccy/go-yaml v1.19.2
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/modelcontextprotocol/go-sdk v1.8.0

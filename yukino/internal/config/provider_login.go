@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
 	"net/url"
 	"os"
@@ -9,8 +10,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/goccy/go-yaml"
 	"github.com/google/uuid"
+	"gopkg.in/yaml.v3"
 
 	"github.com/yukino-js/yukino/yukino/internal/storage"
 )
@@ -123,12 +124,32 @@ func ParseProviderLogin(input map[string]any) (ProviderConfig, error) {
 	return p, nil
 }
 
-// readConfigRaw reads the raw global config as an ordered record; an absent
-// file yields an empty one.
-func readConfigRaw(path string) (yaml.MapSlice, error) {
+// emptyMapping returns an empty ordered mapping node.
+func emptyMapping() *yaml.Node {
+	return &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+}
+
+// valueNode encodes a plain Go value as a YAML node. The config writers only
+// ever pass strings, numbers, booleans, and nil, which encode cleanly.
+func valueNode(value any) *yaml.Node {
+	node := &yaml.Node{}
+	_ = node.Encode(value)
+	return node
+}
+
+// sequenceNode wraps entry nodes into a YAML sequence.
+func sequenceNode(entries []*yaml.Node) *yaml.Node {
+	seq := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+	seq.Content = append(seq.Content, entries...)
+	return seq
+}
+
+// readConfigRaw reads the raw global config as an ordered mapping node; an
+// absent file yields an empty one.
+func readConfigRaw(path string) (*yaml.Node, error) {
 	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
-			return yaml.MapSlice{}, nil
+			return emptyMapping(), nil
 		}
 		return nil, err
 	}
@@ -136,32 +157,136 @@ func readConfigRaw(path string) (yaml.MapSlice, error) {
 	if err != nil {
 		return nil, err
 	}
-	var raw any
-	if err := yaml.UnmarshalWithOptions(data, &raw, yaml.UseOrderedMap()); err != nil {
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
 		return nil, fmt.Errorf("Unable to read existing %s; it has not been changed.", path)
 	}
-	if raw == nil {
-		return yaml.MapSlice{}, nil
+	node := &root
+	if node.Kind == yaml.DocumentNode && len(node.Content) == 1 {
+		node = node.Content[0]
 	}
-	slice, ok := raw.(yaml.MapSlice)
-	if !ok {
+	if node.Kind == 0 || (node.Kind == yaml.ScalarNode && node.Tag == "!!null") {
+		return emptyMapping(), nil
+	}
+	if node.Kind != yaml.MappingNode {
 		return nil, fmt.Errorf("Unable to read existing %s; it has not been changed.", path)
 	}
-	return slice, nil
+	return resolvedNode(node), nil
+}
+
+// resolvedNode returns a deep copy of node with aliases replaced by their
+// targets and merge keys (<<) expanded in place, matching the fully resolved
+// view the plain-value decoder presents. Explicit keys win over merged ones;
+// earlier merges win over later ones.
+func resolvedNode(node *yaml.Node) *yaml.Node {
+	switch node.Kind {
+	case yaml.AliasNode:
+		if node.Alias == nil {
+			return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!null"}
+		}
+		return resolvedNode(node.Alias)
+	case yaml.MappingNode:
+		out := copyNodeShell(node)
+		index := map[string]int{}
+		place := func(key, value *yaml.Node) {
+			if key.Kind != yaml.ScalarNode {
+				out.Content = append(out.Content, key, value)
+				return
+			}
+			if pos, ok := index[key.Value]; ok {
+				out.Content[pos] = value
+				return
+			}
+			index[key.Value] = len(out.Content) + 1
+			out.Content = append(out.Content, key, value)
+		}
+		for i := 0; i+1 < len(node.Content); i += 2 {
+			key, value := node.Content[i], node.Content[i+1]
+			if key.Kind == yaml.ScalarNode && key.Value == "<<" {
+				for _, source := range mergeSources(value) {
+					expanded := resolvedNode(source)
+					for j := 0; j+1 < len(expanded.Content); j += 2 {
+						merged := expanded.Content[j]
+						if merged.Kind == yaml.ScalarNode {
+							if _, ok := index[merged.Value]; ok {
+								continue
+							}
+						}
+						place(merged, expanded.Content[j+1])
+					}
+				}
+				continue
+			}
+			place(resolvedNode(key), resolvedNode(value))
+		}
+		return out
+	case yaml.SequenceNode:
+		out := copyNodeShell(node)
+		for _, item := range node.Content {
+			out.Content = append(out.Content, resolvedNode(item))
+		}
+		return out
+	default:
+		out := *node
+		return &out
+	}
+}
+
+// copyNodeShell returns an empty container node preserving the presentation
+// metadata of node.
+func copyNodeShell(node *yaml.Node) *yaml.Node {
+	return &yaml.Node{
+		Kind:        node.Kind,
+		Tag:         node.Tag,
+		Style:       node.Style,
+		HeadComment: node.HeadComment,
+		LineComment: node.LineComment,
+		FootComment: node.FootComment,
+	}
+}
+
+// mergeSources returns the mappings referenced by a merge-key value, which
+// may be a single mapping (possibly aliased) or a sequence of them.
+func mergeSources(value *yaml.Node) []*yaml.Node {
+	if value.Kind == yaml.AliasNode && value.Alias != nil {
+		value = value.Alias
+	}
+	if value.Kind == yaml.SequenceNode {
+		sources := make([]*yaml.Node, 0, len(value.Content))
+		for _, item := range value.Content {
+			if item.Kind == yaml.AliasNode && item.Alias != nil {
+				item = item.Alias
+			}
+			if item.Kind == yaml.MappingNode {
+				sources = append(sources, item)
+			}
+		}
+		return sources
+	}
+	if value.Kind == yaml.MappingNode {
+		return []*yaml.Node{value}
+	}
+	return nil
 }
 
 // writeConfigAtomic atomically writes the global config with 0600 permissions.
-func writeConfigAtomic(path string, raw yaml.MapSlice) error {
+func writeConfigAtomic(path string, raw *yaml.Node) error {
 	directory := filepath.Dir(path)
 	if err := storage.MkdirPrivateSync(directory); err != nil {
 		return err
 	}
-	data, err := yaml.Marshal(raw)
+	var buffer bytes.Buffer
+	encoder := yaml.NewEncoder(&buffer)
+	encoder.SetIndent(2)
+	err := encoder.Encode(raw)
+	if closeErr := encoder.Close(); err == nil {
+		err = closeErr
+	}
 	if err != nil {
 		return err
 	}
 	temporary := filepath.Join(directory, ".config-"+uuid.NewString()+".tmp")
-	if err := storage.WritePrivateFileSync(temporary, data, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|os.O_EXCL); err != nil {
+	if err := storage.WritePrivateFileSync(temporary, buffer.Bytes(), os.O_WRONLY|os.O_CREATE|os.O_TRUNC|os.O_EXCL); err != nil {
 		os.Remove(temporary)
 		return err
 	}
@@ -172,72 +297,71 @@ func writeConfigAtomic(path string, raw yaml.MapSlice) error {
 	return nil
 }
 
-func rawGet(raw yaml.MapSlice, key string) (any, bool) {
-	for _, item := range raw {
-		if k, ok := item.Key.(string); ok && k == key {
-			return item.Value, true
+// rawNode returns the value node stored under key, or nil when absent.
+func rawNode(raw *yaml.Node, key string) *yaml.Node {
+	for i := 0; i+1 < len(raw.Content); i += 2 {
+		if raw.Content[i].Value == key {
+			return raw.Content[i+1]
 		}
 	}
-	return nil, false
+	return nil
 }
 
-func rawSet(raw yaml.MapSlice, key string, value any) yaml.MapSlice {
-	for i, item := range raw {
-		if k, ok := item.Key.(string); ok && k == key {
-			raw[i].Value = value
-			return raw
-		}
+// rawGet decodes the value stored under key; ok is false when absent.
+func rawGet(raw *yaml.Node, key string) (any, bool) {
+	node := rawNode(raw, key)
+	if node == nil {
+		return nil, false
 	}
-	return append(raw, yaml.MapItem{Key: key, Value: value})
+	var value any
+	if err := node.Decode(&value); err != nil {
+		return nil, true
+	}
+	return value, true
 }
 
-func rawProviders(raw yaml.MapSlice) ([]yaml.MapSlice, error) {
-	value, ok := rawGet(raw, "providers")
-	if !ok || value == nil {
+// rawSet replaces the value stored under key, appending the key when absent.
+// Entries are nodes inside the parsed tree, so the mutation happens in place.
+func rawSet(raw *yaml.Node, key string, value any) *yaml.Node {
+	return rawSetNode(raw, key, valueNode(value))
+}
+
+// rawSetNode replaces the value node stored under key, appending the key when
+// absent.
+func rawSetNode(raw *yaml.Node, key string, value *yaml.Node) *yaml.Node {
+	if existing := rawNode(raw, key); existing != nil {
+		*existing = *value
+		return raw
+	}
+	raw.Content = append(raw.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}, value)
+	return raw
+}
+
+func rawProviders(raw *yaml.Node) ([]*yaml.Node, error) {
+	node := rawNode(raw, "providers")
+	if node == nil || (node.Kind == yaml.ScalarNode && node.Tag == "!!null") {
 		return nil, nil
 	}
-	list, ok := value.([]any)
-	if !ok {
+	if node.Kind != yaml.SequenceNode {
 		return nil, fmt.Errorf("providers: expected a list")
 	}
-	entries := make([]yaml.MapSlice, 0, len(list))
-	for _, item := range list {
-		rec, ok := item.(yaml.MapSlice)
-		if !ok {
+	entries := make([]*yaml.Node, 0, len(node.Content))
+	for _, item := range node.Content {
+		if item.Kind != yaml.MappingNode {
 			return nil, fmt.Errorf("providers: expected mapping entries")
 		}
-		entries = append(entries, rec)
+		entries = append(entries, item)
 	}
 	return entries, nil
 }
 
-// recordToMap deep-converts an ordered YAML record into plain maps so the
-// schema parsers can validate it.
-func recordToMap(value any) any {
-	switch v := value.(type) {
-	case yaml.MapSlice:
-		m := make(map[string]any, len(v))
-		for _, item := range v {
-			if k, ok := item.Key.(string); ok {
-				m[k] = recordToMap(item.Value)
-			}
-		}
-		return m
-	case []any:
-		out := make([]any, len(v))
-		for i, item := range v {
-			out[i] = recordToMap(item)
-		}
-		return out
-	default:
-		return value
+func providerToRecord(p ProviderConfig) *yaml.Node {
+	rec := emptyMapping()
+	addNode := func(key string, value *yaml.Node) {
+		rec.Content = append(rec.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}, value)
 	}
-}
-
-func providerToRecord(p ProviderConfig) yaml.MapSlice {
-	rec := yaml.MapSlice{}
 	add := func(key string, value any) {
-		rec = append(rec, yaml.MapItem{Key: key, Value: value})
+		addNode(key, valueNode(value))
 	}
 	add("name", p.Name)
 	add("protocol", p.Protocol)
@@ -253,19 +377,19 @@ func providerToRecord(p ProviderConfig) yaml.MapSlice {
 		add("reasoning", *p.Reasoning)
 	}
 	if p.ThinkingLevelMap != nil {
-		levelMap := yaml.MapSlice{}
+		levelMap := emptyMapping()
 		for _, level := range ThinkingLevels {
 			override, ok := p.ThinkingLevelMap[level]
 			if !ok {
 				continue
 			}
-			if override.Null {
-				levelMap = append(levelMap, yaml.MapItem{Key: level, Value: nil})
-				continue
+			value := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!null", Value: "null"}
+			if !override.Null {
+				value = &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: override.Effort}
 			}
-			levelMap = append(levelMap, yaml.MapItem{Key: level, Value: override.Effort})
+			levelMap.Content = append(levelMap.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: level}, value)
 		}
-		add("thinking_level_map", levelMap)
+		addNode("thinking_level_map", levelMap)
 	}
 	if p.ThinkingMode != "" {
 		add("thinking_mode", p.ThinkingMode)
@@ -276,7 +400,10 @@ func providerToRecord(p ProviderConfig) yaml.MapSlice {
 	if p.MaxOutputTokens != 0 {
 		add("max_output_tokens", int(p.MaxOutputTokens))
 	}
-	return append(rec, p.Extra...)
+	for _, extra := range p.Extra {
+		add(extra.Key, extra.Value)
+	}
+	return rec
 }
 
 type SaveProviderResult struct {
@@ -307,7 +434,7 @@ func SaveProvider(input map[string]any, available []ProviderConfig) (SaveProvide
 	}
 	// Retain every currently available provider so an in-memory list never
 	// loses entries that are not yet written to the file.
-	current := append([]yaml.MapSlice{}, existing...)
+	current := append([]*yaml.Node{}, existing...)
 	for _, entry := range available {
 		found := false
 		for _, stored := range current {
@@ -320,7 +447,7 @@ func SaveProvider(input map[string]any, available []ProviderConfig) (SaveProvide
 			current = append(current, providerToRecord(entry))
 		}
 	}
-	var storedEntries []yaml.MapSlice
+	var storedEntries []*yaml.Node
 	replaced := false
 	for _, entry := range current {
 		baseURL, _ := rawGet(entry, "base_url")
@@ -341,18 +468,17 @@ func SaveProvider(input map[string]any, available []ProviderConfig) (SaveProvide
 	}
 	providers := make([]ProviderConfig, 0, len(storedEntries))
 	for _, entry := range storedEntries {
-		rec, _ := recordToMap(entry).(map[string]any)
+		var rec map[string]any
+		if err := entry.Decode(&rec); err != nil {
+			return SaveProviderResult{}, err
+		}
 		p, err := parseProviderConfig(rec)
 		if err != nil {
 			return SaveProviderResult{}, err
 		}
 		providers = append(providers, p)
 	}
-	list := make([]any, len(storedEntries))
-	for i, entry := range storedEntries {
-		list[i] = entry
-	}
-	raw = rawSet(raw, "providers", list)
+	raw = rawSetNode(raw, "providers", sequenceNode(storedEntries))
 	if err := writeConfigAtomic(path, raw); err != nil {
 		return SaveProviderResult{}, err
 	}
@@ -375,13 +501,13 @@ func persistProviderField(baseURL, field, value string) error {
 	}
 	targets := 0
 	changed := false
-	for i, entry := range providers {
+	for _, entry := range providers {
 		if v, _ := rawGet(entry, "base_url"); v != baseURL {
 			continue
 		}
 		targets++
 		if current, _ := rawGet(entry, field); current != value {
-			providers[i] = rawSet(entry, field, value)
+			rawSet(entry, field, value)
 			changed = true
 		}
 	}
@@ -392,11 +518,6 @@ func persistProviderField(baseURL, field, value string) error {
 	if !changed {
 		return nil
 	}
-	list := make([]any, len(providers))
-	for i, entry := range providers {
-		list[i] = entry
-	}
-	raw = rawSet(raw, "providers", list)
 	return writeConfigAtomic(path, raw)
 }
 

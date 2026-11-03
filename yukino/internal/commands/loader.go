@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/goccy/go-yaml"
+	"gopkg.in/yaml.v3"
 
 	"github.com/yukino-js/yukino/yukino/internal/frontmatter"
 	"github.com/yukino-js/yukino/yukino/internal/storage"
