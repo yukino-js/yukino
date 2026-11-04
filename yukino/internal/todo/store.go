@@ -101,6 +101,11 @@ func LoadSnapshot(path string, shared bool) (Snapshot, error) {
 		}
 		tasks = append(tasks, task)
 		if taskIDNumber(task.ID) >= float64(nextID) {
+			// The shared board reports its own counter error text, mirroring
+			// SHARED_TASK_INVALID_ID_COUNTER_ERROR in teams/shared-task.ts.
+			if shared {
+				return Snapshot{}, errors.New("Invalid shared task ID counter")
+			}
 			return Snapshot{}, errors.New("Invalid task ID counter")
 		}
 	}

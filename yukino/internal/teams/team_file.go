@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/yukino-js/yukino/yukino/internal/permissions"
 	"github.com/yukino-js/yukino/yukino/internal/storage"
@@ -31,7 +30,7 @@ type TeamMemberFile struct {
 	Model        string `json:"model,omitempty"`
 	JoinedAt     int64  `json:"joinedAt"`
 	WorktreePath string `json:"worktreePath,omitempty"`
-	IsActive     *bool  `json:"isActive,omitempty"`
+	IsActive     bool   `json:"isActive"`
 }
 
 var nonAlnum = regexp.MustCompile(`[^a-zA-Z0-9]`)
@@ -69,11 +68,80 @@ func ReadTeamFileAtPath(path string) *TeamFile {
 	if err != nil {
 		return nil
 	}
-	var tf TeamFile
-	if err := json.Unmarshal(data, &tf); err != nil {
+	tf, ok := parseTeamFile(data)
+	if !ok {
 		return nil
 	}
-	return &tf
+	return tf
+}
+
+// parseTeamFile validates the on-disk document exactly like the reference's
+// TeamFileSchema.parse: required fields with exact JSON types, permissionMode
+// from the four-value enum, and per-member required agentId/name/joinedAt/
+// isActive with optional string agentType/model/worktreePath. Unknown keys are
+// stripped like zod's default object behavior.
+func parseTeamFile(data []byte) (*TeamFile, bool) {
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, false
+	}
+	if _, ok := raw["name"].(string); !ok {
+		return nil, false
+	}
+	if description, present := raw["description"]; present {
+		if _, ok := description.(string); !ok {
+			return nil, false
+		}
+	}
+	if _, ok := raw["createdAt"].(float64); !ok {
+		return nil, false
+	}
+	if _, ok := raw["leaderAgentId"].(string); !ok {
+		return nil, false
+	}
+	mode, ok := raw["permissionMode"].(string)
+	if !ok {
+		return nil, false
+	}
+	switch permissions.PermissionMode(mode) {
+	case permissions.ModeDefault, permissions.ModeAcceptEdits, permissions.ModePlan, permissions.ModeBypass:
+	default:
+		return nil, false
+	}
+	members, ok := raw["members"].([]any)
+	if !ok {
+		return nil, false
+	}
+	for _, entry := range members {
+		member, ok := entry.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		if _, ok := member["agentId"].(string); !ok {
+			return nil, false
+		}
+		if _, ok := member["name"].(string); !ok {
+			return nil, false
+		}
+		if _, ok := member["joinedAt"].(float64); !ok {
+			return nil, false
+		}
+		if _, ok := member["isActive"].(bool); !ok {
+			return nil, false
+		}
+		for _, key := range []string{"agentType", "model", "worktreePath"} {
+			if value, present := member[key]; present {
+				if _, ok := value.(string); !ok {
+					return nil, false
+				}
+			}
+		}
+	}
+	var tf TeamFile
+	if err := json.Unmarshal(data, &tf); err != nil {
+		return nil, false
+	}
+	return &tf, true
 }
 
 // WriteTeamFile writes team configuration under the same cross-process lock
@@ -129,19 +197,25 @@ func (t *Team) snapshot() *TeamFile {
 		PermissionMode: t.PermissionMode,
 		Members:        make([]TeamMemberFile, 0, len(t.Members)),
 	}
-	if tf.CreatedAt == 0 {
-		tf.CreatedAt = time.Now().Unix()
-	}
-	for _, m := range t.Members {
-		active := m.Active
+	// The reference serializes its insertion-ordered member Map; memberOrder
+	// is the Go equivalent, keeping the on-disk order stable.
+	for _, name := range t.memberOrder {
+		m := t.Members[name]
+		if m == nil {
+			continue
+		}
+		agentID := m.AgentID
+		if agentID == "" {
+			agentID = m.Name
+		}
 		tf.Members = append(tf.Members, TeamMemberFile{
-			AgentID:      m.AgentID,
+			AgentID:      agentID,
 			Name:         m.Name,
 			AgentType:    m.AgentType,
 			Model:        m.Model,
 			JoinedAt:     m.JoinedAt,
 			WorktreePath: m.WorktreePath,
-			IsActive:     &active,
+			IsActive:     m.Active,
 		})
 	}
 	return tf

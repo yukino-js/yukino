@@ -25,7 +25,13 @@ type FileMailMessage struct {
 }
 
 func NewFileMailMessage(from, text string) FileMailMessage {
-	return FileMailMessage{From: from, Text: text, Timestamp: time.Now().UTC().Format(time.RFC3339Nano)}
+	return FileMailMessage{From: from, Text: text, Timestamp: isoTimestamp()}
+}
+
+// isoTimestamp renders the current time exactly like JavaScript's
+// Date.toISOString(): UTC with three millisecond digits.
+func isoTimestamp() string {
+	return time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
 }
 func NewFileMailBox(baseDir string) *FileMailBox {
 	_ = storage.MkdirPrivateSync(baseDir)
@@ -38,7 +44,7 @@ func (mb *FileMailBox) Send(recipient string, msg FileMailMessage) error {
 	return mb.withLock(recipient, func(messages []FileMailMessage) ([]FileMailMessage, error) {
 		msg.Read = false
 		if msg.Timestamp == "" {
-			msg.Timestamp = time.Now().UTC().Format(time.RFC3339Nano)
+			msg.Timestamp = isoTimestamp()
 		}
 		return append(messages, msg), nil
 	})
@@ -64,15 +70,27 @@ func (mb *FileMailBox) MarkAllRead(agentID string) error {
 	return err
 }
 func (mb *FileMailBox) ReceiveMatching(agentID string, match func(FileMailMessage) bool) ([]FileMailMessage, error) {
+	if !mailboxMemberPattern.MatchString(agentID) {
+		return nil, fmt.Errorf("Invalid mailbox member name")
+	}
 	received := []FileMailMessage{}
-	err := mb.withLock(agentID, func(messages []FileMailMessage) ([]FileMailMessage, error) {
+	err := storage.WithFileSyncLock(mb.inboxPath(agentID), func() error {
+		messages, err := mb.readInbox(agentID)
+		if err != nil {
+			return err
+		}
 		for i := range messages {
 			if !messages[i].Read && match(messages[i]) {
 				messages[i].Read = true
 				received = append(received, messages[i])
 			}
 		}
-		return messages, nil
+		// The reference skips the write when nothing matched, so an empty
+		// receive is a true no-op on disk.
+		if len(received) == 0 {
+			return nil
+		}
+		return mb.writeInbox(agentID, pruneReadMessages(messages))
 	})
 	return received, err
 }

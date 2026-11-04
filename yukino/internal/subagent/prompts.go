@@ -16,6 +16,10 @@ const (
 	ReviewAgentName  = "review"
 )
 
+// MaxTeammateNameChars mirrors MAX_TEAMMATE_NAME_CHARS: the cap on derived
+// teammate names before the uniqueness suffix loop.
+const MaxTeammateNameChars = 30
+
 const AgentToolDescription = "Launch an agent to handle complex, multi-step tasks."
 
 const GeneralPurposeAgentDescription = "General-purpose agent for researching complex questions, exploring codebase, and executing multi-step tasks."

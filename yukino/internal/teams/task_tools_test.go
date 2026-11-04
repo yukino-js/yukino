@@ -21,7 +21,9 @@ func newTestTeamManager(t *testing.T) *TeamManager {
 func TestTeamTodoWriteFlowAndAtomicAssignment(t *testing.T) {
 	mgr := newTestTeamManager(t)
 	team := createTestTeam(t, mgr, "myteam")
-	team.AddMember("alice", nil, nil, "")
+	if _, err := team.AddMember("alice"); err != nil {
+		t.Fatal(err)
+	}
 	tool := &TeamTodoWriteTool{TeamMgr: mgr, TeamName: "myteam"}
 	ctx := context.Background()
 	result := tool.Execute(ctx, map[string]any{"todos": []any{map[string]any{"subject": "assigned", "owner": "alice"}, map[string]any{"subject": "invalid", "owner": "ghost"}}})

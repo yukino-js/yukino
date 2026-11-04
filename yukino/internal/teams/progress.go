@@ -260,10 +260,3 @@ func (tm *TeamManager) GetAllTeammateStates() []TeammateUIState {
 	}
 	return result
 }
-func (t *Team) SetMemberOriginToolCallID(name, id string) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if member := t.Members[name]; member != nil && member.Progress != nil {
-		member.Progress.SetOriginToolCallID(id)
-	}
-}

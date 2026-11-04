@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/yukino-js/yukino/yukino/internal/tools"
 )
 
 func TestFileMailBoxRoundTrip(t *testing.T) {
@@ -92,7 +94,9 @@ func TestSendMessageToolRoutesToLead(t *testing.T) {
 	useTempHome(t)
 	tm := NewTeamManager(t.TempDir())
 	team := createTestTeam(t, tm, "demo")
-	team.AddMember("alice", nil, nil, "")
+	if _, err := team.AddMember("alice"); err != nil {
+		t.Fatal(err)
+	}
 
 	tool := &SendMessageTool{TeamMgr: tm, SenderName: "alice"}
 	res := tool.Execute(context.Background(), map[string]any{
@@ -135,3 +139,125 @@ func TestSendMessageToolUnknownSenderToLead(t *testing.T) {
 
 var _ = filepath.Join
 var _ = os.Getwd
+
+func TestRemoveMemberRejectsActiveTeammate(t *testing.T) {
+	mgr := newTestTeamManager(t)
+	team := createTestTeam(t, mgr, "removal")
+	member, err := team.AddMember("worker")
+	if err != nil {
+		t.Fatal(err)
+	}
+	member.Active = true
+	err = team.RemoveMember("worker")
+	if err == nil || err.Error() != "Stop teammate 'worker' before removing it" {
+		t.Fatalf("expected stop-before-removing error, got %v", err)
+	}
+	if team.GetMember("worker") == nil {
+		t.Fatal("active member was removed")
+	}
+}
+
+func TestRemoveMemberDeletesAndRewritesTeamFile(t *testing.T) {
+	mgr := newTestTeamManager(t)
+	team := createTestTeam(t, mgr, "removal")
+	if _, err := team.AddMember("alice"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := team.AddMember("bob"); err != nil {
+		t.Fatal(err)
+	}
+	GetNameRegistry().Register("bob", "bob")
+	if err := team.RemoveMember("bob"); err != nil {
+		t.Fatal(err)
+	}
+	if team.GetMember("bob") != nil || team.HasMember("bob") {
+		t.Fatal("bob still present after removal")
+	}
+	members := team.ListMembers()
+	if len(members) != 1 || members[0].Name != "alice" {
+		t.Fatalf("unexpected members after removal: %+v", members)
+	}
+	tf := ReadTeamFile(team.Cwd, team.Name)
+	if tf == nil {
+		t.Fatal("team file missing after removal")
+	}
+	if len(tf.Members) != 1 || tf.Members[0].Name != "alice" {
+		t.Fatalf("unexpected team file members: %+v", tf.Members)
+	}
+	if GetNameRegistry().Resolve("bob") != "" {
+		t.Error("removed member is still resolvable in the name registry")
+	}
+	if err := team.RemoveMember("ghost"); err != nil {
+		t.Fatalf("removing a nonexistent member should be a no-op, got %v", err)
+	}
+}
+
+func TestSpawnTeammateRejectsActiveMember(t *testing.T) {
+	mgr := newTestTeamManager(t)
+	team := createTestTeam(t, mgr, "busy")
+	member, err := team.AddMember("worker")
+	if err != nil {
+		t.Fatal(err)
+	}
+	member.Active = true
+	_, err = SpawnTeammate(context.Background(), TeammateSpawnConfig{Team: team, MemberName: "worker"})
+	if err == nil || err.Error() != "Teammate 'worker' is already running" {
+		t.Fatalf("expected already-running error, got %v", err)
+	}
+}
+
+func TestSpawnTeammateReusesInactiveMember(t *testing.T) {
+	mgr := newTestTeamManager(t)
+	team := createTestTeam(t, mgr, "reuse")
+	existing, err := team.AddMember("worker")
+	if err != nil {
+		t.Fatal(err)
+	}
+	existing.AgentID = "custom-id"
+	existing.JoinedAt = 123
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	result, err := SpawnTeammate(ctx, TeammateSpawnConfig{Team: team, MemberName: "worker", Task: "noop", Registry: tools.NewRegistry(), Workdir: t.TempDir(), AgentType: "general-purpose", Model: "test-model", OriginToolCallID: "call-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range result.EventCh {
+	}
+
+	member := team.GetMember("worker")
+	if member == nil {
+		t.Fatal("reused member was removed")
+	}
+	if member.AgentID != "custom-id" || member.JoinedAt != 123 {
+		t.Errorf("identity not preserved on reuse: %+v", member)
+	}
+	if member.AgentType != "general-purpose" || member.Model != "test-model" {
+		t.Errorf("spawn meta not applied: %+v", member)
+	}
+	if member.Active {
+		t.Error("member should be inactive after the run")
+	}
+	if member.Progress == nil || member.Progress.GetStatus() != "stopped" {
+		t.Errorf("expected stopped progress after the run, got %+v", member.Progress)
+	}
+	if member.Progress.OriginToolCallID != "call-1" {
+		t.Errorf("origin tool call id not recorded: %+v", member.Progress)
+	}
+	if member.AgentRef != nil || member.Cancel != nil || member.Done != nil {
+		t.Error("runtime fields should be cleared after the run")
+	}
+	msgs, err := team.MailBox.ReceiveMatching(LeadName, func(FileMailMessage) bool { return true })
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, m := range msgs {
+		if strings.Contains(m.Text, "[idle] worker (reason: stopped)") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("missing terminal idle notification: %+v", msgs)
+	}
+}

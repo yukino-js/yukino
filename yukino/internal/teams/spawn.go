@@ -24,15 +24,15 @@ type TeammateSpawnConfig struct {
 	Workdir              string
 	Checker              *permissions.Checker
 	PlanApprovalRequired bool
+	AgentType            string
+	Model                string
+	OriginToolCallID     string
 }
 type SpawnResult struct{ EventCh <-chan agent.AgentEvent }
 
 func SpawnTeammate(ctx context.Context, cfg TeammateSpawnConfig) (*SpawnResult, error) {
 	if cfg.Team == nil {
 		return nil, fmt.Errorf("SpawnTeammate: team is required")
-	}
-	if cfg.MemberName == "" {
-		return nil, fmt.Errorf("SpawnTeammate: member name is required")
 	}
 	ch, err := startInProcessMember(ctx, cfg)
 	if err != nil {

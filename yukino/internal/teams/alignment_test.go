@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yukino-js/yukino/yukino/internal/agent"
 	"github.com/yukino-js/yukino/yukino/internal/permissions"
 	"github.com/yukino-js/yukino/yukino/internal/tools"
 )
@@ -23,7 +24,7 @@ func TestTeamCanonicalIdentityAndScopedMessages(t *testing.T) {
 		t.Fatal("accepted colliding slug")
 	}
 	for _, team := range []*Team{one, two} {
-		if _, err := team.AddMember("worker", nil, nil, ""); err != nil {
+		if _, err := team.AddMember("worker"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -86,10 +87,11 @@ func planningMember(t *testing.T, manual bool) (*TeamManager, *Team, *Member) {
 	mgr := newTestTeamManager(t)
 	mgr.CoordinatorMode = manual
 	team := createTestTeam(t, mgr, "review")
-	member, err := team.AddMember("worker", nil, tools.NewRegistry(), "")
+	member, err := team.AddMember("worker")
 	if err != nil {
 		t.Fatal(err)
 	}
+	member.AgentRef = agent.New(nil, tools.NewRegistry(), "")
 	member.AgentRef.Checker = permissions.NewChecker(permissions.NewPathSandbox(t.TempDir(), true), nil, permissions.ModePlan)
 	member.AgentRef.Checker.Teammate = true
 	member.Active = true

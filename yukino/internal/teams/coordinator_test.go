@@ -74,7 +74,7 @@ func TestTaskStopStopsTeammate(t *testing.T) {
 	useTempHome(t)
 	mgr := NewTeamManager(t.TempDir())
 	team := createTestTeam(t, mgr, "squad")
-	member, err := team.AddMember("scout", nil, nil, "anthropic")
+	member, err := team.AddMember("scout")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,9 @@ func TestTaskStopOnIdleTeammate(t *testing.T) {
 	useTempHome(t)
 	mgr := NewTeamManager(t.TempDir())
 	team := createTestTeam(t, mgr, "squad")
-	team.AddMember("scout", nil, nil, "anthropic")
+	if _, err := team.AddMember("scout"); err != nil {
+		t.Fatal(err)
+	}
 
 	tool := &TaskStopTool{TeamMgr: mgr}
 	res := tool.Execute(context.Background(), map[string]any{"teammate": "scout"})

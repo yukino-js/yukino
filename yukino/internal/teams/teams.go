@@ -16,9 +16,7 @@ import (
 
 	"github.com/yukino-js/yukino/yukino/internal/agent"
 	"github.com/yukino-js/yukino/yukino/internal/conversation"
-	"github.com/yukino-js/yukino/yukino/internal/llm"
 	"github.com/yukino-js/yukino/yukino/internal/storage"
-	"github.com/yukino-js/yukino/yukino/internal/tools"
 )
 
 const TeamsDirName = "teams"
@@ -80,7 +78,9 @@ func NewTeam(cwd, name string) *Team {
 	}
 }
 
-func (t *Team) AddMember(name string, client llm.Client, registry *tools.Registry, protocol string) (*Member, error) {
+// AddMember mirrors Team.addMember: it validates the name and records a bare,
+// inactive member. The agent runtime is built later by spawnTeammate.
+func (t *Team) AddMember(name string) (*Member, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -90,12 +90,8 @@ func (t *Team) AddMember(name string, client llm.Client, registry *tools.Registr
 	if t.Members[name] != nil {
 		return nil, fmt.Errorf("Teammate '%s' already exists", name)
 	}
-	ag := agent.New(client, registry, protocol)
-	ag.AgentName = name
 	member := &Member{
 		Name:     name,
-		AgentRef: ag,
-		Conv:     conversation.NewManager(),
 		Active:   false,
 		AgentID:  name,
 		JoinedAt: time.Now().Unix(),
@@ -106,9 +102,39 @@ func (t *Team) AddMember(name string, client llm.Client, registry *tools.Registr
 	return member, nil
 }
 
+// RemoveMember mirrors Team.removeMember: an active teammate must be stopped
+// first; removing an existing member unregisters its name and rewrites the
+// team file with the member marked as removed.
+func (t *Team) RemoveMember(name string) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	member := t.Members[name]
+	if member != nil && member.Active {
+		return fmt.Errorf("Stop teammate '%s' before removing it", name)
+	}
+	if member == nil {
+		return nil
+	}
+	delete(t.Members, name)
+	for i, existing := range t.memberOrder {
+		if existing == name {
+			t.memberOrder = append(t.memberOrder[:i], t.memberOrder[i+1:]...)
+			break
+		}
+	}
+	GetNameRegistry().Unregister(name)
+	WriteTeamFile(t.Cwd, t.Name, t.snapshot(), name)
+	return nil
+}
+
 func (t *Team) SetMemberMeta(name, agentType, model, worktreePath string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	t.setMemberMeta(name, agentType, model, worktreePath)
+}
+
+// setMemberMeta mirrors Team.setMemberMeta; the caller must hold t.mu.
+func (t *Team) setMemberMeta(name, agentType, model, worktreePath string) {
 	member, ok := t.Members[name]
 	if !ok {
 		return
@@ -129,7 +155,9 @@ func (t *Team) StopMember(name string) {
 	member.Active = false
 	cancel, done := member.Cancel, member.Done
 	if member.Progress != nil {
-		member.Progress.SetStatus("stopped")
+		if status := member.Progress.GetStatus(); status == "running" || status == "idle" {
+			member.Progress.SetStatus("stopped")
+		}
 	}
 	GetNameRegistry().Unregister(name)
 	t.mu.Unlock()
@@ -141,6 +169,8 @@ func (t *Team) StopMember(name string) {
 	}
 	t.releaseMemberTasks(name)
 	t.mu.Lock()
+	member.Cancel = nil
+	member.Done = nil
 	t.persist()
 	t.pruneTerminatedMembers()
 	t.mu.Unlock()
@@ -381,7 +411,7 @@ func (tm *TeamManager) GetTeam(name string) *Team {
 		}
 		team.memberOrder = append(team.memberOrder, m.Name)
 		status := "stopped"
-		if m.IsActive != nil && *m.IsActive {
+		if m.IsActive {
 			status = "failed"
 		}
 		team.Members[m.Name].Progress = NewTeammateProgress(m.Name, team.Name, TeammateSpinnerVerb)
@@ -561,4 +591,17 @@ func (t *Team) HasMember(name string) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.Members[name] != nil
+}
+
+func (t *Team) GetMember(name string) *Member {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.Members[name]
+}
+
+func (t *Team) MemberActive(name string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	member := t.Members[name]
+	return member != nil && member.Active
 }

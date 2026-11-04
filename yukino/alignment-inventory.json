@@ -1,9 +1,9 @@
 {
   "reference_commit": "1847a71e03f90d0e5fc60a2a797c60af327b7750",
   "counts": {
-    "Corrected": 229,
+    "Corrected": 232,
     "Language-specific difference": 5,
-    "Partially aligned": 47,
+    "Partially aligned": 44,
     "Reviewed": 38,
     "Shared browser build": 51,
     "Synchronized artifact": 7
@@ -1195,7 +1195,7 @@
       "source": "src/teams/constants.ts",
       "source_sha256": "1c002c2818fd9f602cfa731bd303a8d3e2c75200660499341f43b51be1728ceb",
       "counterpart": "`internal/teams`",
-      "status": "Partially aligned"
+      "status": "Corrected"
     },
     {
       "source": "src/teams/coordinator.ts",
@@ -1213,7 +1213,7 @@
       "source": "src/teams/file-mailbox.ts",
       "source_sha256": "682b2dad2d0fcdcb3e2faf30b32cadc0d4d941cdbaa436356b16bc040df4815e",
       "counterpart": "`internal/teams/file_mailbox.go`",
-      "status": "Partially aligned"
+      "status": "Corrected"
     },
     {
       "source": "src/teams/index.ts",
@@ -1267,7 +1267,7 @@
       "source": "src/teams/team-file.ts",
       "source_sha256": "2b9179356a159f7c4f7023b6b47c74193585e97b9cf506f31f7bd99db929b73d",
       "counterpart": "`internal/teams/team_file.go`",
-      "status": "Partially aligned"
+      "status": "Corrected"
     },
     {
       "source": "src/teams/tools.ts",

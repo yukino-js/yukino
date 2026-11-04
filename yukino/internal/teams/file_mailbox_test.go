@@ -63,6 +63,41 @@ func TestFileMailBoxMarkAllRead(t *testing.T) {
 	}
 }
 
+// TestFileMailBoxEmptyReceiveIsNoop pins the reference behavior that a
+// receive matching nothing performs no write: the mailbox file must not be
+// created or rewritten.
+func TestFileMailBoxEmptyReceiveIsNoop(t *testing.T) {
+	dir := t.TempDir()
+	inboxDir := filepath.Join(dir, "test-team", "inboxes")
+	mb := NewFileMailBox(inboxDir)
+
+	messages, err := mb.ReceiveMatching("agent-b", func(FileMailMessage) bool { return true })
+	if err != nil || len(messages) != 0 {
+		t.Fatalf("empty receive = %v, %v", messages, err)
+	}
+	if _, err := os.Stat(filepath.Join(inboxDir, "agent-b.json")); !os.IsNotExist(err) {
+		t.Fatalf("empty receive must not create the mailbox file, stat err = %v", err)
+	}
+
+	if err := mb.Send("agent-b", FileMailMessage{From: "agent-a", Text: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(filepath.Join(inboxDir, "agent-b.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mb.ReceiveMatching("agent-b", func(FileMailMessage) bool { return false }); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(filepath.Join(inboxDir, "agent-b.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Fatalf("a receive matching nothing must not rewrite the file:\nbefore: %s\nafter: %s", before, after)
+	}
+}
+
 func TestFileMailBoxNonexistentAgent(t *testing.T) {
 	dir := t.TempDir()
 	mb := NewFileMailBox(filepath.Join(dir, "inboxes"))
@@ -79,7 +114,7 @@ func TestTeamSendMessageIntegration(t *testing.T) {
 	team := NewTeam(t.TempDir(), "test-team")
 	team.MailBox = NewFileMailBox(filepath.Join(dir, "inboxes"))
 
-	if _, err := team.AddMember("worker", nil, nil, ""); err != nil {
+	if _, err := team.AddMember("worker"); err != nil {
 		t.Fatal(err)
 	}
 	if err := team.SendMessage("leader", "worker", "do task X"); err != nil {

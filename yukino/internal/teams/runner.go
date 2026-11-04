@@ -26,7 +26,6 @@ func RunInProcessTeammate(ctx context.Context, team *Team, member *Member, initi
 	defer func() {
 		if member.Progress != nil {
 			member.Progress.ClearActiveTools()
-			member.Progress.ClearActivity()
 			if ctx.Err() != nil {
 				member.Progress.SetStatus("stopped")
 			} else if runErr != nil {
@@ -35,15 +34,6 @@ func RunInProcessTeammate(ctx context.Context, team *Team, member *Member, initi
 				member.Progress.SetStatus("completed")
 			}
 		}
-		reason := "stopped"
-		if runErr != nil && ctx.Err() == nil {
-			reason = "failed"
-		}
-		notification := CreateIdleNotification(member.Name, reason)
-		if reason == "failed" {
-			notification.Text += ": " + runErr.Error()
-		}
-		_ = team.MailBox.Send(LeadName, notification)
 	}()
 	nextPrompt := initialPrompt
 	for {

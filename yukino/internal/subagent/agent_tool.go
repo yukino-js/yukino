@@ -14,6 +14,7 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/config"
 	"github.com/yukino-js/yukino/yukino/internal/conversation"
 	"github.com/yukino-js/yukino/yukino/internal/llm"
+	"github.com/yukino-js/yukino/yukino/internal/logger"
 	"github.com/yukino-js/yukino/yukino/internal/memory"
 	"github.com/yukino-js/yukino/yukino/internal/permissions"
 	"github.com/yukino-js/yukino/yukino/internal/prompt"
@@ -24,15 +25,7 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/worktree"
 )
 
-var unsafeSlugChars = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
-
-func sanitizeSlugSegment(s string) string {
-	clean := strings.Trim(unsafeSlugChars.ReplaceAllString(s, "-"), "-_.")
-	if clean == "" {
-		clean = "agent"
-	}
-	return clean
-}
+var whitespaceRun = regexp.MustCompile(`\s+`)
 
 type SubAgentProgress struct {
 	ToolCallID string
@@ -437,19 +430,25 @@ func (t *AgentTool) runAsTeammate(ctx context.Context, targetTeam, description, 
 			return tools.ToolResult{Output: err.Error(), IsError: true}
 		}
 	}
-	base := sanitizeSlugSegment(strings.ToLower(strings.Join(strings.Fields(description), "-")))
-	if len(base) > 30 {
-		base = base[:30]
+	base := logger.SanitizeNameSegment(strings.ToLower(whitespaceRun.ReplaceAllString(description, "-")))
+	if len(base) > MaxTeammateNameChars {
+		base = base[:MaxTeammateNameChars]
 	}
 	memberName := base
 	for suffix := 2; memberName == teams.LeadName || team.HasMember(memberName); suffix++ {
 		memberName = fmt.Sprintf("%s-%d", base, suffix)
 	}
+	if _, err := team.AddMember(memberName); err != nil {
+		return tools.ToolResult{Output: err.Error(), IsError: true}
+	}
 	if spec.Name == PlanAgentName && (t.Loader == nil || t.Loader.Get(spec.Name).Source == "built-in") {
 		spec = SubAgentSpec{Name: PlanAgentName, Description: PlanTeammateDescription, PermissionMode: "plan"}
 	}
-	disallowed := append(append([]string{}, spec.DisallowedTools...), "TaskStop")
-	registry := FilterToolsForAgent(t.Registry, spec.Tools, disallowed, false, spec.PermissionMode)
+	teammatePermissionMode := spec.PermissionMode
+	if spec.Name == PlanAgentName {
+		teammatePermissionMode = "plan"
+	}
+	registry := FilterToolsForAgent(CloneRegistryForTeammate(t.Registry, teammatePermissionMode), spec.Tools, spec.DisallowedTools, false, teammatePermissionMode)
 	if registry.Get("ExitPlanMode") != nil {
 		registry.Register(&tools.ExitPlanModeTool{SubmitTeammatePlan: func(plan string) (string, error) { return team.SubmitPlan(memberName, plan) }, RequiresLeaderApproval: team.RequiresLeaderPlanApproval})
 	}
@@ -477,35 +476,56 @@ func (t *AgentTool) runAsTeammate(ctx context.Context, targetTeam, description, 
 			inherited, err = parent.ForWorktree(ctx, *wt)
 		}
 		if err != nil {
+			_ = team.RemoveMember(memberName)
 			registry.Dispose()
 			return tools.ToolResult{Output: "Error creating teammate worktree: " + err.Error(), IsError: true}
 		}
 		prompt = worktree.BuildWorktreeNotice(cwd, wt.WorktreePath) + "\n\n" + prompt
 		cwd = wt.WorktreePath
 	}
-	checker := inherited.ForSubagent(cwd, permissions.PermissionMode(spec.PermissionMode))
-	checker.Teammate = true
-	checker.ReadOnly = spec.ReadOnly || parent.ReadOnly
 	t.TeamMgr.SetPermissionChecker(parent)
-	client, err := t.selectClient(spec, model, cwd)
-	if err != nil {
+	checker := inherited.ForSubagent(cwd, permissions.PermissionMode(teammatePermissionMode))
+	checker.Teammate = true
+	checker.ReadOnly = spec.ReadOnly
+	checker.RequiresLeaderPlanApproval = team.RequiresLeaderPlanApproval
+	metaModel := model
+	if metaModel == "" {
+		metaModel = spec.Model
+	}
+	spawnErr := func() error {
+		client, err := t.selectClient(spec, model, cwd)
+		if err != nil {
+			return err
+		}
+		result, err := teams.SpawnTeammate(context.WithoutCancel(ctx), teams.TeammateSpawnConfig{Team: team, MemberName: memberName, Task: prompt, Addendum: buildSubagentInstructions(spec), Client: client, Registry: registry, Protocol: t.Protocol, Workdir: cwd, Checker: checker, ContextSnapshot: snapshot, MaxTurns: spec.MaxTurns, PlanApprovalRequired: spec.Name == PlanAgentName, AgentType: spec.Name, Model: metaModel, OriginToolCallID: originToolCallID(ctx)})
+		if err != nil {
+			return err
+		}
+		if result.EventCh != nil {
+			go func() {
+				for range result.EventCh {
+				}
+			}()
+		}
+		return nil
+	}()
+	if spawnErr != nil {
+		if team.MemberActive(memberName) {
+			team.StopMember(memberName)
+		}
+		_ = team.RemoveMember(memberName)
 		registry.Dispose()
-		return tools.ToolResult{Output: "Agent error: " + err.Error(), IsError: true}
+		output := "Error spawning teammate: " + spawnErr.Error()
+		if cwd != team.Cwd {
+			output += "\nWorktree retained at: " + cwd
+		}
+		return tools.ToolResult{Output: output, IsError: true}
 	}
-	result, err := teams.SpawnTeammate(context.WithoutCancel(ctx), teams.TeammateSpawnConfig{Team: team, MemberName: memberName, Task: prompt, Addendum: buildSubagentInstructions(spec), Client: client, Registry: registry, Protocol: t.Protocol, Workdir: cwd, Checker: checker, ContextSnapshot: snapshot, MaxTurns: spec.MaxTurns, PlanApprovalRequired: spec.Name == PlanAgentName})
-	if err != nil {
-		registry.Dispose()
-		return tools.ToolResult{Output: "Error spawning teammate: " + err.Error(), IsError: true}
+	output := fmt.Sprintf("Teammate '%s' spawned in team '%s' (in-process)", memberName, team.Name)
+	if checker.Mode() == permissions.ModePlan {
+		output += ", starting in plan mode"
 	}
-	team.SetMemberMeta(memberName, spec.Name, model, cwd)
-	team.SetMemberOriginToolCallID(memberName, originToolCallID(ctx))
-	if result.EventCh != nil {
-		go func() {
-			for range result.EventCh {
-			}
-		}()
-	}
-	return tools.ToolResult{Output: fmt.Sprintf("Teammate '%s' spawned in team '%s' (in-process)", memberName, team.Name)}
+	return tools.ToolResult{Output: output}
 }
 
 func generateAgentSlug(description string) string {
