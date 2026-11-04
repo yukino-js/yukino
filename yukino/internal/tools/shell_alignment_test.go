@@ -144,3 +144,55 @@ func TestShellLargeOutputSpillsWithoutLoading(t *testing.T) {
 		t.Fatal(info, err)
 	}
 }
+
+// The reference holds the workspace mutation lock until the command's process
+// exits (withCommandExecution releases via done.then(release), where done
+// resolves on process exit), so a command moved to the background keeps
+// serializing later workspace mutations. Regression: Go used to release with a
+// defer when executeShell returned, dropping the lock the instant a command was
+// backgrounded.
+func TestBackgroundCommandHoldsWorkspaceLockUntilExit(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	manager := subagent.NewTaskManager()
+	bash := &tools.BashTool{TaskManager: manager}
+	ctx := tools.WithExecutionContext(context.Background(), tools.ExecutionContext{WorkDir: dir, SessionID: "lock-test"})
+	// The ";" metacharacter makes this unsafe, so it acquires the workspace lock;
+	// it then runs ~1s in the background.
+	result := bash.Execute(ctx, map[string]any{"command": "sleep 1; echo done", "run_in_background": true})
+	if result.IsError || !strings.Contains(result.Output, "running in background") {
+		t.Fatal(result)
+	}
+	tasks := manager.List()
+	if len(tasks) != 1 {
+		t.Fatal(tasks)
+	}
+	id := tasks[0].ID
+
+	// While the background command runs, a competing acquisition with a short
+	// deadline must NOT get the lock.
+	probeCtx, cancelProbe := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancelProbe()
+	if release, err := tools.AcquireWorkspaceMutation(probeCtx, dir); err == nil {
+		release()
+		t.Fatal("workspace lock was released while the background command still runs")
+	}
+
+	// Wait for the background command to finish.
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if task := manager.Get(id); task == nil || task.Status != "running" {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	// After the process exits, the lock must be free again.
+	freeCtx, cancelFree := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancelFree()
+	release, err := tools.AcquireWorkspaceMutation(freeCtx, dir)
+	if err != nil {
+		t.Fatalf("lock not released after the background command completed: %v", err)
+	}
+	release()
+}

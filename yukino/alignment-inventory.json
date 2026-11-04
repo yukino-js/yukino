@@ -1,9 +1,9 @@
 {
   "reference_commit": "1847a71e03f90d0e5fc60a2a797c60af327b7750",
   "counts": {
-    "Corrected": 245,
+    "Corrected": 246,
     "Language-specific difference": 5,
-    "Partially aligned": 31,
+    "Partially aligned": 30,
     "Reviewed": 38,
     "Shared browser build": 51,
     "Synchronized artifact": 7
@@ -1459,7 +1459,7 @@
       "source": "src/tools/execution-coordinator.ts",
       "source_sha256": "c9ff5ac7cf952e1953ef97c37b8df3fd9d66607985faa01ddc9eb8ab7d19b992",
       "counterpart": "`internal/tools/execution_coordinator.go`",
-      "status": "Partially aligned"
+      "status": "Corrected"
     },
     {
       "source": "src/tools/exit-code-hints.ts",

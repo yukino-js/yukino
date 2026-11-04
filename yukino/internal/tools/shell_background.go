@@ -155,12 +155,25 @@ func executeShell(ctx context.Context, name, prompt string, args map[string]any,
 	if !hasExecution && defaultCwd != "" {
 		cwd = defaultCwd
 	}
+	// The workspace mutation lock is held until the command's process exits, not
+	// merely until executeShell returns, so a command moved to the background
+	// keeps serializing later workspace mutations (the reference releases via
+	// done.then(release), where done resolves on process exit). The release is
+	// idempotent; the deferred call covers the early-return paths that precede
+	// the wait goroutine.
+	var releaseWorkspace func()
+	processStarted := false
+	defer func() {
+		if !processStarted && releaseWorkspace != nil {
+			releaseWorkspace()
+		}
+	}()
 	if !IsSafeCommand(command) {
 		release, err := AcquireWorkspaceMutation(ctx, cwd)
 		if err != nil {
 			return ToolResult{Output: "Error: command interrupted", IsError: true}
 		}
-		defer release()
+		releaseWorkspace = release
 	}
 	if denied := checkExecutionPermission(ctx, name, args); denied != nil {
 		return *denied
@@ -220,7 +233,16 @@ func executeShell(ctx context.Context, name, prompt string, args map[string]any,
 			killShellProcess(cmd, true)
 		}
 	})
-	go func() { err := cmd.Wait(); exited.Store(true); unregisterExit(); done <- err }()
+	processStarted = true
+	go func() {
+		err := cmd.Wait()
+		exited.Store(true)
+		unregisterExit()
+		if releaseWorkspace != nil {
+			releaseWorkspace()
+		}
+		done <- err
+	}()
 	manager := TaskManagerForContext(ctx, fallback)
 	requests := make(chan string, 1)
 	var foregroundID uint64
