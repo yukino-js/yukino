@@ -103,7 +103,11 @@ func TestShellBackgroundTaskOutputAndStop(t *testing.T) {
 	if task := manager.Get(id); task.Status != "cancelled" {
 		t.Fatal(task)
 	}
-	if len(manager.DrainNotifications()) != 1 {
+	drained, err := manager.DrainNotifications()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(drained) != 1 {
 		t.Fatal("missing cancellation notification")
 	}
 }

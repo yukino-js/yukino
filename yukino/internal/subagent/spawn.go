@@ -195,12 +195,16 @@ func SpawnSubagent(ctx context.Context, definition *AgentDefinition, userPrompt 
 		child.MaxOutputTokens = config.GetMaxOutputTokens(&provider)
 		if taskManager != nil {
 			child.TaskManager = taskManager
-			child.NotificationFn = func() []string {
+			child.NotificationFn = func() ([]string, error) {
 				var messages []string
-				for _, n := range taskManager.DrainNotifications() {
+				drained, err := taskManager.DrainNotifications()
+				if err != nil {
+					return nil, err
+				}
+				for _, n := range drained {
 					messages = append(messages, FormatAgentTaskNotification(n))
 				}
-				return messages
+				return messages, nil
 			}
 		}
 

@@ -350,14 +350,18 @@ func (r *agentRuntime) runAgent(ctx context.Context, out chan<- agent.AgentEvent
 	ag.TaskManager = r.taskMgr
 	ag.ToolNameFilter = teams.CoordinatorToolFilter(r.enableCoordinatorMode)
 	ag.CoordinatorActiveFn = teams.CoordinatorActiveFn(r.enableCoordinatorMode)
-	ag.NotificationFn = func() []string {
+	ag.NotificationFn = func() ([]string, error) {
 		var messages []string
 		if r.taskMgr != nil {
-			for _, n := range r.taskMgr.DrainNotifications() {
+			drained, err := r.taskMgr.DrainNotifications()
+			if err != nil {
+				return nil, err
+			}
+			for _, n := range drained {
 				messages = append(messages, subagent.FormatAgentTaskNotification(n))
 			}
 		}
-		return append(messages, teams.DrainLeadMailbox(r.teamMgr)...)
+		return append(messages, teams.DrainLeadMailbox(r.teamMgr)...), nil
 	}
 	for name, body := range r.activeSkills {
 		ag.ActivateSkill(name, body)

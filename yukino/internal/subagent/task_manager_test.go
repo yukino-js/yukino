@@ -27,10 +27,10 @@ func TestTaskLifecycleWaitAndLateCancellation(t *testing.T) {
 		t.Fatal("pending tasks cleared")
 	}
 	task, timedOut, err := manager.Wait(context.Background(), id, 0)
-	if err != nil || !timedOut || task.Status != "running" || len(manager.DrainNotifications()) != 0 {
+	if err != nil || !timedOut || task.Status != "running" || len(drainAll(t, manager)) != 0 {
 		t.Fatal(task, timedOut, err)
 	}
-	if !manager.Stop(id) {
+	if stopped, err := manager.Stop(id); !stopped || err != nil {
 		t.Fatal("running task not stopped")
 	}
 	<-cancelled
@@ -42,12 +42,21 @@ func TestTaskLifecycleWaitAndLateCancellation(t *testing.T) {
 	if err != nil || task.Status != "cancelled" || task.Output != "Stopped by user" {
 		t.Fatal(task, err)
 	}
-	if len(manager.DrainNotifications()) != 1 || len(manager.DrainNotifications()) != 0 {
+	if len(drainAll(t, manager)) != 1 || len(drainAll(t, manager)) != 0 {
 		t.Fatal("notification replayed")
 	}
-	if manager.Stop(id) {
+	if stopped, err := manager.Stop(id); stopped || err != nil {
 		t.Fatal("finished task stopped")
 	}
+}
+
+func drainAll(t *testing.T, manager *TaskManager) []tools.BackgroundTask {
+	t.Helper()
+	tasks, err := manager.DrainNotifications()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tasks
 }
 func TestTaskFailurePreservesFormattedOutputAndSessionRecovery(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
@@ -72,7 +81,7 @@ func TestTaskFailurePreservesFormattedOutputAndSessionRecovery(t *testing.T) {
 	if got := recovered.Get(id); got == nil || got.Output != task.Output {
 		t.Fatal(got)
 	}
-	if len(recovered.DrainNotifications()) != 1 {
+	if len(drainAll(t, recovered)) != 1 {
 		t.Fatal("unnotified result lost")
 	}
 	reloaded := NewTaskManager()

@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/yukino-js/yukino/yukino/internal/logger"
 	"github.com/yukino-js/yukino/yukino/internal/tools"
 )
 
@@ -97,13 +98,13 @@ func (tm *TaskManager) Create(name string, runner func(string) (string, error), 
 	id := fmt.Sprintf("%s-%d", prefix, nextTaskID.Add(1))
 	done := make(chan struct{})
 	task := &managedTask{BackgroundTask: tools.BackgroundTask{ID: id, Name: name, Kind: options.Kind, OriginToolCallID: options.OriginToolCallID, Status: "running", Output: "", TranscriptPath: options.TranscriptPath, StartedAt: time.Now().UnixMilli(), Done: done}, cancel: cancel, done: done, pending: true}
+	// The reference registers the task and schedules the runner before the
+	// initial persist, so a persistence failure still leaves the task running
+	// while surfacing the error to the caller.
 	tm.mu.Lock()
-	if err := tm.persist(task); err != nil {
-		tm.mu.Unlock()
-		return "", err
-	}
 	tm.tasks[id] = task
 	tm.order = append(tm.order, id)
+	persistErr := tm.persist(task)
 	tm.mu.Unlock()
 	go func() {
 		tm.mu.Lock()
@@ -141,12 +142,23 @@ func (tm *TaskManager) Create(name string, runner func(string) (string, error), 
 		task.cancel = nil
 		task.CompletedAt = time.Now().UnixMilli()
 		task.pending = false
-		_ = tm.persist(task)
+		// The reference surfaces completion persistence failures through the
+		// done promise, where they end up as unhandled rejections handled by
+		// the process-level recovery path; Go's channel cannot carry them, so
+		// log them instead of silently dropping the failure.
+		if err := tm.persist(task); err != nil {
+			logger.Global().Error(map[string]any{"err": err, "taskId": task.ID}, "background task persistence failed")
+		}
 		close(task.done)
 		tm.mu.Unlock()
 		tm.emit()
 	}()
-	tm.emit()
+	if persistErr == nil {
+		tm.emit()
+	}
+	if persistErr != nil {
+		return "", persistErr
+	}
 	return id, nil
 }
 func (tm *TaskManager) Get(id string) *tools.BackgroundTask {
@@ -206,30 +218,39 @@ func (tm *TaskManager) HasRunning() bool {
 	}
 	return false
 }
-func (tm *TaskManager) Stop(id string) bool {
+
+// Stop cancels a running task. Like the reference stop(), a persistence
+// failure propagates to the caller after the cancellation has run.
+func (tm *TaskManager) Stop(id string) (bool, error) {
 	tm.mu.Lock()
 	task := tm.tasks[id]
 	if task == nil || task.Status != "running" {
 		tm.mu.Unlock()
-		return false
+		return false, nil
 	}
 	task.Status = "cancelled"
 	task.Output = "Stopped by user"
 	cancel := task.cancel
-	_ = tm.persist(task)
+	err := tm.persist(task)
 	tm.mu.Unlock()
 	if cancel != nil {
 		func() { defer func() { recover() }(); cancel() }()
 	}
 	tm.emit()
-	return true
+	if err != nil {
+		return true, err
+	}
+	return true, nil
 }
 func (tm *TaskManager) StopAndWait(ctx context.Context, id string) (bool, error) {
 	task := tm.Get(id)
 	if task == nil {
 		return false, nil
 	}
-	stopped := tm.Stop(id)
+	stopped, err := tm.Stop(id)
+	if err != nil {
+		return stopped, err
+	}
 	select {
 	case <-task.Done:
 		return stopped, nil
@@ -251,7 +272,11 @@ func (tm *TaskManager) StopAll(ctx context.Context) error {
 			return nil
 		}
 		for _, task := range pending {
-			tm.Stop(task.ID)
+			// The reference stopAll lets a stop() persistence failure
+			// propagate immediately, abandoning the remaining stops.
+			if _, err := tm.Stop(task.ID); err != nil {
+				return err
+			}
 		}
 		for _, task := range pending {
 			select {
@@ -321,20 +346,26 @@ func (tm *TaskManager) HasNotifications() bool {
 	}
 	return false
 }
-func (tm *TaskManager) DrainNotifications() []tools.BackgroundTask {
+
+// DrainNotifications returns the tasks completed since the last drain. Like
+// the reference, a persistence failure propagates to the caller.
+func (tm *TaskManager) DrainNotifications() ([]tools.BackgroundTask, error) {
 	tm.mu.Lock()
 	var out []tools.BackgroundTask
 	for _, id := range tm.order {
 		task := tm.tasks[id]
 		if task != nil && task.Status != "running" && !task.pending && !task.notified {
 			task.notified = true
-			_ = tm.persist(task)
+			if err := tm.persist(task); err != nil {
+				tm.mu.Unlock()
+				return nil, err
+			}
 			out = append(out, task.BackgroundTask)
 		}
 	}
 	tm.prune()
 	tm.mu.Unlock()
-	return out
+	return out, nil
 }
 func (tm *TaskManager) prune() {
 	finished := 0

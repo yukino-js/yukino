@@ -325,18 +325,20 @@ func (s *WorkflowService) resolveSource(input *WorkflowInput) (string, error) {
 }
 
 // Kill stops a running workflow via its background task.
-func (s *WorkflowService) Kill(runID string) bool {
+// Kill stops the run's background task. Like the reference kill(), a task
+// persistence failure propagates to the caller.
+func (s *WorkflowService) Kill(runID string) (bool, error) {
 	s.mu.Lock()
 	active := s.active[runID]
 	s.mu.Unlock()
 	if active == nil {
-		return false
+		return false, nil
 	}
 	active.mu.Lock()
 	taskID := active.taskID
 	active.mu.Unlock()
 	if taskID == "" {
-		return false
+		return false, nil
 	}
 	return s.options.TaskManager.Stop(taskID)
 }
@@ -447,7 +449,11 @@ func (s *WorkflowService) Command(args string, toolCtx context.Context) (string,
 		runID = fields[1]
 	}
 	if action == "stop" && runID != "" {
-		if s.Kill(runID) {
+		stopped, err := s.Kill(runID)
+		if err != nil {
+			return "", err
+		}
+		if stopped {
 			return fmt.Sprintf("Workflow %s stopped", runID), nil
 		}
 		return fmt.Sprintf("Workflow %s is not running", runID), nil

@@ -227,7 +227,11 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 			fmt.Printf("%s\n", message)
 		}
 		_ = taskMgr.WaitAll(context.Background(), func(task tools.BackgroundTask) bool { return task.Kind != "shell" })
-		for _, task := range taskMgr.DrainNotifications() {
+		drained, err := taskMgr.DrainNotifications()
+		if err != nil {
+			return 1, err
+		}
+		for _, task := range drained {
 			notification := subagent.FormatAgentTaskNotification(task)
 			if isJSON {
 				emitJSON(map[string]any{"type": "task_notification", "notification": notification})
@@ -255,12 +259,16 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 		ag.Hooks = eng
 	}
 
-	ag.NotificationFn = func() []string {
+	ag.NotificationFn = func() ([]string, error) {
 		messages := teams.DrainLeadMailbox(teamMgr)
-		for _, task := range taskMgr.DrainNotifications() {
+		drained, err := taskMgr.DrainNotifications()
+		if err != nil {
+			return nil, err
+		}
+		for _, task := range drained {
 			messages = append(messages, subagent.FormatAgentTaskNotification(task))
 		}
-		return messages
+		return messages, nil
 	}
 	ag.ToolNameFilter = teams.CoordinatorToolFilter(cfg.EnableCoordinatorMode)
 	ag.CoordinatorActiveFn = teams.CoordinatorActiveFn(cfg.EnableCoordinatorMode)
@@ -354,7 +362,10 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 	// -p mode forever; whatever finished is drained below and the deferred
 	// StopAll kills the rest.
 	_ = taskMgr.WaitAll(context.Background(), func(task tools.BackgroundTask) bool { return task.Kind != "shell" })
-	notifications := taskMgr.DrainNotifications()
+	notifications, err := taskMgr.DrainNotifications()
+	if err != nil {
+		return 1, err
+	}
 	durationMs := time.Since(startTime).Milliseconds()
 
 	if !isJSON && resultText != "" && !strings.HasSuffix(resultText, "\n") {

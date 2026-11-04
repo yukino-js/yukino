@@ -143,7 +143,7 @@ func TestServiceNamedWorkflowAndCommands(t *testing.T) {
 	if !strings.Contains(message, "is not running") {
 		t.Errorf("stop message = %q", message)
 	}
-	if service.Kill("unknown-run") {
+	if killed, err := service.Kill("unknown-run"); killed || err != nil {
 		t.Error("kill of unknown run must be false")
 	}
 	if service.KillAgent("unknown-run", 0) {

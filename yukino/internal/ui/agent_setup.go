@@ -27,17 +27,21 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/utils"
 )
 
-func (m *Model) drainTaskNotifications() []string {
+func (m *Model) drainTaskNotifications() ([]string, error) {
 	var messages []string
 	if m.taskMgr != nil {
-		for _, n := range m.taskMgr.DrainNotifications() {
+		drained, err := m.taskMgr.DrainNotifications()
+		if err != nil {
+			return nil, err
+		}
+		for _, n := range drained {
 			msg := fmt.Sprintf("<task-notification>\n<task_id>%s</task_id>\n<status>%s</status>\n<summary>Agent \"%s\" %s</summary>\n<result>%s</result>\n</task-notification>",
 				n.ID, n.Status, n.Name, n.Status, n.Output)
 			messages = append(messages, msg)
 		}
 	}
 	messages = append(messages, teams.DrainLeadMailbox(m.teamMgr)...)
-	return messages
+	return messages, nil
 }
 
 func newAgentHookRunner(client llm.Client) func(prompt string, ctx hooks.HookContext) (string, error) {

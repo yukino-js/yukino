@@ -257,7 +257,13 @@ func (a *Agent) runTurn(ctx context.Context, ch chan AgentEvent, conv *conversat
 		return false
 	}
 	if a.NotificationFn != nil {
-		for _, note := range a.NotificationFn() {
+		notes, err := a.NotificationFn()
+		if err != nil {
+			// The reference lets a notification-drain failure (e.g. task
+			// persistence) abort the run.
+			return false
+		}
+		for _, note := range notes {
 			conv.AddSystemReminder(note)
 			if !a.persistLast(ch, conv, state) {
 				return false

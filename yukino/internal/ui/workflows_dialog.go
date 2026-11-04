@@ -129,7 +129,9 @@ func (m Model) handleWorkflowsDialog(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if confirm.agentID != nil {
 				service.KillAgent(confirm.runID, *confirm.agentID)
 			} else {
-				service.Kill(confirm.runID)
+				if _, err := service.Kill(confirm.runID); err != nil {
+					m.workflowError = err.Error()
+				}
 			}
 			m.workflowConfirm = nil
 		case "n", "esc":

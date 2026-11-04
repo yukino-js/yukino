@@ -36,7 +36,7 @@ type Agent struct {
 	SessionID           string
 	TaskManager         tools.BackgroundTaskManager
 	DisableBackground   bool
-	NotificationFn      func() []string
+	NotificationFn      func() ([]string, error)
 	InstructionsFn      func() string
 	MemoryContentFn     func() string
 	Instructions        string

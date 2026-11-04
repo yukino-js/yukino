@@ -610,16 +610,20 @@ func (s *Server) initAgent() error {
 		ag.Hooks = eng
 	}
 
-	ag.NotificationFn = func() []string {
+	ag.NotificationFn = func() ([]string, error) {
 		var messages []string
 		if s.taskMgr != nil {
-			for _, n := range s.taskMgr.DrainNotifications() {
+			drained, err := s.taskMgr.DrainNotifications()
+			if err != nil {
+				return nil, err
+			}
+			for _, n := range drained {
 				messages = append(messages, fmt.Sprintf(
 					"<task-notification>\n<task_id>%s</task_id>\n<status>%s</status>\n<summary>Agent \"%s\" %s</summary>\n<result>%s</result>\n</task-notification>",
 					n.ID, n.Status, n.Name, n.Status, n.Output))
 			}
 		}
-		return append(messages, teams.DrainLeadMailbox(s.teamMgr)...)
+		return append(messages, teams.DrainLeadMailbox(s.teamMgr)...), nil
 	}
 	ag.ToolNameFilter = teams.CoordinatorToolFilter(s.enableCoordinatorMode)
 	ag.CoordinatorActiveFn = teams.CoordinatorActiveFn(s.enableCoordinatorMode)
