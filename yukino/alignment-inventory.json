@@ -1,9 +1,9 @@
 {
   "reference_commit": "1847a71e03f90d0e5fc60a2a797c60af327b7750",
   "counts": {
-    "Corrected": 257,
+    "Corrected": 258,
     "Language-specific difference": 7,
-    "Partially aligned": 17,
+    "Partially aligned": 16,
     "Reviewed": 38,
     "Shared browser build": 51,
     "Synchronized artifact": 7
@@ -1411,7 +1411,7 @@
       "source": "src/tools/bash.ts",
       "source_sha256": "e2b6b6b3079c5426b422c49cef396c4fc0c19214dee34ca412cf74654b7c0b49",
       "counterpart": "`internal/tools/bash.go`, `internal/tools/shell_background.go`",
-      "status": "Partially aligned"
+      "status": "Corrected"
     },
     {
       "source": "src/tools/computer-use.ts",

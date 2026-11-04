@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"regexp"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/yukino-js/yukino/yukino/internal/sandbox"
@@ -123,6 +126,15 @@ func (t *BashTool) Execute(ctx context.Context, args map[string]any) ToolResult 
 		return prepared, nil
 	})
 }
+
+// numericLiteral mirrors the reference NUMERIC_LITERAL: timeout strings are
+// parsed only when they are plain numeric literals.
+var numericLiteral = regexp.MustCompile(`^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$`)
+
+// shellTimeout mirrors intArg(args, "timeout", DEFAULT_TIMEOUT) plus the
+// reference validation: numbers and numeric-literal strings are truncated,
+// non-finite or unrecognized values fall back to the default, and a truncated
+// value <= 0 is invalid.
 func shellTimeout(args map[string]any) (int, bool) {
 	value, ok := args["timeout"]
 	if !ok {
@@ -136,13 +148,27 @@ func shellTimeout(args map[string]any) (int, bool) {
 		number = float64(n)
 	case int64:
 		number = float64(n)
+	case string:
+		trimmed := strings.TrimSpace(n)
+		if !numericLiteral.MatchString(trimmed) {
+			return 120, true
+		}
+		parsed, err := strconv.ParseFloat(trimmed, 64)
+		if err != nil {
+			return 120, true
+		}
+		number = parsed
 	default:
 		return 120, true
 	}
-	if math.IsNaN(number) || math.IsInf(number, 0) || number <= 0 {
+	if math.IsNaN(number) || math.IsInf(number, 0) {
+		return 120, true
+	}
+	truncated := math.Trunc(number)
+	if truncated <= 0 {
 		return 0, false
 	}
-	return min(600, max(1, int(number))), true
+	return min(600, int(truncated)), true
 }
 
 func (t *BashTool) Dispose() error {

@@ -321,3 +321,38 @@ func TestPowerShellStopKillsProcessTree(t *testing.T) {
 		t.Fatalf("status = %s", task.Status)
 	}
 }
+
+// TestShellTimeoutParsing pins the reference intArg semantics shared by Bash
+// and PowerShell: numeric-literal strings parse, fractional values truncate
+// (so 0.5 is invalid, not a 1s floor), non-finite or unrecognized values
+// fall back to the 120s default, and the result clamps to 600.
+func TestShellTimeoutParsing(t *testing.T) {
+	ctx := tools.WithExecutionContext(context.Background(), tools.ExecutionContext{WorkDir: t.TempDir()})
+	cases := []struct {
+		timeout   any
+		wantError string
+	}{
+		{timeout: "30", wantError: ""},
+		{timeout: " 45 ", wantError: ""},
+		{timeout: "1e2", wantError: ""},
+		{timeout: 0.5, wantError: "greater than 0"},
+		{timeout: "0.5", wantError: "greater than 0"},
+		{timeout: "-3", wantError: "greater than 0"},
+		{timeout: "abc", wantError: ""},
+		{timeout: true, wantError: ""},
+		{timeout: 5000, wantError: ""},
+	}
+	for _, tc := range cases {
+		tool := &tools.BashTool{}
+		result := tool.Execute(ctx, map[string]any{"command": "true", "timeout": tc.timeout})
+		if tc.wantError == "" {
+			if strings.Contains(result.Output, "greater than 0") {
+				t.Fatalf("timeout %#v: unexpected invalid error: %s", tc.timeout, result.Output)
+			}
+			continue
+		}
+		if !result.IsError || !strings.Contains(result.Output, tc.wantError) {
+			t.Fatalf("timeout %#v: got %#v, want the invalid-timeout error", tc.timeout, result)
+		}
+	}
+}
