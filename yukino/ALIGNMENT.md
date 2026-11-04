@@ -6,7 +6,7 @@ The target is complete file-by-file alignment of all Go modules with the referen
 
 Every previously tracked reference file retains its own record. A module-level counterpart identifies the area to review; it does not certify the entire Go package. Full alignment requires reading the complete reference file, comparing its implementation, and validating the resulting behavior. Partial progress and unresolved differences are recorded explicitly. Shared browser inputs follow the artifact delivery policy below.
 
-Current inventory: **377 records**: 224 corrected, 5 language-specific difference, 53 partially aligned, 0 pending review, 37 reviewed, 51 shared browser build, 7 synchronized artifact. **Full alignment is not complete.**
+Current inventory: **377 records**: 225 corrected, 5 language-specific difference, 52 partially aligned, 0 pending review, 37 reviewed, 51 shared browser build, 7 synchronized artifact. **Full alignment is not complete.**
 
 ## Current full-scope pass — pending-review UI sweep, WHATWG origin parser and synchronized output (2026-11-04)
 
@@ -30,6 +30,7 @@ Reference: clean checkout `1847a71e03f90d0e5fc60a2a797c60af327b7750`. This pass 
 - Tool registry alignment: the terminal UI now builds its registry through the shared bootstrap constructor (mount-time core set with the TeamManager, initClient-order additions at activation, pinned by a full order test), and all skill slash-command wiring (UI activation, /skills reload, InstallSkill callback, refreshSkillsIfNeeded, remote server) goes through WireSkillsToRegistry — skills captured at wire time and IsSkill set, so skill commands stay out of /help like the reference. /skills output texts aligned with the reference interception.
 - Tool prompt/schema parity: deep-diffed the actual schema JSON produced by both codebases for all 21 tools in plain and background-attached variants — zero differences after fixing the PowerShell command/background texts, ToolSearch parameter texts and the TodoWrite metadata propertyNames constraint.
 - Glob extglob parity: implemented the `!(...)` negation form with minimatch's fillNegs semantics — the negative lookahead's body includes everything following the group in the segment (walking up enclosing groups), compiled through regexp2 since RE2 lacks lookaheads. Verified against the reference globIterate with a 26-pattern fixture battery (negations, tails, nested negations, pattern-level `!`), all matching; pinned in TestMatchGlobExtglob.
+- Remote constants verified complete: TEXT_PREVIEW_CHARS, the four MCP-app error strings, LOOPBACK_HOSTS, pending-request timeout (10 min), heartbeat 30s/75s, teammate/wakeup poll cadence 500ms/250ms, shutdown grace 250ms, 32MB upload cap, 30s @-mention file cache, 200-entry input-history replay, 50-session resume list and all eight static-asset MIME types all match the reference and are consumed.
 
 ### Verification and limits
 
@@ -733,7 +734,7 @@ The browser-serving fix has also passed the full race-enabled suite and `go vet 
 | `src/remote/browser/postcss.config.mjs` | `internal/remote/browser/dist` | Shared browser build | M15 inventory correction: upstream palette/Tailwind PostCSS build input; consumed through the unchanged shared distribution. |
 | `src/remote/browser/tsconfig.json` | `internal/remote/browser/dist` | Shared browser build | M15 inventory correction: upstream browser compiler configuration; no separate Go port. |
 | `src/remote/browser/tsup.config.ts` | `internal/remote/browser/dist` | Shared browser build | Upstream browser build input; delivered through the synchronized bundle. See Browser Bundle Delivery. |
-| `src/remote/constants.ts` | `internal/remote/web.go`, `internal/remote/server.go` | Partially aligned | Static-asset MIME types match the reference. Other remote constants and their consumers remain pending review. |
+| `src/remote/constants.ts` | `internal/remote/web.go`, `internal/remote/server.go` | Corrected | Current pass: every constant verified against reference HEAD and its consumers checked — TEXT_PREVIEW_CHARS, the four MCP-app error strings (mcp_apps.go), LOOPBACK_HOSTS, PENDING_REQUEST_TIMEOUT_MS/MINUTES, HEARTBEAT_INTERVAL_MS/STALE_MS, TEAMMATE/WAKEUP poll intervals, SHUTDOWN_GRACE_MS, MAX_UPLOAD_IMAGE_BYTES, FILE_CACHE_TTL_MS, INPUT_HISTORY_LIMIT, SESSION_LIST_LIMIT and all eight static-asset MIME types. BROWSER_DIST is the embedded synchronized browser bundle (see Browser Bundle Delivery). |
 | `src/remote/index.ts` | `internal/remote` | Reviewed | M16: namespace barrel; Go package exports replace it. |
 | `src/remote/log.ts` | `internal/remote` | Corrected | M16: AgentEventLogger ported (failed tool results/retry/compact at warn, errors at error, 800-char preview) and wired into the WS event bridge. |
 | `src/remote/mcp-apps.ts` | `internal/remote` | Corrected | M16: RemoteMcpApps implemented — app registry keyed by toolId with session/client validation, clear/cancel, read_resource, call_tool visibility/tool-filter/hook/permission handling, allowAlways persistence and revalidation. Wired to tool_result broadcast registration and the mcp_app_request/mcp_app_response WS exchange. |
