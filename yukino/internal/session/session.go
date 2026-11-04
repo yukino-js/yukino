@@ -19,9 +19,13 @@ import (
 
 	"github.com/yukino-js/yukino/yukino/internal/conversation"
 	"github.com/yukino-js/yukino/yukino/internal/history"
+	"github.com/yukino-js/yukino/yukino/internal/logger"
 	"github.com/yukino-js/yukino/yukino/internal/storage"
 	"github.com/yukino-js/yukino/yukino/internal/utils"
 )
+
+// log mirrors the reference's createChildLogger({ module: "session" }).
+var log = logger.CreateChildLogger("session")
 
 const (
 	TypeCompactBoundary = "compact_boundary"
@@ -212,16 +216,25 @@ func parseTranscriptRecords(path string) []Message {
 		return nil
 	}
 	var msgs []Message
+	invalidRecords := 0
+	var firstErr error
 	for _, line := range bytes.Split(data, []byte("\n")) {
 		line = bytes.TrimSpace(line)
 		if len(line) == 0 {
 			continue
 		}
 		var msg Message
-		if json.Unmarshal(line, &msg) != nil {
+		if err := json.Unmarshal(line, &msg); err != nil {
+			invalidRecords++
+			if firstErr == nil {
+				firstErr = err
+			}
 			continue
 		}
 		msgs = append(msgs, msg)
+	}
+	if invalidRecords > 0 {
+		log.Error(map[string]any{"err": firstErr, "filePath": path, "invalidRecords": invalidRecords}, "Invalid session records skipped")
 	}
 	return msgs
 }
