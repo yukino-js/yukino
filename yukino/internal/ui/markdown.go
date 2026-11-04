@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -35,14 +36,67 @@ func (m Model) renderMarkdown(content string) string {
 
 func renderMarkdownText(content string, width int, kind string, streaming bool) string {
 	source := []byte(plainTerminalText(content))
-	r := markdownRenderer{source: source, width: max(1, width), kind: kind, streaming: streaming}
-	root := terminalMarkdown.Parser().Parse(text.NewReader(source))
-	result := strings.TrimRightFunc(r.children(root), unicode.IsSpace)
+	result := renderMarkdownSource(source, width, kind, streaming, true)
 	result = strings.Join(wrapToLines(result, width), "\n")
 	if kind == "thinking" {
 		result = ansiStyle(result, "\x1b[3m", "\x1b[23m")
 	}
 	return result
+}
+
+// renderMarkdownSource parses and renders without the final wrap, shared by
+// renderMarkdownText and the streaming prefix cache. trim mirrors the
+// reference: renderMarkdown trims the rendered document before wrapping, but
+// the streaming cache and tail keep block-trailing newlines so the joined
+// blocks stay separated.
+func renderMarkdownSource(source []byte, width int, kind string, streaming bool, trim bool) string {
+	r := markdownRenderer{source: source, width: max(1, width), kind: kind, streaming: streaming}
+	root := terminalMarkdown.Parser().Parse(text.NewReader(source))
+	result := r.children(root)
+	if trim {
+		result = strings.TrimRightFunc(result, unicode.IsSpace)
+	}
+	return result
+}
+
+// markdownCache mirrors MarkdownCache in src/ui/markdown.ts.
+type markdownCache struct {
+	prefix   string
+	rendered string
+	width    int
+	theme    string
+}
+
+// renderStreamingMarkdown mirrors src/ui/markdown.ts renderStreamingMarkdown:
+// every complete block except the last is rendered once and cached by
+// prefix+width+theme, so each streaming frame only re-renders the trailing
+// partial block. Reference definitions can restyle earlier blocks, so they
+// disable the cache entirely.
+func renderStreamingMarkdown(content string, width int, cache *markdownCache) string {
+	normalized := plainTerminalText(content)
+	if markdownReference.MatchString(normalized) {
+		cache.prefix = ""
+		cache.rendered = ""
+		return renderMarkdownText(normalized, width, "assistant", true)
+	}
+	source := []byte(normalized)
+	root := terminalMarkdown.Parser().Parse(text.NewReader(source))
+	prefixEnd := 0
+	if last := root.LastChild(); last != nil && last != root.FirstChild() {
+		if start := blockAwareLineStart(last, normalized, len(source)); start < len(normalized) {
+			prefixEnd = start
+		}
+	}
+	prefix := normalized[:prefixEnd]
+	theme := fmt.Sprintf("%+v", Theme)
+	if cache.prefix != prefix || cache.width != width || cache.theme != theme {
+		cache.prefix = prefix
+		cache.rendered = strings.Join(wrapToLines(renderMarkdownSource([]byte(prefix), width, "assistant", true, false), width), "\n")
+		cache.width = width
+		cache.theme = theme
+	}
+	tail := strings.Join(wrapToLines(renderMarkdownSource(source[len(prefix):], width, "assistant", true, false), width), "\n")
+	return strings.TrimRightFunc(cache.rendered+tail, unicode.IsSpace)
 }
 
 func (r markdownRenderer) color() string {
@@ -293,6 +347,17 @@ func (r markdownRenderer) link(href, label string, email bool) string {
 	if strings.HasPrefix(protocol, "javascript:") {
 		return ""
 	}
+	// Mirrors the reference link renderer: on hyperlink-capable terminals the
+	// styled text becomes a clickable OSC-8 link instead of the "text (url)"
+	// fallback.
+	if supportsHyperlinks() {
+		linkText := label
+		if linkText == "" {
+			linkText = href
+		}
+		styled := ansiStyle(paint(linkText, Theme.MdLinkURL), "\x1b[4m", "\x1b[24m")
+		return paint(osc8Link(styled, oscSafeHref(href)), Theme.MdLink)
+	}
 	if email {
 		// An scp-style git remote (user@host:path) must stay verbatim plain text;
 		// GFM's autolinker otherwise splits the user@host part into a mailto link.
@@ -363,6 +428,29 @@ func nodeSourceStart(n ast.Node, fallback int) int {
 	return start
 }
 
+var codeFenceLine = regexp.MustCompile("^ {0,3}(`{3,}|~{3,})")
+
+// blockAwareLineStart returns the line-boundary source offset where the
+// top-level node begins. Goldmark's Lines() segments for a fenced code block
+// cover only the inner content, so the opening fence line is added back by
+// scanning the previous line — without it a prefix split would cut the block
+// in half (the reference's marked tokens carry the full raw block).
+func blockAwareLineStart(n ast.Node, source string, fallback int) int {
+	start := nodeSourceStart(n, fallback)
+	if start >= len(source) {
+		return len(source)
+	}
+	lineStart := strings.LastIndex(source[:start], "\n") + 1
+	if _, ok := n.(*ast.FencedCodeBlock); ok && lineStart > 0 {
+		prevStart := strings.LastIndex(source[:lineStart-1], "\n") + 1
+		prevLine := strings.TrimRight(source[prevStart:lineStart-1], "\r")
+		if codeFenceLine.MatchString(prevLine) {
+			lineStart = prevStart
+		}
+	}
+	return lineStart
+}
+
 func stableStreamingPrefix(value string) string {
 	if len(utf16.Encode([]rune(value))) < 2048 || markdownReference.MatchString(value) {
 		return ""
@@ -373,11 +461,10 @@ func stableStreamingPrefix(value string) string {
 	if last == nil || last == root.FirstChild() {
 		return ""
 	}
-	start := nodeSourceStart(last, len(source))
+	start := blockAwareLineStart(last, string(source), len(source))
 	if start == len(source) {
 		return ""
 	}
-	start = strings.LastIndex(string(source[:start]), "\n") + 1
 	return string(source[:start])
 }
 

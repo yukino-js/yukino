@@ -189,7 +189,10 @@ type Model struct {
 	planApprovalEditor inputEditor
 	// selectorScrolls holds the per-dialog ContentViewport scroll position
 	// (reference: ContentViewport useState, remounted with each dialog).
-	selectorScrolls      map[string]int
+	selectorScrolls map[string]int
+	// streamMarkdownCache mirrors the StreamingText useRef cache: the rendered
+	// prefix of the streaming tail is reused across frames.
+	streamMarkdownCache  markdownCache
 	planFeedbackRequired bool
 
 	rewindDialog       bool

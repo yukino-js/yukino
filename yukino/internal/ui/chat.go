@@ -246,7 +246,7 @@ func (m Model) renderChatContent() string {
 		sb.WriteString(m.renderThinking(m.thinkingBuf, 0, true))
 		if m.streamBuf != "" {
 			padding := boolColumn(m.width > 2)
-			sb.WriteString("\n" + renderPanel(renderMarkdownText(m.streamBuf, max(1, m.width-padding*2), "assistant", true), m.width, padding, "", Theme.Text))
+			sb.WriteString("\n" + renderPanel(renderStreamingMarkdown(m.streamBuf, max(1, m.width-padding*2), &m.streamMarkdownCache), m.width, padding, "", Theme.Text))
 		}
 	}
 	if !m.askUserDialog {
