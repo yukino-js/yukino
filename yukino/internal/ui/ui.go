@@ -99,8 +99,15 @@ type Model struct {
 
 	conversation *conversation.Manager
 
-	chatMessages                       []chatMessage
-	toolBlocks                         []toolBlockInfo
+	chatMessages []chatMessage
+	toolBlocks   []toolBlockInfo
+	// turnSummaryOrder/turnSummary mirror the reference turnToolCalls: tool ids
+	// in tool_use arrival order (orphan tool_results append on arrival), with
+	// the finalized summary entry per id once the result lands. The live
+	// viewport (toolBlocks) never shows orphans, but committed turn_summary
+	// cards include them, exactly like the reference.
+	turnSummaryOrder                   []string
+	turnSummary                        map[string]toolBlockInfo
 	streamBuf                          string
 	thinkingBuf                        string
 	thinkingTextStart                  time.Time
@@ -575,7 +582,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.flushScheduled = false
-		if len(m.toolBlocks) == 0 {
+		if len(m.turnSummaryOrder) == 0 {
 			prefix := stableStreamingPrefix(m.streamBuf)
 			if prefix != "" {
 				if m.thinkingBuf != "" || m.thinkingDuration >= 1 {
@@ -613,6 +620,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.ch != m.agentCh {
 			return m, nil
 		}
+		m.drainSteeringLeftovers()
 		m.finishStreaming()
 		return m, nil
 

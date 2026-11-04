@@ -129,7 +129,18 @@ func TestEscCancelsForegroundWithoutBackgrounding(t *testing.T) {
 	m.agentCh = ch
 	m.cancelStream = func() { cancelled = true }
 	m = pressEsc(t, m)
-	if !cancelled || m.streaming || m.agentCh != nil {
-		t.Fatal("escape did not cancel foreground")
+	if !cancelled {
+		t.Fatal("escape did not cancel the stream")
+	}
+	// Mirrors the reference: the run stays streaming until the loop settles;
+	// the pending listener then delivers the channel close.
+	if !m.streaming || m.agentCh == nil {
+		t.Fatal("escape must keep consuming until the loop settles")
+	}
+	msg := m.listenForAgentEvents()()
+	updated, _ := m.Update(msg)
+	m = asModel(t, updated)
+	if m.streaming || m.agentCh != nil {
+		t.Fatal("the settled channel must end streaming")
 	}
 }

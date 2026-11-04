@@ -83,6 +83,7 @@ func (m *Model) prepareOutput() {
 	m.thinkingTextStart = time.Time{}
 	m.thinkingDuration = 0
 	m.toolBlocks = nil
+	m.clearTurnSummary()
 	for id, progress := range m.subagents {
 		if progress.taskID == "" || progress.status != "running" {
 			delete(m.subagents, id)
@@ -103,18 +104,86 @@ func (m *Model) commitOutput() {
 	m.thinkingBuf = ""
 	m.thinkingTextStart = time.Time{}
 	m.thinkingDuration = 0
-	var completed, pending []toolBlockInfo
-	for _, tb := range m.toolBlocks {
-		if tb.loading {
-			pending = append(pending, tb)
+	var completed []toolBlockInfo
+	completedIDs := map[string]bool{}
+	var remaining []string
+	for _, id := range m.turnSummaryOrder {
+		if entry, ok := m.turnSummary[id]; ok {
+			completed = append(completed, entry)
+			completedIDs[id] = true
+			delete(m.turnSummary, id)
 		} else {
-			completed = append(completed, tb)
+			remaining = append(remaining, id)
 		}
 	}
+	m.turnSummaryOrder = remaining
 	if len(completed) > 0 {
 		m.chatMessages = append(m.chatMessages, chatMessage{role: "turn_summary", toolGroup: completed})
+		var pending []toolBlockInfo
+		for _, tb := range m.toolBlocks {
+			if !completedIDs[tb.toolID] {
+				pending = append(pending, tb)
+			}
+		}
+		m.toolBlocks = pending
 	}
-	m.toolBlocks = pending
+}
+
+// clearTurnSummary mirrors turnToolCalls.clear() at turn boundaries.
+func (m *Model) clearTurnSummary() {
+	m.turnSummaryOrder = nil
+	m.turnSummary = nil
+}
+
+// recordTurnSummary mirrors turnToolCalls.set(toolId, item): the entry is
+// defined (last write wins), the id keeps its original insertion position,
+// and orphan results append a new id on arrival.
+func (m *Model) recordTurnSummary(block toolBlockInfo) {
+	if m.turnSummary == nil {
+		m.turnSummary = map[string]toolBlockInfo{}
+	}
+	if _, ok := m.turnSummary[block.toolID]; !ok {
+		known := false
+		for _, id := range m.turnSummaryOrder {
+			if id == block.toolID {
+				known = true
+				break
+			}
+		}
+		if !known {
+			m.turnSummaryOrder = append(m.turnSummaryOrder, block.toolID)
+		}
+	}
+	m.turnSummary[block.toolID] = block
+}
+
+// drainSteeringLeftovers mirrors the reference runAgentLoop finally: steering
+// queued but never delivered is re-queued as follow-ups (and leaves the
+// pending-steering display) once the run ends.
+func (m *Model) drainSteeringLeftovers() {
+	if m.ag == nil {
+		return
+	}
+	for _, message := range m.ag.DrainSteering() {
+		input := message.Input
+		m.pendingMessages = append(m.pendingMessages, queuedMessage{text: message.Text, input: &input})
+		m.removePendingSteering(input.ID)
+	}
+}
+
+// agentCardDecoration mirrors the reference resolveAgentCard lookup: the
+// subagent's terminal state decorates the committed card (an interrupted run
+// renders as "stopped" instead of a green success card).
+func (m *Model) agentCardDecoration(toolID string, isError bool) (string, string) {
+	p := m.subagents[toolID]
+	if p == nil || p.status == "running" {
+		return "", ""
+	}
+	status := p.status
+	if isError && status != "stopped" {
+		status = "failed"
+	}
+	return status, fmt.Sprintf("%s subagent | %d turns", p.role, p.turns)
 }
 
 func (m *Model) commitStaticOutput() tea.Cmd {
@@ -201,28 +270,48 @@ func (m Model) handleAgentEvent(ev agent.AgentEvent) (tea.Model, tea.Cmd) {
 
 	case agent.ToolUseEvent:
 		m.toolBlocks = append(m.toolBlocks, toolBlockInfo{toolID: e.ToolID, toolName: e.ToolName, args: e.Args, loading: true})
+		known := false
+		for _, id := range m.turnSummaryOrder {
+			if id == e.ToolID {
+				known = true
+				break
+			}
+		}
+		if !known {
+			m.turnSummaryOrder = append(m.turnSummaryOrder, e.ToolID)
+		}
 
 	case agent.ToolResultEvent:
 		if e.ToolName == "WriteFile" || e.ToolName == "EditFile" {
 			m.fileFactsVersion++
 		}
 		m.drainSubAgentProgress()
+		output := tool_result.ToDisplayPreview(e.Output)
+		status, progress := m.agentCardDecoration(e.ToolID, e.IsError)
+		matched := false
 		for i := range m.toolBlocks {
 			if m.toolBlocks[i].toolID == e.ToolID {
 				tb := &m.toolBlocks[i]
-				tb.output = tool_result.ToDisplayPreview(e.Output)
+				tb.output = output
 				tb.isError = e.IsError
 				tb.elapsed = e.Elapsed.Seconds()
 				tb.loading = false
-				if p := m.subagents[e.ToolID]; p != nil && p.status != "running" {
-					tb.status = p.status
-					if e.IsError && tb.status != "stopped" {
-						tb.status = "failed"
-					}
-					tb.progress = fmt.Sprintf("%s subagent | %d turns", p.role, p.turns)
+				if status != "" {
+					tb.status = status
 				}
+				if progress != "" {
+					tb.progress = progress
+				}
+				m.recordTurnSummary(*tb)
+				matched = true
 				break
 			}
+		}
+		if !matched {
+			// Orphan tool_result (no preceding tool_use): the reference keeps
+			// it in turnToolCalls, so it lands in the committed turn_summary
+			// while never entering the live viewport.
+			m.recordTurnSummary(toolBlockInfo{toolID: e.ToolID, toolName: e.ToolName, output: output, isError: e.IsError, elapsed: e.Elapsed.Seconds(), status: status, progress: progress})
 		}
 		if e.ToolName == "AskUserQuestion" {
 			m.commitOutput()
@@ -233,6 +322,7 @@ func (m Model) handleAgentEvent(ev agent.AgentEvent) (tea.Model, tea.Cmd) {
 	case agent.TurnComplete:
 		m.commitOutput()
 		m.toolBlocks = nil
+		m.clearTurnSummary()
 		cmd := m.commitStaticOutput()
 		return m, tea.Batch(cmd, m.listenForAgentEvents())
 
@@ -271,17 +361,36 @@ func (m Model) handleAgentEvent(ev agent.AgentEvent) (tea.Model, tea.Cmd) {
 		})
 
 	case agent.ErrorEvent:
+		// Mirrors the reference error path (throw → finally → catch): drain
+		// the steering leftovers first, then commit only the partial text —
+		// thinking and uncommitted tool cards are dropped — and surface the
+		// error message.
 		m.activityError = e.Message
-		m.commitOutput()
+		m.drainSteeringLeftovers()
+		m.outputGeneration++
+		m.flushScheduled = false
+		if m.streamBuf != "" {
+			m.chatMessages = append(m.chatMessages, chatMessage{role: "assistant", content: m.streamBuf})
+		}
+		m.streamBuf = ""
+		m.thinkingBuf = ""
+		m.thinkingTextStart = time.Time{}
+		m.thinkingDuration = 0
 		m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: "Error: " + e.Message})
 		cmd := m.commitStaticOutput()
 		m.toolBlocks = nil
+		m.clearTurnSummary()
 		m.finishStreaming()
 		return m, cmd
 
 	case agent.LoopComplete:
 		m.commitOutput()
 		m.toolBlocks = nil
+		m.clearTurnSummary()
+		// Mirrors the reference runAgentLoop finally: steering queued but
+		// never delivered is re-queued as follow-ups once the loop ends
+		// (including the interrupted stop reason).
+		m.drainSteeringLeftovers()
 		commitCmd := m.commitStaticOutput()
 		m.finishStreaming()
 		if e.PlanReady && m.ag != nil && m.ag.Checker != nil && m.ag.Checker.Mode() == permissions.ModePlan {

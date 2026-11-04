@@ -220,8 +220,12 @@ func TestComposerEscDismissesCompletionBeforeWork(t *testing.T) {
 		t.Fatal("Esc must dismiss completion before interrupting")
 	}
 	m, _ = keyModel(t, m, escKey)
-	if !cancelled || m.streaming {
+	if !cancelled {
 		t.Fatal("second Esc must interrupt foreground")
+	}
+	// Mirrors the reference: streaming persists until the loop settles.
+	if !m.streaming {
+		t.Fatal("interrupt must keep streaming until the loop settles")
 	}
 }
 func TestTerminalControlsExitAndModeCycle(t *testing.T) {

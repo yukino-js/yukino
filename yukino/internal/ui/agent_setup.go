@@ -321,16 +321,6 @@ func (m *Model) prefetchRelevantMemories(query string) <-chan agent.RecallResult
 	return out
 }
 
-func (m *Model) savePartialResponse() {
-	m.commitOutput()
-	m.toolBlocks = nil
-
-	m.chatMessages = append(m.chatMessages, chatMessage{
-		role:    "system",
-		content: "(response interrupted)",
-	})
-}
-
 func (m *Model) finishStreaming() {
 	m.endInteractionRun()
 	m.retryStatus = ""

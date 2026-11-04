@@ -1,9 +1,9 @@
 {
   "reference_commit": "1847a71e03f90d0e5fc60a2a797c60af327b7750",
   "counts": {
-    "Corrected": 258,
+    "Corrected": 259,
     "Language-specific difference": 7,
-    "Partially aligned": 16,
+    "Partially aligned": 15,
     "Reviewed": 38,
     "Shared browser build": 51,
     "Synchronized artifact": 7
@@ -1927,7 +1927,7 @@
       "source": "src/ui/use-agent-output.ts",
       "source_sha256": "85bfe54a4a7c10bfad5d12cc6b57c7e2ed2473ce35fe62eacf80af081b8d993f",
       "counterpart": "`internal/ui/agent_events.go`",
-      "status": "Partially aligned"
+      "status": "Corrected"
     },
     {
       "source": "src/ui/use-follow-up-queue.ts",
