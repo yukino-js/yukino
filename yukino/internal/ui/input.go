@@ -95,6 +95,10 @@ func (m *Model) updateSlashMenu() {
 		}
 		fuse := NewFuse(all, []fuseKey[*commands.Command]{
 			{weight: 3, get: func(c *commands.Command) (string, bool) { return c.Name, true }},
+			// The reference keeps a weight-2 "aliases" key although Command has
+			// no aliases field; it never matches but still shifts Fuse's weight
+			// normalization, so it is retained for identical fuzzy scores.
+			{weight: 2, get: func(c *commands.Command) (string, bool) { return "", false }},
 			{weight: 0.5, get: func(c *commands.Command) (string, bool) { return c.Description, true }},
 		}, 0.4, false)
 		for _, cmd := range fuse.Search(query) {
@@ -344,10 +348,12 @@ func (m Model) handleComposerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			direction = -1
 		}
 		if showAt {
+			m.editor.preferredColumn = -1
 			m.atCursor = (m.atCursor + direction + len(m.atMatches)) % len(m.atMatches)
 			return m, nil
 		}
 		if showSlash {
+			m.editor.preferredColumn = -1
 			m.slashCursor = (m.slashCursor + direction + len(m.slashMatches)) % len(m.slashMatches)
 			return m, nil
 		}
@@ -359,6 +365,13 @@ func (m Model) handleComposerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.editor.Value() == "" && m.historyIndex == 0 {
 				if text, ok := m.recallQueued(); ok {
 					m.editor.SetValue(text)
+					m.editor.pastes = nil
+					m.historyDraft = nil
+					m.pasteGeneration++
+					m.pastingImage = false
+					m.pasteError = ""
+					m.atCursor = 0
+					m.slashCursor = 0
 					m.dropdownDismissed = true
 					m.resizeInput()
 					return m, nil
@@ -367,10 +380,10 @@ func (m Model) handleComposerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if len(m.editor.lines) == 1 || m.historyIndex > 0 {
 				m.historyUp()
 			}
-		} else if len(m.agentEntries()) > 0 {
-			return m.openAgentsDialog()
 		} else if m.historyIndex > 0 {
 			m.historyDown()
+		} else if len(m.agentEntries()) > 0 {
+			return m.openAgentsDialog()
 		}
 		return m, nil
 	}

@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/yukino-js/yukino/yukino/internal/config"
 	"github.com/yukino-js/yukino/yukino/internal/llm"
+	"github.com/yukino-js/yukino/yukino/internal/tools"
 )
 
 func thinkingLevelColor(level string) lipgloss.Color {
@@ -100,37 +101,56 @@ func (m Model) renderComposer(available int) string {
 	start := max(0, min(cursor.row-maximum/2, len(rows)-maximum))
 	end := min(len(rows), start+maximum)
 	completionRows := m.completionRows(available)
+	// Border color follows the reference activityStatus precedence:
+	// error > retry > compacting > working/idle (the thinking-level color); the
+	// bash-mode override applies only when there is no error.
 	color := thinkingLevelColor(m.thinkingLevel())
+	switch {
+	case m.activityError != "":
+		color = redText
+	case m.retryStatus != "":
+		color = yellowText
+	case m.compacting:
+		color = accentColor
+	}
+	if m.activityError == "" && strings.HasPrefix(m.editor.Value(), "!") {
+		color = lipgloss.Color(Theme.BashMode)
+	}
+
+	// Status label follows the reference statusLabel precedence:
+	// error > compacting > user Bash > streaming (retry status, else "Working").
 	status := ""
+	switch {
+	case m.activityError != "":
+		status = "Error"
+	case m.compacting:
+		status = "Compacting context... (Esc to cancel)"
+	case m.userBash != nil:
+		status = "Running Bash... (Esc cancel)"
+		if !m.userBash.excluded {
+			if bashTool, ok := m.registry.Get("Bash").(*tools.BashTool); ok && bashTool.TaskManager != nil {
+				status = "Running Bash... (Ctrl+B background · Esc cancel)"
+			}
+		}
+	case m.streaming:
+		status = "Working"
+		if m.retryStatus != "" {
+			status = m.retryStatus
+		}
+	}
+
+	// The spinner is shown for any non-error status label (the reference runs an
+	// 80ms interval while statusLabel is set and inputState !== "error"); an
+	// error shows a static "!". The tick that advances the frames runs while the
+	// foreground agent streams.
 	spinnerText := SpinnerFrames[0]
-	if m.streaming {
+	if m.activityError != "" {
+		spinnerText = "!"
+	} else if status != "" {
 		spinnerText = strings.TrimSpace(plainTerminalText(m.spinner.View()))
 		if spinnerText == "" {
 			spinnerText = SpinnerFrames[0]
 		}
-		status = "Working"
-	}
-	if m.userBash != nil {
-		status = "Running Bash... (Ctrl+B background · Esc cancel)"
-		if m.userBash.excluded {
-			status = "Running Bash... (Esc cancel)"
-		}
-	}
-	if m.retryStatus != "" {
-		status = m.retryStatus
-		color = yellowText
-	}
-	if m.compacting {
-		status = "Compacting context... (Esc to cancel)"
-		color = accentColor
-	}
-	if m.activityError != "" {
-		status = "Error"
-		color = redText
-		spinnerText = "!"
-	}
-	if m.activityError == "" && strings.HasPrefix(m.editor.Value(), "!") {
-		color = lipgloss.Color(Theme.BashMode)
 	}
 	borderStyle := lipgloss.NewStyle().Foreground(color)
 	lines := []string{}
