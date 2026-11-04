@@ -658,10 +658,6 @@ func (m Model) handleChat(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleAskUserDialog(msg)
 	}
 
-	if m.sandboxDialog {
-		return m.handleSandboxDialog(msg)
-	}
-
 	if m.agentsDialog {
 		return m.handleAgentsDialog(msg)
 	}
@@ -670,6 +666,9 @@ func (m Model) handleChat(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.thinkingDialog {
 		return m.handleThinkingDialog(msg)
+	}
+	if m.sandboxDialog {
+		return m.handleSandboxDialog(msg)
 	}
 	return m.handleComposerKey(msg)
 }
