@@ -1,9 +1,9 @@
 {
   "reference_commit": "1847a71e03f90d0e5fc60a2a797c60af327b7750",
   "counts": {
-    "Corrected": 261,
+    "Corrected": 262,
     "Language-specific difference": 7,
-    "Partially aligned": 13,
+    "Partially aligned": 12,
     "Reviewed": 38,
     "Shared browser build": 51,
     "Synchronized artifact": 7
@@ -1765,7 +1765,7 @@
       "source": "src/ui/plan-approval.tsx",
       "source_sha256": "637cc982f1185ab543d82bec8800b450f3ed41539f3f6dbcc8278f096a59d5ef",
       "counterpart": "`internal/ui/plan_approval.go`",
-      "status": "Partially aligned"
+      "status": "Corrected"
     },
     {
       "source": "src/ui/provider-login.tsx",

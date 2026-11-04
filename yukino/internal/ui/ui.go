@@ -186,7 +186,7 @@ type Model struct {
 
 	planApprovalDialog   bool
 	planApprovalCursor   int
-	planApprovalInput    string
+	planApprovalEditor   inputEditor
 	planFeedbackRequired bool
 
 	rewindDialog       bool

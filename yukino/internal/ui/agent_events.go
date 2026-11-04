@@ -396,7 +396,7 @@ func (m Model) handleAgentEvent(ev agent.AgentEvent) (tea.Model, tea.Cmd) {
 		if e.PlanReady && m.ag != nil && m.ag.Checker != nil && m.ag.Checker.Mode() == permissions.ModePlan {
 			m.planApprovalDialog = true
 			m.planApprovalCursor = 0
-			m.planApprovalInput = ""
+			m.planApprovalEditor = newInputEditor()
 			m.planFeedbackRequired = false
 		}
 		return m, commitCmd
