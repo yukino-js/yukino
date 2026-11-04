@@ -14,8 +14,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/yukino-js/yukino/yukino/internal/permissions"
 
-	"github.com/yukino-js/yukino/yukino/internal/agent"
-	"github.com/yukino-js/yukino/yukino/internal/conversation"
 	"github.com/yukino-js/yukino/yukino/internal/storage"
 )
 
@@ -34,10 +32,11 @@ func TeamsBaseDir(cwd string) string {
 }
 
 type Member struct {
-	Name                 string
-	AgentRef             *agent.Agent
-	Conv                 *conversation.Manager
-	Active               bool
+	Name    string
+	Checker *permissions.Checker
+	Active  bool
+	// Cancel cancels the teammate runtime; Done closes when the loop has
+	// fully stopped, mirroring the reference cancel/done pair.
 	Cancel               context.CancelFunc
 	Done                 chan struct{}
 	PendingPlan          *pendingPlanApproval

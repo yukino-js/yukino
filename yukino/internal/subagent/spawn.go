@@ -193,6 +193,10 @@ func SpawnSubagent(ctx context.Context, definition *AgentDefinition, userPrompt 
 		child.MemoryContent = options.MemoryContent
 		child.ContextWindow = config.GetContextWindow(&provider)
 		child.MaxOutputTokens = config.GetMaxOutputTokens(&provider)
+		// The reference passes a null task manager when backgroundTasks is
+		// false; the Go agent gates background execution on this flag so the
+		// parent registry's manager is never inherited.
+		child.DisableBackground = taskManager == nil
 		if taskManager != nil {
 			child.TaskManager = taskManager
 			child.NotificationFn = func() ([]string, error) {
@@ -240,6 +244,16 @@ func SpawnSubagent(ctx context.Context, definition *AgentDefinition, userPrompt 
 				if onEvent != nil {
 					onEvent(SubagentProgressEvent{Type: "turn_complete"})
 				}
+			case agent.PermissionRequestEvent:
+				// The reference routes permission prompts through the
+				// onPermissionRequest callback; the Go agent surfaces them as
+				// events answered through the ctx runtime (deny when absent).
+				reply := agent.PermissionReply{Response: agent.PermDeny}
+				if runtime, ok := tools.RuntimeContext(ctx); ok && runtime.RequestPermission != nil {
+					response, feedback := runtime.RequestPermission(ctx, tools.PermissionRequest{ToolName: e.ToolName, Desc: e.Desc, AgentName: e.AgentName, Cwd: e.Cwd, ToolCallID: e.ToolID, Args: e.Args, RememberPatterns: e.Decision.RememberPatterns})
+					reply = agent.PermissionReply{Response: agent.PermissionResponse(response), Feedback: feedback}
+				}
+				e.ResponseCh <- reply
 			case agent.LoopComplete:
 				completed = true
 				if e.StopReason == "interrupted" {

@@ -121,3 +121,24 @@ func ParseAgentFile(path string) (*AgentDefinition, error) {
 func (d *AgentDefinition) ToSpec() SubAgentSpec {
 	return SubAgentSpec{Name: d.AgentType, Description: d.WhenToUse, Tools: d.Tools, DisallowedTools: d.DisallowedTools, SystemPromptOverride: d.SystemPrompt, MaxTurns: d.MaxTurns, Model: d.Model, PermissionMode: d.PermissionMode, ReadOnly: d.ReadOnly, Background: d.Background, Worktree: d.Worktree, InitialPrompt: d.InitialPrompt}
 }
+
+// specToDefinition inverts ToSpec: the teammate spawn flow resolves a
+// SubAgentSpec (possibly the synthesized plan-teammate spec) while
+// SpawnSubagent consumes a definition, mirroring the reference's
+// options.definition plumbing.
+func specToDefinition(spec SubAgentSpec) *AgentDefinition {
+	return &AgentDefinition{
+		AgentType:       spec.Name,
+		WhenToUse:       spec.Description,
+		Tools:           spec.Tools,
+		DisallowedTools: spec.DisallowedTools,
+		SystemPrompt:    spec.SystemPromptOverride,
+		MaxTurns:        spec.MaxTurns,
+		Model:           spec.Model,
+		PermissionMode:  spec.PermissionMode,
+		ReadOnly:        spec.ReadOnly,
+		Background:      spec.Background,
+		Worktree:        spec.Worktree,
+		InitialPrompt:   spec.InitialPrompt,
+	}
+}

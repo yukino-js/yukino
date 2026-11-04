@@ -16,7 +16,7 @@ func (t *Team) SubmitPlan(name, plan string) (string, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	member := t.Members[name]
-	if member == nil || !member.Active || member.AgentRef == nil || member.AgentRef.Checker == nil || member.AgentRef.Checker.ReadOnly || member.AgentRef.Checker.Mode() != permissions.ModePlan {
+	if member == nil || !member.Active || member.Checker == nil || member.Checker.ReadOnly || member.Checker.Mode() != permissions.ModePlan {
 		return "", fmt.Errorf("Only an active teammate in plan mode can submit a plan.")
 	}
 	if strings.TrimSpace(plan) == "" {

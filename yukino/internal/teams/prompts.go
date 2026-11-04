@@ -22,4 +22,5 @@ const (
 	StoppedAwaitingPlanReviewMessage  = "Stopped while awaiting plan review"
 	DefaultShutdownReason             = "team is wrapping up"
 	MemberDeactivatedShutdownReason   = "member deactivated"
+	TeammateStoppedMessage            = "Stopped"
 )

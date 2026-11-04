@@ -196,12 +196,12 @@ func TestSpawnTeammateValidation(t *testing.T) {
 	useTempHome(t)
 	ctx := context.Background()
 
-	if _, err := SpawnTeammate(ctx, TeammateSpawnConfig{MemberName: "x"}); err == nil {
+	if err := SpawnTeammate(ctx, TeammateSpawnConfig{MemberName: "x"}); err == nil {
 		t.Error("expected error when Team is nil")
 	}
 
 	team := NewTeam(t.TempDir(), "t")
-	if _, err := SpawnTeammate(ctx, TeammateSpawnConfig{Team: team}); err == nil {
+	if err := SpawnTeammate(ctx, TeammateSpawnConfig{Team: team}); err == nil {
 		t.Error("expected error when MemberName is empty")
 	}
 

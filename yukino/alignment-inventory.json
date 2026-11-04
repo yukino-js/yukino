@@ -1,9 +1,9 @@
 {
   "reference_commit": "1847a71e03f90d0e5fc60a2a797c60af327b7750",
   "counts": {
-    "Corrected": 236,
+    "Corrected": 237,
     "Language-specific difference": 5,
-    "Partially aligned": 40,
+    "Partially aligned": 39,
     "Reviewed": 38,
     "Shared browser build": 51,
     "Synchronized artifact": 7
@@ -1129,7 +1129,7 @@
       "source": "src/subagent/agent-tool.ts",
       "source_sha256": "6ca0cd0900063792c3dcd1e123c93719e5829f25d61932d49610513072d659f1",
       "counterpart": "`internal/subagent/agent_tool.go`",
-      "status": "Partially aligned"
+      "status": "Corrected"
     },
     {
       "source": "src/subagent/constants.ts",

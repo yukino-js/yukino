@@ -493,21 +493,23 @@ func (t *AgentTool) runAsTeammate(ctx context.Context, targetTeam, description, 
 		metaModel = spec.Model
 	}
 	spawnErr := func() error {
-		client, err := t.selectClient(spec, model, cwd)
-		if err != nil {
-			return err
-		}
-		result, err := teams.SpawnTeammate(context.WithoutCancel(ctx), teams.TeammateSpawnConfig{Team: team, MemberName: memberName, Task: prompt, Addendum: buildSubagentInstructions(spec), Client: client, Registry: registry, Protocol: t.Protocol, Workdir: cwd, Checker: checker, ContextSnapshot: snapshot, MaxTurns: spec.MaxTurns, PlanApprovalRequired: spec.Name == PlanAgentName, AgentType: spec.Name, Model: metaModel, OriginToolCallID: originToolCallID(ctx)})
-		if err != nil {
-			return err
-		}
-		if result.EventCh != nil {
-			go func() {
-				for range result.EventCh {
+		definition := specToDefinition(spec)
+		// One conversation per spawn shared by every task turn, mirroring the
+		// reference factory; SpawnSubagent appends the context snapshot and
+		// the definition system reminder on the first turn only.
+		teammateConversation := conversation.NewManager()
+		backgroundTasks := false
+		runAgent := func(runCtx context.Context, task string, onEvent func(teams.TeammateProgressEvent)) (string, error) {
+			return SpawnSubagent(runCtx, definition, task, t.Client, registry, t.Provider, cwd, nil, func(event SubagentProgressEvent) {
+				teammateEvent := teams.TeammateProgressEvent{Type: event.Type, ToolID: event.ToolID, ToolName: event.ToolName, Args: event.Args}
+				if event.Usage != nil {
+					teammateEvent.InputTokens = event.Usage.InputTokens
+					teammateEvent.OutputTokens = event.Usage.OutputTokens
 				}
-			}()
+				onEvent(teammateEvent)
+			}, model, checker, SubagentRunOptions{Conversation: teammateConversation, ContextSnapshot: snapshot, BackgroundTasks: &backgroundTasks, AgentName: memberName})
 		}
-		return nil
+		return teams.SpawnTeammate(context.WithoutCancel(ctx), teams.TeammateSpawnConfig{Team: team, MemberName: memberName, Task: prompt, RunAgent: runAgent, Checker: checker, Workdir: cwd, PlanApprovalRequired: spec.Name == PlanAgentName, AgentType: spec.Name, Model: metaModel, OriginToolCallID: originToolCallID(ctx), Cleanup: func() { _ = registry.Dispose() }})
 	}()
 	if spawnErr != nil {
 		if team.MemberActive(memberName) {

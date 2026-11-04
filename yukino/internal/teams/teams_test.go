@@ -7,8 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
-
-	"github.com/yukino-js/yukino/yukino/internal/tools"
+	"time"
 )
 
 func TestFileMailBoxRoundTrip(t *testing.T) {
@@ -200,7 +199,7 @@ func TestSpawnTeammateRejectsActiveMember(t *testing.T) {
 		t.Fatal(err)
 	}
 	member.Active = true
-	_, err = SpawnTeammate(context.Background(), TeammateSpawnConfig{Team: team, MemberName: "worker"})
+	err = SpawnTeammate(context.Background(), TeammateSpawnConfig{Team: team, MemberName: "worker"})
 	if err == nil || err.Error() != "Teammate 'worker' is already running" {
 		t.Fatalf("expected already-running error, got %v", err)
 	}
@@ -218,16 +217,26 @@ func TestSpawnTeammateReusesInactiveMember(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	result, err := SpawnTeammate(ctx, TeammateSpawnConfig{Team: team, MemberName: "worker", Task: "noop", Registry: tools.NewRegistry(), Workdir: t.TempDir(), AgentType: "general-purpose", Model: "test-model", OriginToolCallID: "call-1"})
+	err = SpawnTeammate(ctx, TeammateSpawnConfig{Team: team, MemberName: "worker", Task: "noop", Workdir: t.TempDir(), AgentType: "general-purpose", Model: "test-model", OriginToolCallID: "call-1", RunAgent: func(runCtx context.Context, task string, onEvent func(TeammateProgressEvent)) (string, error) {
+		return "", runCtx.Err()
+	}})
 	if err != nil {
 		t.Fatal(err)
-	}
-	for range result.EventCh {
 	}
 
 	member := team.GetMember("worker")
 	if member == nil {
 		t.Fatal("reused member was removed")
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		team.mu.Lock()
+		settled := !member.Active && member.Done == nil
+		team.mu.Unlock()
+		if settled {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 	if member.AgentID != "custom-id" || member.JoinedAt != 123 {
 		t.Errorf("identity not preserved on reuse: %+v", member)
@@ -244,7 +253,7 @@ func TestSpawnTeammateReusesInactiveMember(t *testing.T) {
 	if member.Progress.OriginToolCallID != "call-1" {
 		t.Errorf("origin tool call id not recorded: %+v", member.Progress)
 	}
-	if member.AgentRef != nil || member.Cancel != nil || member.Done != nil {
+	if member.Checker != nil || member.Cancel != nil || member.Done != nil {
 		t.Error("runtime fields should be cleared after the run")
 	}
 	msgs, err := team.MailBox.ReceiveMatching(LeadName, func(FileMailMessage) bool { return true })

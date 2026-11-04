@@ -6,11 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yukino-js/yukino/yukino/internal/agent"
 	"github.com/yukino-js/yukino/yukino/internal/permissions"
 	"github.com/yukino-js/yukino/yukino/internal/plan_file"
 	"github.com/yukino-js/yukino/yukino/internal/prompt"
-	"github.com/yukino-js/yukino/yukino/internal/tools"
 )
 
 const LeadName = "leader"
@@ -19,10 +17,11 @@ const IdlePollInterval = 500 * time.Millisecond
 func CreateIdleNotification(name, reason string) FileMailMessage {
 	return NewFileMailMessage(name, fmt.Sprintf("[idle] %s (reason: %s)", name, reason))
 }
-func RunInProcessTeammate(ctx context.Context, team *Team, member *Member, initialPrompt, addendum string, eventOut chan<- agent.AgentEvent) (runErr error) {
-	if addendum != "" {
-		member.Conv.AddSystemReminder(addendum)
-	}
+
+// RunInProcessTeammate mirrors the reference spawnTeammate done loop: run the
+// task through the injected RunAgent, record progress from its events, then
+// idle-poll the mailbox and resume on new messages until stopped or shut down.
+func RunInProcessTeammate(ctx context.Context, team *Team, member *Member, runAgent RunTeammateAgent, initialPrompt string) (runErr error) {
 	defer func() {
 		if member.Progress != nil {
 			member.Progress.ClearActiveTools()
@@ -35,59 +34,44 @@ func RunInProcessTeammate(ctx context.Context, team *Team, member *Member, initi
 			}
 		}
 	}()
+	onEvent := func(event TeammateProgressEvent) {
+		if member.Progress == nil {
+			return
+		}
+		switch event.Type {
+		case "tool_use":
+			member.Progress.RecordToolStart(event.ToolID, event.ToolName, event.Args)
+		case "tool_result":
+			member.Progress.RecordToolResult(event.ToolID)
+		case "usage":
+			member.Progress.RecordTokens(int64(event.InputTokens), int64(event.OutputTokens))
+		case "turn_complete":
+			member.Progress.RecordTurnComplete()
+		}
+	}
 	nextPrompt := initialPrompt
-	for {
-		if err := ctx.Err(); err != nil {
+	for team.MemberActive(member.Name) {
+		member.Progress.SetStatus("running")
+		result, err := runAgent(ctx, prompt.BuildTeammatePrompt(team.Name, member.Name, nextPrompt), onEvent)
+		if err != nil {
+			if ctx.Err() != nil || !team.MemberActive(member.Name) {
+				member.Progress.SetLastMessage(TeammateStoppedMessage)
+				return nil
+			}
+			member.Progress.SetLastMessage(err.Error())
 			return err
 		}
-		member.Progress.SetStatus("running")
-		member.Conv.AddUserMessage(prompt.BuildTeammatePrompt(team.Name, member.Name, nextPrompt))
-		var final strings.Builder
-		var executionErr error
-		for ev := range member.AgentRef.Run(ctx, member.Conv) {
-			switch e := ev.(type) {
-			case agent.StreamText:
-				final.WriteString(e.Text)
-			case agent.ToolUseEvent:
-				member.Progress.RecordToolStart(e.ToolID, e.ToolName, e.Args)
-			case agent.ToolResultEvent:
-				member.Progress.RecordToolResult(e.ToolID)
-			case agent.TurnComplete:
-				member.Progress.RecordTurnComplete()
-			case agent.UsageEvent:
-				member.Progress.RecordTokens(int64(e.InputTokens), int64(e.OutputTokens))
-			case agent.ErrorEvent:
-				executionErr = fmt.Errorf("%s", e.Message)
-			case agent.PermissionRequestEvent:
-				reply := agent.PermissionReply{Response: agent.PermDeny}
-				if runtime, ok := tools.RuntimeContext(ctx); ok && runtime.RequestPermission != nil {
-					response, feedback := runtime.RequestPermission(ctx, tools.PermissionRequest{ToolName: e.ToolName, Desc: e.Desc, AgentName: e.AgentName, Cwd: e.Cwd, ToolCallID: e.ToolID, Args: e.Args, RememberPatterns: e.Decision.RememberPatterns})
-					reply = agent.PermissionReply{Response: agent.PermissionResponse(response), Feedback: feedback}
-				}
-				e.ResponseCh <- reply
-				continue
-			}
-			if eventOut != nil {
-				select {
-				case eventOut <- ev:
-				case <-ctx.Done():
-				}
-			}
-		}
 		member.Progress.ClearActiveTools()
-		member.Progress.SetLastMessage(final.String())
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if executionErr != nil {
-			return executionErr
+		member.Progress.SetLastMessage(result)
+		if ctx.Err() != nil || !team.MemberActive(member.Name) {
+			return nil
 		}
 		team.mu.Lock()
 		planning := planModeActive(member) && (member.PlanApprovalRequired || member.PendingPlan != nil)
 		team.mu.Unlock()
-		member.Progress.SetStatus("idle")
 		if planning {
-			next, err := requestPlanApproval(ctx, team, member, final.String())
+			member.Progress.SetStatus("idle")
+			next, err := requestPlanApproval(ctx, team, member, result)
 			if err != nil {
 				return err
 			}
@@ -97,6 +81,7 @@ func RunInProcessTeammate(ctx context.Context, team *Team, member *Member, initi
 			nextPrompt = next
 			continue
 		}
+		member.Progress.SetStatus("idle")
 		if err := team.MailBox.Send(LeadName, CreateIdleNotification(member.Name, "available")); err != nil {
 			return err
 		}
@@ -104,15 +89,18 @@ func RunInProcessTeammate(ctx context.Context, team *Team, member *Member, initi
 		if err != nil {
 			return err
 		}
-		if shutdown != nil {
-			_ = team.MailBox.Send(LeadName, NewShutdownResponse(member.Name, shutdown.RequestID, true, ShutdownAckMessage))
+		if shutdown != nil || !team.MemberActive(member.Name) {
+			if shutdown != nil {
+				_ = team.MailBox.Send(LeadName, NewShutdownResponse(member.Name, shutdown.RequestID, true, ShutdownAckMessage))
+			}
 			return nil
 		}
 		nextPrompt = next
 	}
+	return nil
 }
 func planModeActive(member *Member) bool {
-	return member.AgentRef != nil && member.AgentRef.Checker != nil && !member.AgentRef.Checker.ReadOnly && member.AgentRef.Checker.Mode() == permissions.ModePlan
+	return member.Checker != nil && !member.Checker.ReadOnly && member.Checker.Mode() == permissions.ModePlan
 }
 func requestPlanApproval(ctx context.Context, team *Team, member *Member, fallback string) (string, error) {
 	team.mu.Lock()
@@ -126,7 +114,7 @@ func requestPlanApproval(ctx context.Context, team *Team, member *Member, fallba
 	team.mu.Lock()
 	requestID := member.PendingPlan.Request.RequestID
 	active := member.Active
-	hasChecker := member.AgentRef != nil && member.AgentRef.Checker != nil
+	hasChecker := member.Checker != nil
 	manual := team.RequiresLeaderPlanApproval
 	team.mu.Unlock()
 	if requestID == "" || !active || ctx.Err() != nil || !hasChecker {
@@ -181,10 +169,10 @@ func exitTeammatePlan(team *Team, member *Member) {
 	if mode == permissions.ModePlan {
 		mode = permissions.ModeDefault
 	}
-	member.AgentRef.Checker.ExitPlanMode(mode)
+	member.Checker.ExitPlanMode(mode)
 }
 func readPlanForReview(member *Member, fallback string) string {
-	content, err := plan_file.LoadPlan(member.AgentRef.Checker)
+	content, err := plan_file.LoadPlan(member.Checker)
 	if err == nil && strings.TrimSpace(content) != "" {
 		return content
 	}

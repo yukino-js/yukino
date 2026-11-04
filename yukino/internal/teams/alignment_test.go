@@ -8,9 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yukino-js/yukino/yukino/internal/agent"
 	"github.com/yukino-js/yukino/yukino/internal/permissions"
-	"github.com/yukino-js/yukino/yukino/internal/tools"
 )
 
 func TestTeamCanonicalIdentityAndScopedMessages(t *testing.T) {
@@ -91,9 +89,8 @@ func planningMember(t *testing.T, manual bool) (*TeamManager, *Team, *Member) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	member.AgentRef = agent.New(nil, tools.NewRegistry(), "")
-	member.AgentRef.Checker = permissions.NewChecker(permissions.NewPathSandbox(t.TempDir(), true), nil, permissions.ModePlan)
-	member.AgentRef.Checker.Teammate = true
+	member.Checker = permissions.NewChecker(permissions.NewPathSandbox(t.TempDir(), true), nil, permissions.ModePlan)
+	member.Checker.Teammate = true
 	member.Active = true
 	member.PlanApprovalRequired = true
 	return mgr, team, member
@@ -132,7 +129,7 @@ func TestPlanReviewRequiresLeaderGateAndPreservesMessages(t *testing.T) {
 	if err != nil || !strings.Contains(next, "add tests") || !strings.Contains(next, "limit to parser") {
 		t.Fatal(next, err)
 	}
-	if member.AgentRef.Checker.Mode() != permissions.ModePlan || member.PendingPlan != nil {
+	if member.Checker.Mode() != permissions.ModePlan || member.PendingPlan != nil {
 		t.Fatal("rejection changed permissions or retained gate")
 	}
 }
@@ -143,7 +140,7 @@ func TestPlanAutoApprovalHonorsTeamPermissionMode(t *testing.T) {
 	if err != nil || next != PlanAutoApprovedMessage {
 		t.Fatal(next, err)
 	}
-	if member.AgentRef.Checker.Mode() != permissions.ModeAcceptEdits || member.PlanApprovalRequired {
+	if member.Checker.Mode() != permissions.ModeAcceptEdits || member.PlanApprovalRequired {
 		t.Fatal("auto approval lost current permissions")
 	}
 	if err := team.RespondToPlan(member.Name, "id", true, "approve"); err == nil {
