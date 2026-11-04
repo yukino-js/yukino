@@ -138,7 +138,14 @@ func (t *ReadFileTool) readImage(ctx context.Context, path string, info os.FileI
 	attachment, err := images.LoadImageAttachment(ctx, path)
 	if err == nil {
 		after, statErr := os.Stat(path)
-		if statErr == nil && (!after.ModTime().Equal(info.ModTime()) || after.Size() != info.Size()) {
+		if statErr != nil {
+			log.Error(map[string]any{"err": statErr}, "image read failed")
+			if ctx.Err() != nil {
+				return ToolResult{Output: OperationInterruptedError, IsError: true}
+			}
+			return ToolResult{Output: fmt.Sprintf("Error reading image %s: %s", filepath.Base(path), statErr), IsError: true}
+		}
+		if !after.ModTime().Equal(info.ModTime()) || after.Size() != info.Size() {
 			return ToolResult{Output: fmt.Sprintf("Error: %s changed while it was being read; read it again before editing.", path), IsError: true}
 		}
 		if ctx.Err() != nil {

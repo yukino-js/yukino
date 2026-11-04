@@ -1,9 +1,9 @@
 {
   "reference_commit": "1847a71e03f90d0e5fc60a2a797c60af327b7750",
   "counts": {
-    "Corrected": 244,
+    "Corrected": 245,
     "Language-specific difference": 5,
-    "Partially aligned": 32,
+    "Partially aligned": 31,
     "Reviewed": 38,
     "Shared browser build": 51,
     "Synchronized artifact": 7
@@ -1543,7 +1543,7 @@
       "source": "src/tools/read-file.ts",
       "source_sha256": "f53d0d8ffd0bfbfdcd7d40c03138c45ed01909ade8b2ef43d75991f466c77ca8",
       "counterpart": "`internal/tools/read_file.go`",
-      "status": "Partially aligned"
+      "status": "Corrected"
     },
     {
       "source": "src/tools/registry.ts",
