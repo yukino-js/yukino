@@ -1,9 +1,9 @@
 {
   "reference_commit": "1847a71e03f90d0e5fc60a2a797c60af327b7750",
   "counts": {
-    "Corrected": 255,
+    "Corrected": 256,
     "Language-specific difference": 7,
-    "Partially aligned": 19,
+    "Partially aligned": 18,
     "Reviewed": 38,
     "Shared browser build": 51,
     "Synchronized artifact": 7
@@ -85,7 +85,7 @@
       "source": "src/agent/streaming-executor.ts",
       "source_sha256": "05b86432210a8170bd1f3c905cccfa9f395bb97cc7ff0c46567ede6adecaad57",
       "counterpart": "`internal/agent/streaming_executor.go`, `internal/agent/agent.go`",
-      "status": "Partially aligned"
+      "status": "Corrected"
     },
     {
       "source": "src/bootstrap/exit-cleanup.ts",

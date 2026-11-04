@@ -19,6 +19,7 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/llm"
 	"github.com/yukino-js/yukino/yukino/internal/permissions"
 	"github.com/yukino-js/yukino/yukino/internal/session"
+	"github.com/yukino-js/yukino/yukino/internal/telemetry"
 	"github.com/yukino-js/yukino/yukino/internal/tools"
 )
 
@@ -319,64 +320,82 @@ func extractFilePath(args map[string]any) string {
 	return ""
 }
 
-func (a *Agent) executeSingleTool(ctx context.Context, eventCh chan AgentEvent, tc toolCallInfo) (executionResult toolExecResult) {
-	start := time.Now()
-	fail := func(output string) toolExecResult {
-		return toolExecResult{toolID: tc.toolID, toolName: tc.toolName, output: output, isError: true, elapsed: time.Since(start)}
+// permissionCall is one entry of the call graph checked before execution:
+// the outer tool plus, for McpCall, the routed target.
+type permissionCall struct {
+	name     string
+	category tools.ToolCategory
+	args     map[string]any
+}
+
+// toolPreparation is the loop-side approval state carried into the executor,
+// mirroring the reference's submitted-call context (prepared arguments, the
+// hook call graph, and the execution context with the approved mode).
+type toolPreparation struct {
+	tool      tools.Tool
+	arguments map[string]any
+	hookCalls []permissionCall
+	execution tools.ExecutionContext
+}
+
+// prepareToolCall mirrors the reference executeBatch pre-submit pipeline:
+// dispatch-level abort check, tool filter, McpCall routing, pre-tool hooks,
+// and the permission decision/request all run in the loop, sequentially,
+// before anything executes. A non-nil toolExecResult is reported inline and
+// never reaches the executor.
+func (a *Agent) prepareToolCall(ctx context.Context, eventCh chan AgentEvent, tc toolCallInfo) (*toolPreparation, *toolExecResult) {
+	fail := func(output string) *toolExecResult {
+		return &toolExecResult{toolID: tc.toolID, toolName: tc.toolName, output: output, isError: true}
 	}
-	defer func() {
-		if value := recover(); value != nil {
-			executionResult = fail(fmt.Sprintf("Error executing %s: %v", tc.toolName, value))
-		}
-	}()
-	if tc.parseError != "" {
-		return fail("Error: " + tc.parseError + ". The tool was not executed.")
-	}
+	// Once the user interrupts, don't launch the remaining calls; report
+	// them as interrupted so every tool_use keeps a paired tool_result.
 	if ctx.Err() != nil {
-		return fail(tools.CommandInterruptedError)
+		return nil, fail(tools.CommandInterruptedError)
 	}
 	if a.ToolNameFilter != nil && !a.ToolNameFilter(tc.toolName) {
-		return fail(fmt.Sprintf("Tool '%s' is not available to this agent.", tc.toolName))
+		return nil, fail(fmt.Sprintf("Tool '%s' is not available to this agent.", tc.toolName))
 	}
 	tool := a.Registry.Get(tc.toolName)
-	if tool == nil {
-		return fail(fmt.Sprintf("Error: unknown tool '%s'", tc.toolName))
-	}
-	type permissionCall struct {
-		tool tools.Tool
-		args map[string]any
-	}
-	calls := []permissionCall{{tool, tc.arguments}}
+	arguments := tc.arguments
+	var target tools.Tool
 	if router, ok := tool.(*tools.McpCallTool); ok {
-		tc.arguments = router.PrepareArguments(tc.arguments)
-		calls[0].args = tc.arguments
-		if target := router.ResolveTarget(tc.arguments); target != nil {
+		arguments = router.PrepareArguments(arguments)
+		if resolved := router.ResolveTarget(arguments); resolved != nil {
+			target = resolved
 			if a.ToolNameFilter != nil && !a.ToolNameFilter(target.Name()) {
-				return fail(fmt.Sprintf("Tool '%s' is not available to this agent.", target.Name()))
+				return nil, fail(fmt.Sprintf("Tool '%s' is not available to this agent.", target.Name()))
 			}
-			inner, _ := tc.arguments["arguments"].(map[string]any)
-			calls = append(calls, permissionCall{target, inner})
 		}
+	}
+	category := tools.CategoryCommand
+	if tool != nil {
+		category = tool.Category()
+	}
+	calls := []permissionCall{{name: tc.toolName, category: category, args: arguments}}
+	if target != nil {
+		inner, _ := arguments["arguments"].(map[string]any)
+		calls = append(calls, permissionCall{name: target.Name(), category: target.Category(), args: inner})
 	}
 	if a.Hooks != nil {
 		for _, call := range calls {
-			if rejected, reason := a.Hooks.FirePreToolHooks(call.tool.Name(), call.args, hooks.HookRuntimeOptions{Cwd: a.CurrentCwd(), Abort: ctx}); rejected {
-				return fail("Rejected by hook: " + reason)
+			if rejected, reason := a.Hooks.FirePreToolHooks(call.name, call.args, hooks.HookRuntimeOptions{Cwd: a.CurrentCwd(), Abort: ctx}); rejected {
+				return nil, fail("Rejected by hook: " + reason)
 			}
 		}
 	}
 	if a.Checker != nil {
 		decisions := make([]permissions.Decision, len(calls))
 		for i, call := range calls {
-			decisions[i] = a.Checker.Check(call.tool, call.args)
+			decisions[i] = a.Checker.CheckNamed(call.name, call.category, call.args)
 		}
-		if len(decisions) > 1 && decisions[0].Effect == permissions.Allow && decisions[0].Reason == "Permission rule: allow" && decisions[1].Effect == permissions.Ask && strings.HasPrefix(decisions[1].Reason, "Mode:") {
+		if target != nil && decisions[0].Effect == permissions.Allow && decisions[0].Reason == "Permission rule: allow" && decisions[1].Effect == permissions.Ask && strings.HasPrefix(decisions[1].Reason, "Mode:") {
 			decisions[1] = decisions[0]
 		}
 		decision := decisions[0]
 		for _, candidate := range decisions {
 			if candidate.Effect == permissions.Ask {
 				decision = candidate
+				break
 			}
 		}
 		for _, candidate := range decisions {
@@ -386,17 +405,17 @@ func (a *Agent) executeSingleTool(ctx context.Context, eventCh chan AgentEvent, 
 			}
 		}
 		if decision.Effect == permissions.Deny {
-			return fail(BuildPermissionDeniedOutput(decision.Reason))
+			return nil, fail(BuildPermissionDeniedOutput(decision.Reason))
 		}
 		if decision.Effect == permissions.Ask {
 			patterns := append([]string{}, a.Checker.RememberPatterns(tc.toolName, tc.arguments)...)
 			decision.RememberPatterns = patterns
 			// Mirrors requestToolPermission: an abort before or during the
 			// request resolves the race as "deny", so the tool result is the
-			// plain rejection (the loop's dispatch-level abort check reports
-			// the interruption for the remaining calls).
+			// plain rejection (the dispatch-level abort check reports the
+			// interruption for the remaining calls).
 			if ctx.Err() != nil {
-				return fail(conversation.RejectedToolResult)
+				return nil, fail(conversation.RejectedToolResult)
 			}
 			response := make(chan PermissionReply, 1)
 			request := PermissionRequestEvent{Context: ctx, AgentName: a.agentName(), Cwd: a.CurrentCwd(), ToolName: tc.toolName, ToolID: tc.toolID, Args: tc.arguments, Decision: decision, Desc: permissions.DescribeToolAction(tc.toolName, tc.arguments), ResponseCh: response}
@@ -406,22 +425,22 @@ func (a *Agent) executeSingleTool(ctx context.Context, eventCh chan AgentEvent, 
 				select {
 				case reply = <-response:
 				case <-ctx.Done():
-					return fail(conversation.RejectedToolResult)
+					return nil, fail(conversation.RejectedToolResult)
 				}
 			case <-ctx.Done():
-				return fail(conversation.RejectedToolResult)
+				return nil, fail(conversation.RejectedToolResult)
 			}
 			if reply.Response == PermDeny {
-				return fail(conversation.RejectedToolResult)
+				return nil, fail(conversation.RejectedToolResult)
 			}
 			if reply.Response == PermAllowAlways && len(patterns) == 0 {
 				reply.Response = PermAllow
 			}
-			// Persist exactly the displayed scopes, and only while the run is
-			// live (reference: `response === "allowAlways" && !aborted`).
+			// Persist exactly the displayed scopes, and only while the run
+			// is live (reference: response === "allowAlways" && !aborted).
 			if reply.Response == PermAllowAlways && ctx.Err() == nil {
 				if err := a.Checker.AllowAlways(tc.toolName, tc.arguments, patterns); err != nil {
-					return fail("Permission request failed: " + err.Error() + ". The tool was not executed.")
+					return nil, fail("Permission request failed: " + err.Error() + ". The tool was not executed.")
 				}
 			}
 		}
@@ -439,7 +458,7 @@ func (a *Agent) executeSingleTool(ctx context.Context, eventCh chan AgentEvent, 
 	if a.Checker != nil {
 		worktrees = a.Checker
 	}
-	ctx = tools.WithExecutionContext(ctx, tools.ExecutionContext{Worktrees: worktrees, Plan: planning, RequestPermission: func(requestCtx context.Context, request tools.PermissionRequest) int {
+	execution := tools.ExecutionContext{Worktrees: worktrees, Plan: planning, RequestPermission: func(requestCtx context.Context, request tools.PermissionRequest) int {
 		response := make(chan PermissionReply, 1)
 		agentName := request.AgentName
 		if agentName == "" {
@@ -464,34 +483,49 @@ func (a *Agent) executeSingleTool(ctx context.Context, eventCh chan AgentEvent, 
 		if a.Checker == nil {
 			return nil
 		}
-		target := a.Registry.Get(name)
-		if target == nil {
-			return &tools.ToolResult{Output: fmt.Sprintf("Error: unknown tool '%s'", name), IsError: true}
+		category := tools.CategoryWrite
+		if name == "Bash" || name == "PowerShell" {
+			category = tools.CategoryCommand
 		}
-		decision := a.Checker.Check(target, args)
-		if decision.Effect == permissions.Deny || decision.Effect == permissions.Ask && a.Checker.Mode() != approvedMode {
+		decision := a.Checker.CheckNamed(name, category, args)
+		if decision.Effect == permissions.Deny || decision.Effect == permissions.Ask && approvedMode != "" && a.Checker.Mode() != approvedMode {
 			return &tools.ToolResult{Output: fmt.Sprintf("Permission changed while waiting: %s. Request approval again before retrying.", decision.Reason), IsError: true}
 		}
 		return nil
-	}})
-	result := tool.Execute(ctx, tc.arguments)
+	}}
+	return &toolPreparation{tool: tool, arguments: arguments, hookCalls: calls, execution: execution}, nil
+}
 
+// executePreparedCall mirrors the reference executor's executeCall: parse
+// errors, a pre-start abort, and unknown tools are reported without running
+// anything; otherwise the approved tool executes under telemetry observation
+// and panics become tool errors.
+func (a *Agent) executePreparedCall(ctx context.Context, tc toolCallInfo, prep *toolPreparation, agentTelemetry *telemetry.AgentTelemetry) (executionResult toolExecResult) {
+	start := time.Now()
+	fail := func(output string) toolExecResult {
+		return toolExecResult{toolID: tc.toolID, toolName: tc.toolName, output: output, isError: true}
+	}
+	defer func() {
+		if value := recover(); value != nil {
+			executionResult = fail(fmt.Sprintf("Error executing %s: %v", tc.toolName, value))
+			executionResult.elapsed = time.Since(start)
+		}
+	}()
+	if tc.parseError != "" {
+		return fail("Error: " + tc.parseError + ". The tool was not executed.")
+	}
+	if ctx.Err() != nil {
+		return fail(tools.ExecutionCancelledError)
+	}
+	if prep == nil || prep.tool == nil {
+		// On invalid tool name, return a single error and let the model
+		// self-correct with another tool; keep the loop running.
+		return fail(fmt.Sprintf("Error: unknown tool '%s'", tc.toolName))
+	}
+	result := telemetry.ObserveToolExecution(tc.toolName, func() tools.ToolResult {
+		return prep.tool.Execute(tools.WithExecutionContext(ctx, prep.execution), prep.arguments)
+	}, func(r tools.ToolResult) bool { return r.IsError }, agentTelemetry)
 	a.RecordRecentTool(tc.toolName)
-
-	if !result.IsError && tc.toolName == "ReadFile" && len(result.ContentBlocks) == 0 {
-		if path, _ := tc.arguments["file_path"].(string); path != "" {
-			a.RecoveryState.RecordFileRead(path, result.Output)
-		}
-	}
-	if a.Hooks != nil {
-		for i := len(calls) - 1; i >= 0; i-- {
-			call := calls[i]
-			for _, hookResult := range a.Hooks.Fire(hooks.EventPostToolUse, hooks.HookContext{Event: hooks.EventPostToolUse, ToolName: call.tool.Name(), Args: call.args, FilePath: extractFilePath(call.args), Message: result.Output}, hooks.HookRuntimeOptions{Cwd: a.CurrentCwd(), Abort: ctx}) {
-				a.Hooks.RecordNotification(hookResult.Output)
-			}
-		}
-	}
-
 	return toolExecResult{
 		toolID:        tc.toolID,
 		toolName:      tc.toolName,
@@ -500,6 +534,30 @@ func (a *Agent) executeSingleTool(ctx context.Context, eventCh chan AgentEvent, 
 		elapsed:       time.Since(start),
 		contentBlocks: result.ContentBlocks,
 		mcpApp:        result.McpApp,
+	}
+}
+
+// finalizeToolResult mirrors the reference processToolResult: the ReadFile
+// recovery snapshot and the post-tool hooks (routed target first, then the
+// outer call) run sequentially as each executor result completes.
+func (a *Agent) finalizeToolResult(ctx context.Context, tc toolCallInfo, prep *toolPreparation, r toolExecResult) {
+	if !r.isError && tc.toolName == "ReadFile" && len(r.contentBlocks) == 0 {
+		if path, _ := tc.arguments["file_path"].(string); path != "" {
+			a.RecoveryState.RecordFileRead(path, r.output)
+		}
+	}
+	if a.Hooks == nil {
+		return
+	}
+	calls := []permissionCall{{name: tc.toolName, args: tc.arguments}}
+	if prep != nil && len(prep.hookCalls) > 0 {
+		calls = prep.hookCalls
+	}
+	for i := len(calls) - 1; i >= 0; i-- {
+		call := calls[i]
+		for _, hookResult := range a.Hooks.Fire(hooks.EventPostToolUse, hooks.HookContext{Event: hooks.EventPostToolUse, ToolName: call.name, Args: call.args, FilePath: extractFilePath(call.args), Message: r.output}, hooks.HookRuntimeOptions{Cwd: a.CurrentCwd(), Abort: ctx}) {
+			a.Hooks.RecordNotification(hookResult.Output)
+		}
 	}
 }
 

@@ -14,9 +14,12 @@ const (
 	OutputRequiredError       = "Error: output is required"
 	QuestionCountError        = "Error: must have 1-4 questions"
 	CommandInterruptedError   = "Error: command interrupted"
-	FileNotReadError          = "Error: file has not been read yet, read it first before editing."
-	FileDeletedError          = "Error: file was deleted or is no longer accessible; read it again before editing."
-	FileModifiedError         = "Error: file has been modified since last read, read it again before editing."
+	// ExecutionCancelledError mirrors EXECUTION_CANCELLED_ERROR: reported by
+	// the executor when a submitted call is aborted before it starts.
+	ExecutionCancelledError = "Tool execution was cancelled before it started."
+	FileNotReadError        = "Error: file has not been read yet, read it first before editing."
+	FileDeletedError        = "Error: file was deleted or is no longer accessible; read it again before editing."
+	FileModifiedError       = "Error: file has been modified since last read, read it again before editing."
 )
 
 const PlanModeUnavailableError = "Plan mode is unavailable because no permission context exists."

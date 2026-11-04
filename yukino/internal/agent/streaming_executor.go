@@ -49,6 +49,12 @@ func (se *StreamingExecutor) Submit(tc toolCallInfo) {
 	se.mu.Unlock()
 }
 
+// ExecuteAll mirrors the reference executeTools/executeBatch split: each
+// concurrency batch first runs the loop-side preparation (abort check,
+// filter, routing, hooks, permissions) sequentially for every call, and only
+// then executes the approved calls — concurrently for parallel batches, one
+// at a time otherwise. Results are emitted and finalized in completion
+// order while the returned slice retains call order for persistence.
 func (se *StreamingExecutor) ExecuteAll(ctx context.Context, agent *Agent) []toolExecResult {
 	se.mu.Lock()
 	calls := append([]toolCallInfo(nil), se.calls...)
@@ -65,22 +71,55 @@ func (se *StreamingExecutor) ExecuteAll(ctx context.Context, agent *Agent) []too
 
 	for _, batch := range batches {
 		if batch.concurrent && len(batch.calls) > 1 {
-			var wg sync.WaitGroup
-			for _, entry := range batch.calls {
-				wg.Add(1)
-				go func(e toolCallEntry) {
-					defer wg.Done()
-					r := se.observeTool(ctx, agent, e.tc)
-					se.emitResult(r)
-					se.mu.Lock()
-					results[e.index] = r
-					se.mu.Unlock()
-				}(entry)
+			type preparedEntry struct {
+				entry toolCallEntry
+				prep  *toolPreparation
 			}
-			wg.Wait()
+			var ready []preparedEntry
+			for _, entry := range batch.calls {
+				prep, immediate := se.prepare(ctx, agent, entry.tc)
+				if immediate != nil {
+					se.emitResult(*immediate)
+					results[entry.index] = *immediate
+					continue
+				}
+				ready = append(ready, preparedEntry{entry: entry, prep: prep})
+			}
+			type indexedResult struct {
+				index  int
+				entry  toolCallEntry
+				prep   *toolPreparation
+				result toolExecResult
+			}
+			done := make(chan indexedResult, len(ready))
+			var wg sync.WaitGroup
+			for _, pe := range ready {
+				wg.Add(1)
+				go func(pe preparedEntry) {
+					defer wg.Done()
+					r := agent.executePreparedCall(ctx, pe.entry.tc, pe.prep, se.telemetry)
+					done <- indexedResult{index: pe.entry.index, entry: pe.entry, prep: pe.prep, result: r}
+				}(pe)
+			}
+			go func() {
+				wg.Wait()
+				close(done)
+			}()
+			for ir := range done {
+				agent.finalizeToolResult(ctx, ir.entry.tc, ir.prep, ir.result)
+				se.emitResult(ir.result)
+				results[ir.index] = ir.result
+			}
 		} else {
 			for _, entry := range batch.calls {
-				r := se.observeTool(ctx, agent, entry.tc)
+				prep, immediate := se.prepare(ctx, agent, entry.tc)
+				if immediate != nil {
+					se.emitResult(*immediate)
+					results[entry.index] = *immediate
+					continue
+				}
+				r := agent.executePreparedCall(ctx, entry.tc, prep, se.telemetry)
+				agent.finalizeToolResult(ctx, entry.tc, prep, r)
 				se.emitResult(r)
 				results[entry.index] = r
 			}
@@ -91,12 +130,14 @@ func (se *StreamingExecutor) ExecuteAll(ctx context.Context, agent *Agent) []too
 	return results
 }
 
-// observeTool wraps a single tool execution with the tool observation,
-// mirroring observeToolExecution around tool.execute in the reference.
-func (se *StreamingExecutor) observeTool(ctx context.Context, agent *Agent, tc toolCallInfo) toolExecResult {
-	return telemetry.ObserveToolExecution(tc.toolName, func() toolExecResult {
-		return agent.executeSingleTool(ctx, se.eventCh, tc)
-	}, func(result toolExecResult) bool { return result.isError }, se.telemetry)
+// prepare runs the loop-side pipeline for one call. A nil preparation with a
+// nil result means the call goes to the executor untouched (parse errors are
+// the executor's to report, like the reference).
+func (se *StreamingExecutor) prepare(ctx context.Context, agent *Agent, tc toolCallInfo) (*toolPreparation, *toolExecResult) {
+	if tc.parseError != "" {
+		return nil, nil
+	}
+	return agent.prepareToolCall(ctx, se.eventCh, tc)
 }
 
 func (se *StreamingExecutor) emitResult(r toolExecResult) {
