@@ -1,9 +1,9 @@
 {
   "reference_commit": "1847a71e03f90d0e5fc60a2a797c60af327b7750",
   "counts": {
-    "Corrected": 233,
+    "Corrected": 234,
     "Language-specific difference": 5,
-    "Partially aligned": 43,
+    "Partially aligned": 42,
     "Reviewed": 38,
     "Shared browser build": 51,
     "Synchronized artifact": 7
@@ -1225,7 +1225,7 @@
       "source": "src/teams/progress.ts",
       "source_sha256": "9d1d03d77784e915418aa3b00c7667f6dc0781b6cedc568f9e07393072d80b58",
       "counterpart": "`internal/teams/progress.go`",
-      "status": "Partially aligned"
+      "status": "Corrected"
     },
     {
       "source": "src/teams/prompts.ts",

@@ -1,7 +1,8 @@
 package teams
 
 import (
-	"fmt"
+	"math"
+	"strconv"
 	"sync"
 	"time"
 	"unicode/utf16"
@@ -140,14 +141,21 @@ func (p *TeammateProgress) GetTokenCount() int64 {
 	return p.TokenCount
 }
 
+// jsToFixed1 renders v with one decimal digit using JavaScript's
+// Number.toFixed(1) rounding: exact ties go away from zero, while Go's %.1f
+// rounds half-to-even (0.25 would print "0.2" instead of the reference "0.3").
+func jsToFixed1(v float64) string {
+	return strconv.FormatFloat(math.Round(v*10)/10, 'f', 1, 64)
+}
+
 func FormatTokens(n int64) string {
 	if n >= 1_000_000 {
-		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+		return jsToFixed1(float64(n)/1_000_000) + "M"
 	}
 	if n >= 1_000 {
-		return fmt.Sprintf("%.1fk", float64(n)/1_000)
+		return jsToFixed1(float64(n)/1_000) + "k"
 	}
-	return fmt.Sprintf("%d", n)
+	return strconv.FormatInt(n, 10)
 }
 
 func (p *TeammateProgress) RecordToolStart(id, name string, input map[string]any) {
@@ -190,9 +198,10 @@ func (p *TeammateProgress) ClearActivity() {
 func (p *TeammateProgress) SetLastMessage(message string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	r := []rune(message)
-	if len(r) > MaxLastMessageChars {
-		message = string(r[:MaxLastMessageChars]) + "..."
+	// The reference clips by UTF-16 code units (String.length/slice), not runes.
+	units := utf16.Encode([]rune(message))
+	if len(units) > MaxLastMessageChars {
+		message = string(utf16.Decode(units[:MaxLastMessageChars])) + "..."
 	}
 	p.LastMessage = message
 }
