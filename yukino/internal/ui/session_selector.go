@@ -9,7 +9,6 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/yukino-js/yukino/yukino/internal/conversation"
 	"github.com/yukino-js/yukino/yukino/internal/file_history"
 	"github.com/yukino-js/yukino/yukino/internal/session"
 	"github.com/yukino-js/yukino/yukino/internal/todo"
@@ -267,12 +266,11 @@ func (m Model) doResumeSession(wd, targetID string, saved []session.Message) (te
 
 	replay := session.RebuildFromSession(saved, false)
 
-	for _, msg := range replay {
-		if msg.Content != "" {
-			m.chatMessages = append(m.chatMessages, chatMessage{role: msg.Role, content: msg.Content})
-		}
-		m.conversation.AppendMessages([]conversation.Message{msg})
-	}
+	// Render the rebuilt transcript the same way the reference does
+	// (transcriptFromRestored): user-Bash cards, tool turn_summary cards, and
+	// text messages — not just text.
+	m.chatMessages = append(m.chatMessages, transcriptFromRestored(replay)...)
+	m.conversation.AppendMessages(replay)
 
 	m.chatMessages = append(m.chatMessages, chatMessage{
 		role:    "system",

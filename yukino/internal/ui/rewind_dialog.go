@@ -13,6 +13,8 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/file_history"
 	"github.com/yukino-js/yukino/yukino/internal/logger"
 	"github.com/yukino-js/yukino/yukino/internal/session"
+	"github.com/yukino-js/yukino/yukino/internal/subagent"
+	"github.com/yukino-js/yukino/yukino/internal/tool_result"
 	"os"
 )
 
@@ -242,7 +244,7 @@ func (m *Model) rewindConversation(snap file_history.Snapshot) []chatMessage {
 			if lerr == nil {
 				m.conversation.Reset()
 				m.conversation.AppendMessages(session.RebuildFromSession(saved, false))
-				return transcriptFromConversation(session.RebuildFromSession(saved, true))
+				return transcriptFromRestored(session.RebuildFromSession(saved, true))
 			}
 			// A read failure after truncation falls back to message-index
 			// truncation rather than silently rewinding to an empty transcript.
@@ -250,22 +252,65 @@ func (m *Model) rewindConversation(snap file_history.Snapshot) []chatMessage {
 		}
 	}
 	m.conversation.TruncateTo(snap.MessageIndex)
-	return transcriptFromConversation(m.conversation.GetMessages())
+	return transcriptFromRestored(m.conversation.GetMessages())
 }
 
 // transcriptFromConversation maps the truncated conversation back onto visible
 // chat messages after a rewind, dropping system reminders like the reference
 // transcript filter.
-func transcriptFromConversation(messages []conversation.Message) []chatMessage {
+// transcriptFromRestored mirrors the reference transcriptFromRestored, shared by
+// /resume and /rewind so both leave the transcript in sync with the rebuilt
+// conversation. User-Bash records render as cards, tool uses/results fold into
+// turn_summary cards (matching how live turns are committed), and other messages
+// render their text; anything with no visible text is skipped.
+func transcriptFromRestored(messages []conversation.Message) []chatMessage {
+	type pendingUse struct {
+		toolName string
+		args     map[string]any
+	}
+	pendingUses := map[string]pendingUse{}
 	var out []chatMessage
 	for _, msg := range messages {
-		if msg.Content == "" {
+		if msg.UserBash != nil {
+			out = append(out, userBashCard(*msg.UserBash))
 			continue
 		}
-		if msg.Role == "system" || strings.HasPrefix(msg.Content, "<system-reminder>") {
+		for _, tu := range msg.ToolUses {
+			pendingUses[tu.ToolUseID] = pendingUse{toolName: tu.ToolName, args: tu.Arguments}
+		}
+		if len(msg.ToolResults) > 0 {
+			var toolGroup []toolBlockInfo
+			for _, tr := range msg.ToolResults {
+				use := pendingUses[tr.ToolUseID]
+				delete(pendingUses, tr.ToolUseID)
+				toolName := use.toolName
+				if toolName == "" {
+					toolName = "tool"
+				}
+				tb := toolBlockInfo{
+					toolName: toolName,
+					args:     use.args,
+					output:   tool_result.ToDisplayPreview(tr.Content),
+					isError:  tr.IsError,
+				}
+				// Restored Agent cards get the same status semantics as live ones:
+				// the interruption marker means the run was stopped, so it must not
+				// render as a green success card.
+				if toolName == "Agent" && !tr.IsError {
+					if strings.Contains(tr.Content, subagent.SubagentInterruptedMarker) {
+						tb.status = "stopped"
+					} else {
+						tb.status = "completed"
+					}
+				}
+				toolGroup = append(toolGroup, tb)
+			}
+			out = append(out, chatMessage{role: "turn_summary", toolGroup: toolGroup})
 			continue
 		}
-		out = append(out, chatMessage{role: msg.Role, content: msg.Content})
+		if strings.TrimSpace(msg.Content) != "" {
+			out = append(out, chatMessage{role: msg.Role, content: msg.Content})
+		}
 	}
 	return out
 }
