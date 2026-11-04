@@ -2,8 +2,8 @@
   "reference_commit": "1847a71e03f90d0e5fc60a2a797c60af327b7750",
   "counts": {
     "Corrected": 251,
-    "Language-specific difference": 5,
-    "Partially aligned": 25,
+    "Language-specific difference": 7,
+    "Partially aligned": 23,
     "Reviewed": 38,
     "Shared browser build": 51,
     "Synchronized artifact": 7
@@ -31,7 +31,7 @@
       "source": "src/a2a/executor.ts",
       "source_sha256": "9cefd1e12e57302bb0b805c8f91861415716f9e204cef5e065f45a3f22a6e04b",
       "counterpart": "`internal/a2a/executor.go`, `internal/a2a/runtime.go`",
-      "status": "Partially aligned"
+      "status": "Language-specific difference"
     },
     {
       "source": "src/a2a/index.ts",
@@ -1597,7 +1597,7 @@
       "source": "src/tools/types.ts",
       "source_sha256": "041dec31ea96b1c7faea83c6346ae76f73dd1d90b3d50e49d70de67ed7029443",
       "counterpart": "`internal/tools/tool.go`, `internal/tools/execution_coordinator.go`, `internal/conversation/content_blocks.go`",
-      "status": "Partially aligned"
+      "status": "Language-specific difference"
     },
     {
       "source": "src/tools/web-fetch.ts",

@@ -220,7 +220,6 @@ func CreateA2aRuntime(cwd string, sessionID string) (Runtime, error) {
 		if len(result.Tools) > 0 {
 			mcp.DecideAndApply(r.registry, provider.BaseURL, provider.Protocol, r.contextWindow, cfg.MCPLoading)
 		}
-		mcp.SyncMcpInstructions(r.conv, r.mcpAnnounced, mgr)
 	}
 
 	r.checker = permissions.NewChecker(
@@ -313,14 +312,19 @@ func (r *agentRuntime) Run(text string) (<-chan agent.AgentEvent, error) {
 	return out, nil
 }
 
-// runAgent saves the user message, announces MCP instructions once, builds
-// the agent and forwards its events to out.
+// runAgent saves the user message, announces MCP instructions (replay-aware,
+// per run like the reference AgentHandleImpl.run), builds the agent and
+// forwards its events to out.
 func (r *agentRuntime) runAgent(ctx context.Context, out chan<- agent.AgentEvent, text string, input history.InputEntry) {
 	if _, err := session.SaveUserMessage(r.cwd, r.sessionID, input, session.Message{Content: text}); err != nil {
 		out <- agent.ErrorEvent{Message: err.Error()}
 		return
 	}
 	r.conv.AddUserMessage(text)
+
+	if r.mcpMgr != nil {
+		mcp.SyncMcpInstructions(r.conv, r.mcpAnnounced, r.mcpMgr)
+	}
 
 	ag := agent.New(r.client, r.registry, r.provider.Protocol)
 	ag.WorkDir = r.cwd
@@ -371,11 +375,22 @@ func (r *agentRuntime) runAgent(ctx context.Context, out chan<- agent.AgentEvent
 		ag.ActivateSkill(name, body)
 	}
 	if r.memoryEnabled {
-		r.memoryTasks = background.New(r.client, r.cwd, background.Callbacks{
-			AppendSystem: func(s string) { r.conv.AddSystemReminder(s) },
-		})
+		// Mirrors the reference onLoopComplete: lazily create the tasks on the
+		// first loop completion and skip them once the runtime is disposed.
 		ag.OnLoopComplete = func(loopConv *conversation.Manager) {
-			r.memoryTasks.Run(loopConv)
+			r.mu.Lock()
+			if r.disposed {
+				r.mu.Unlock()
+				return
+			}
+			if r.memoryTasks == nil {
+				r.memoryTasks = background.New(r.client, r.cwd, background.Callbacks{
+					AppendSystem: func(s string) { r.conv.AddSystemReminder(s) },
+				})
+			}
+			tasks := r.memoryTasks
+			r.mu.Unlock()
+			tasks.Run(loopConv)
 		}
 	}
 
@@ -451,9 +466,17 @@ func (r *agentRuntime) Dispose() error {
 	if r.cancel != nil {
 		r.cancel()
 	}
+	tasks := r.memoryTasks
+	r.memoryTasks = nil
 	r.mu.Unlock()
-	if r.memoryTasks != nil {
-		r.memoryTasks.Dispose()
+	if tasks != nil {
+		tasks.Dispose()
+	}
+	if r.teamMgr != nil {
+		r.teamMgr.CloseAll()
+	}
+	if r.mcpMgr != nil {
+		r.mcpMgr.DisconnectAll()
 	}
 	if r.registry != nil {
 		return r.registry.Dispose()

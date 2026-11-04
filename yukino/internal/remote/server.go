@@ -345,8 +345,14 @@ func (s *Server) Stop() {
 		_ = s.httpServer.Close()
 	}
 	s.stopMemoryTasks()
+	if s.teamMgr != nil {
+		s.teamMgr.CloseAll()
+	}
 	if s.mcpApps != nil {
 		s.mcpApps.Clear()
+	}
+	if s.mcpMgr != nil {
+		s.mcpMgr.DisconnectAll()
 	}
 	if s.registry != nil {
 		_ = s.registry.Dispose()
