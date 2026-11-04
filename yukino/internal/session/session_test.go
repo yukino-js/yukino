@@ -28,7 +28,7 @@ func TestSaveAndLoad(t *testing.T) {
 	SaveMessage(dir, sid, Message{Role: "user", Content: "hello", Timestamp: 1})
 	SaveMessage(dir, sid, Message{Role: "assistant", Content: "hi", Timestamp: 2})
 
-	msgs := LoadSession(dir, sid)
+	msgs, _ := LoadSession(dir, sid)
 	if len(msgs) != 2 {
 		t.Fatalf("expected 2 messages, got %d", len(msgs))
 	}
@@ -43,7 +43,7 @@ func TestSaveAndLoad(t *testing.T) {
 func TestLoadEmpty(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
-	msgs := LoadSession(dir, "nonexistent")
+	msgs, _ := LoadSession(dir, "nonexistent")
 	if len(msgs) != 0 {
 		t.Fatalf("expected 0 messages, got %d", len(msgs))
 	}
@@ -113,7 +113,7 @@ func TestFindLastCompactBoundary_RebuildsCompactedState(t *testing.T) {
 	SaveMessage(dir, sid, Message{Role: "user", Content: "AFTER-BOUNDARY-USER", Timestamp: 5})
 	SaveMessage(dir, sid, Message{Role: "assistant", Content: "AFTER-BOUNDARY-ASSISTANT", Timestamp: 6})
 
-	msgs := LoadSession(dir, sid)
+	msgs, _ := LoadSession(dir, sid)
 
 	boundary, after, ok := FindLastCompactBoundary(msgs)
 	if !ok {
@@ -176,7 +176,7 @@ func TestFindLastCompactBoundary_UsesLastBoundary(t *testing.T) {
 	SaveCompactBoundary(dir, sid, "SUMMARY-2", []KeepMessage{{Role: "assistant", Content: "KEEP-2"}})
 	SaveMessage(dir, sid, Message{Role: "user", Content: "NEWEST", Timestamp: 5})
 
-	msgs := LoadSession(dir, sid)
+	msgs, _ := LoadSession(dir, sid)
 	boundary, after, ok := FindLastCompactBoundary(msgs)
 	if !ok {
 		t.Fatalf("expected a boundary")
@@ -201,7 +201,7 @@ func TestFindLastCompactBoundary_NoBoundaryFullReplay(t *testing.T) {
 	SaveMessage(dir, sid, Message{Role: "assistant", Content: "hi", Timestamp: 2})
 	SaveMessage(dir, sid, Message{Role: "user", Content: "again", Timestamp: 3})
 
-	msgs := LoadSession(dir, sid)
+	msgs, _ := LoadSession(dir, sid)
 	_, _, ok := FindLastCompactBoundary(msgs)
 	if ok {
 		t.Fatalf("legacy session must report no boundary so caller does a full replay")
@@ -236,7 +236,7 @@ func TestToolBlocksRoundTrip(t *testing.T) {
 	SaveMessage(dir, id, FromConversation(assistant))
 	SaveMessage(dir, id, FromConversation(toolResult))
 
-	loaded := LoadSession(dir, id)
+	loaded, _ := LoadSession(dir, id)
 	if len(loaded) != 2 {
 		t.Fatalf("expected 2 records, got %d", len(loaded))
 	}
@@ -271,7 +271,7 @@ func TestLoadKeepsEmptyContentToolResult(t *testing.T) {
 		ToolResults: []ToolResultRecord{{ToolUseID: "toolu_9", Content: "ok"}},
 	})
 
-	loaded := LoadSession(dir, id)
+	loaded, _ := LoadSession(dir, id)
 	if len(loaded) != 1 {
 		t.Fatalf("tool-result-only record was dropped, got %d records", len(loaded))
 	}
@@ -292,7 +292,7 @@ func TestLoadRejectsLegacyTimestampRecords(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	loaded := LoadSession(dir, id)
+	loaded, _ := LoadSession(dir, id)
 	if len(loaded) != 0 {
 		t.Fatalf("obsolete timestamp records must be rejected, got %+v", loaded)
 	}
@@ -311,7 +311,7 @@ func TestSaveTranscriptCompactBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	msgs := LoadTranscript(transcript)
+	msgs, _ := LoadTranscript(transcript)
 	boundary, after, ok := FindLastCompactBoundary(msgs)
 	if !ok {
 		t.Fatal("expected a compact boundary in the custom transcript")

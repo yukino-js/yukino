@@ -210,10 +210,12 @@ func SaveTranscriptMessage(path string, msg Message) error {
 
 // parseTranscriptRecords returns every parsable record, mirroring
 // parseTranscriptRecords in the reference.
-func parseTranscriptRecords(path string) []Message {
+func parseTranscriptRecords(path string) ([]Message, error) {
 	data, err := storage.ReadPrivateFileSync(path)
 	if err != nil {
-		return nil
+		// The reference's readFileSync throws on a non-ENOENT read failure and
+		// withFileSyncLock re-throws it, so loadSession propagates to the caller.
+		return nil, err
 	}
 	var msgs []Message
 	invalidRecords := 0
@@ -236,29 +238,33 @@ func parseTranscriptRecords(path string) []Message {
 	if invalidRecords > 0 {
 		log.Error(map[string]any{"err": firstErr, "filePath": path, "invalidRecords": invalidRecords}, "Invalid session records skipped")
 	}
-	return msgs
+	return msgs, nil
 }
 
 // LoadSessionForResume reads the transcript under the file lock and renews
 // its mtime so an actively resumed session is not swept as expired.
-func LoadSessionForResume(workDir, sessionID string) []Message {
+func LoadSessionForResume(workDir, sessionID string) ([]Message, error) {
 	_ = history.RegisterProject(workDir)
 	return loadTranscript(SessionFilePath(workDir, sessionID), true)
 }
 
-func loadTranscript(path string, renew bool) []Message {
+func loadTranscript(path string, renew bool) ([]Message, error) {
 	if path == "" {
-		return nil
+		return nil, nil
 	}
 	if _, err := os.Stat(filepath.Dir(path)); err != nil {
-		return nil
+		return nil, nil
 	}
 	var msgs []Message
-	_ = storage.WithFileSyncLock(path, func() error {
+	lockErr := storage.WithFileSyncLock(path, func() error {
 		if _, err := os.Stat(path); err != nil {
 			return nil
 		}
-		for _, msg := range parseTranscriptRecords(path) {
+		records, err := parseTranscriptRecords(path)
+		if err != nil {
+			return err
+		}
+		for _, msg := range records {
 			if msg.Empty() {
 				continue
 			}
@@ -270,14 +276,17 @@ func loadTranscript(path string, renew bool) []Message {
 		}
 		return nil
 	})
-	return msgs
+	if lockErr != nil {
+		return nil, lockErr
+	}
+	return msgs, nil
 }
 
-func LoadSession(workDir, sessionID string) []Message {
+func LoadSession(workDir, sessionID string) ([]Message, error) {
 	return loadTranscript(SessionFilePath(workDir, sessionID), false)
 }
 
-func LoadTranscript(path string) []Message { return loadTranscript(path, false) }
+func LoadTranscript(path string) ([]Message, error) { return loadTranscript(path, false) }
 
 func SessionLineCount(path string) (int, bool, error) {
 	if path == "" {
@@ -376,7 +385,7 @@ func ListSessions(workDir string) []SessionInfo {
 		id := strings.TrimSuffix(e.Name(), SessionFileExtension)
 		filePath := filepath.Join(dir, e.Name())
 		var info *SessionInfo
-		_ = storage.WithFileSyncLock(filePath, func() error {
+		lockErr := storage.WithFileSyncLock(filePath, func() error {
 			stat, err := os.Stat(filePath)
 			if err != nil {
 				return nil
@@ -384,7 +393,11 @@ func ListSessions(workDir string) []SessionInfo {
 			firstMessage := ""
 			messageCount := 0
 			lastUserTs := int64(-1)
-			for _, msg := range parseTranscriptRecords(filePath) {
+			records, err := parseTranscriptRecords(filePath)
+			if err != nil {
+				return err
+			}
+			for _, msg := range records {
 				if msg.Type == GoalRecord {
 					continue
 				}
@@ -411,6 +424,11 @@ func ListSessions(workDir string) []SessionInfo {
 			info = &entry
 			return nil
 		})
+		if lockErr != nil {
+			// The reference wraps each file in try/catch and logs
+			// "session operation failed", skipping the unreadable session.
+			log.Error(map[string]any{"err": lockErr}, "session operation failed")
+		}
 		if info != nil {
 			sessions = append(sessions, *info)
 		}

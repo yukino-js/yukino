@@ -26,7 +26,7 @@ func TestUserBashStoresHistoryAndExcludesDoubleBang(t *testing.T) {
 			if m.userBash != nil || len(m.chatMessages) != 1 || !strings.Contains(m.chatMessages[0].toolGroup[0].output, "hello world") {
 				t.Fatalf("missing Bash result: %#v", m.chatMessages)
 			}
-			saved := session.LoadSession(m.getWorkDir(), m.sessionID)
+			saved, _ := session.LoadSession(m.getWorkDir(), m.sessionID)
 			if len(saved) != 1 || saved[0].UserBash == nil || saved[0].UserInput == nil {
 				t.Fatalf("Bash history not persisted: %#v", saved)
 			}

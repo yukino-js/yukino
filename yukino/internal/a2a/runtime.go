@@ -90,7 +90,11 @@ func CreateA2aRuntime(cwd string, sessionID string) (Runtime, error) {
 	restoring := sessionID != ""
 	var saved []session.Message
 	if restoring {
-		saved = session.LoadSession(cwd, sessionID)
+		var lerr error
+		saved, lerr = session.LoadSession(cwd, sessionID)
+		if lerr != nil {
+			return nil, lerr
+		}
 		if len(saved) == 0 {
 			return nil, errors.New(TranscriptUnavailableError)
 		}

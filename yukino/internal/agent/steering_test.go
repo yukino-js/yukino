@@ -56,7 +56,7 @@ func TestSteeringKeepsTextOnlyRunAliveAndPersistsIdentity(t *testing.T) {
 	if turn < 0 || delivered <= turn || client.callIdx != 2 {
 		t.Fatalf("wrong ordering: %+v", events)
 	}
-	saved := session.LoadSessionForResume(ag.WorkDir, ag.SessionID)
+	saved, _ := session.LoadSessionForResume(ag.WorkDir, ag.SessionID)
 	found := false
 	for _, message := range saved {
 		if message.Content == "correction" {

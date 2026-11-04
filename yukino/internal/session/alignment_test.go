@@ -33,7 +33,7 @@ func TestResumePreservesMessageMetadata(t *testing.T) {
 	if err := SaveMessage(cwd, id, FromConversation(result)); err != nil {
 		t.Fatal(err)
 	}
-	loaded := LoadSession(cwd, id)
+	loaded, _ := LoadSession(cwd, id)
 	got := RebuildFromSession(loaded, false)
 	if len(got) != 3 || got[0].UserInput == nil || *got[0].UserInput != *user.UserInput || !reflect.DeepEqual(got[0].ContentBlocks, user.ContentBlocks) || !reflect.DeepEqual(got[1].ThinkingBlocks, assistant.ThinkingBlocks) || got[1].ToolUses[0].ProviderItemID != "provider-call" || !reflect.DeepEqual(got[2].ToolResults, result.ToolResults) {
 		t.Fatalf("metadata lost on resume: %+v", got)
@@ -80,7 +80,7 @@ func TestTruncateAndExpiryRemoveArtifacts(t *testing.T) {
 	if err := TruncateSessionLines(path, 2); err != nil {
 		t.Fatal(err)
 	}
-	got := LoadSession(cwd, id)
+	got, _ := LoadSession(cwd, id)
 	if len(got) != 2 || got[1].Content != "two" {
 		t.Fatalf("rewind did not survive reload: %+v", got)
 	}

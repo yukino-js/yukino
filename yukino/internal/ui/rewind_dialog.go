@@ -11,6 +11,7 @@ import (
 
 	"github.com/yukino-js/yukino/yukino/internal/conversation"
 	"github.com/yukino-js/yukino/yukino/internal/file_history"
+	"github.com/yukino-js/yukino/yukino/internal/logger"
 	"github.com/yukino-js/yukino/yukino/internal/session"
 	"os"
 )
@@ -237,10 +238,15 @@ func (m *Model) rewindConversation(snap file_history.Snapshot) []chatMessage {
 	if snap.SessionLineCount != nil {
 		if _, err := os.Stat(sessionFilePath); err == nil {
 			_ = session.TruncateSessionLines(sessionFilePath, *snap.SessionLineCount)
-			saved := session.LoadSession(wd, m.sessionID)
-			m.conversation.Reset()
-			m.conversation.AppendMessages(session.RebuildFromSession(saved, false))
-			return transcriptFromConversation(session.RebuildFromSession(saved, true))
+			saved, lerr := session.LoadSession(wd, m.sessionID)
+			if lerr == nil {
+				m.conversation.Reset()
+				m.conversation.AppendMessages(session.RebuildFromSession(saved, false))
+				return transcriptFromConversation(session.RebuildFromSession(saved, true))
+			}
+			// A read failure after truncation falls back to message-index
+			// truncation rather than silently rewinding to an empty transcript.
+			logger.Global().Error(map[string]any{"err": lerr, "sessionId": m.sessionID}, "rewind reload failed; falling back to message-index truncation")
 		}
 	}
 	m.conversation.TruncateTo(snap.MessageIndex)

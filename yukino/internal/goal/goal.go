@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode/utf16"
 
+	"github.com/yukino-js/yukino/yukino/internal/logger"
 	"github.com/yukino-js/yukino/yukino/internal/session"
 )
 
@@ -186,9 +187,23 @@ type GoalManager struct {
 	trackingUsage bool
 }
 
+// log mirrors the reference goal module's child logger.
+var log = logger.CreateChildLogger("goal")
+
+// NewGoalManager restores goal state from the session transcript. The reference
+// GoalManager constructor lets loadSession throw on a non-ENOENT read failure;
+// Go logs and continues with no restored state instead of rippling an error
+// return through every creation site (ui currentGoal, remote goal(), a2a
+// runtime), whose many callers all expect a usable manager. The unrestored
+// state matches the reference's practical effect; the read error is surfaced.
 func NewGoalManager(cwd, sessionID string) *GoalManager {
 	m := &GoalManager{cwd: cwd, sessionID: sessionID}
-	for _, record := range session.LoadSession(cwd, sessionID) {
+	records, err := session.LoadSession(cwd, sessionID)
+	if err != nil {
+		log.Error(map[string]any{"err": err, "cwd": cwd, "sessionId": sessionID}, "goal state restore failed")
+		records = nil
+	}
+	for _, record := range records {
 		if record.Type != GoalRecord {
 			continue
 		}

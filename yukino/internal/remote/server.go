@@ -1199,7 +1199,14 @@ func (s *Server) handleResume(args string) {
 		targetID = sessions[idx-1].ID
 	}
 
-	msgs := session.LoadSessionForResume(wd, targetID)
+	msgs, err := session.LoadSessionForResume(wd, targetID)
+	if err != nil {
+		s.send(wsMessage{Type: "error", Data: map[string]string{
+			"message": fmt.Sprintf("Failed to load session '%s': %v", targetID, err),
+		}})
+		s.send(wsMessage{Type: "command_done", Data: nil})
+		return
+	}
 	if len(msgs) == 0 {
 		s.send(wsMessage{Type: "error", Data: map[string]string{
 			"message": fmt.Sprintf("Session '%s' not found or empty.", targetID),
@@ -1794,7 +1801,11 @@ func (s *Server) rewindConversation(snap file_history.Snapshot) {
 					s.send(wsMessage{Type: "error", Data: map[string]string{"message": terr.Error()}})
 					return
 				}
-				saved := session.LoadSession(wd, s.sessionID)
+				saved, lerr := session.LoadSession(wd, s.sessionID)
+				if lerr != nil {
+					s.send(wsMessage{Type: "error", Data: map[string]string{"message": lerr.Error()}})
+					return
+				}
 				rebuilt := session.RebuildFromSession(saved, false)
 				s.conv.Reset()
 				s.conv.AppendMessages(rebuilt)
