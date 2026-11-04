@@ -213,8 +213,15 @@ type Server struct {
 	todoList     *todo.TaskList
 	memoryMgr    *memory.Manager
 	memoryTasks  *background.Tasks
-	teamMgr      *teams.TeamManager
-	mcpMgr       *mcp.Manager
+	// memoryMu guards memoryTasks and the lazy-creation read of s.client:
+	// OnLoopComplete fires on its own goroutine while stopMemoryTasks runs
+	// from the WS command flows.
+	memoryMu sync.Mutex
+	// disposed mirrors the reference AgentHandleImpl.disposed: Stop sets it so
+	// a late OnLoopComplete cannot recreate memory tasks after teardown.
+	disposed atomic.Bool
+	teamMgr  *teams.TeamManager
+	mcpMgr   *mcp.Manager
 
 	instructionsContent   string
 	memoryContent         string
@@ -328,6 +335,7 @@ func (s *Server) sendTo(ws *websocket.Conn, msg wsMessage) {
 // tool registry (MCP children, background tasks). Run returns nil once the
 // server has stopped.
 func (s *Server) Stop() {
+	s.disposed.Store(true)
 	s.runMu.Lock()
 	s.stopping = true
 	s.runMu.Unlock()
@@ -336,9 +344,7 @@ func (s *Server) Stop() {
 	if s.httpServer != nil {
 		_ = s.httpServer.Close()
 	}
-	if s.memoryTasks != nil {
-		s.memoryTasks.Dispose()
-	}
+	s.stopMemoryTasks()
 	if s.mcpApps != nil {
 		s.mcpApps.Clear()
 	}
@@ -638,7 +644,7 @@ func (s *Server) initAgent() error {
 
 	s.wireSkillsToAgent(wd)
 	if s.memoryEnabled {
-		s.memoryTasks = installMemoryTasks(ag, wd, client, s.conv)
+		s.installMemoryTasks(ag, wd)
 	}
 
 	return nil
@@ -1220,6 +1226,7 @@ func (s *Server) handleResume(args string) {
 			return
 		}
 	}
+	s.stopMemoryTasks()
 	if err := s.restoreSession(targetID); err != nil {
 		s.send(wsMessage{Type: "error", Data: map[string]string{"message": err.Error()}})
 		s.send(wsMessage{Type: "command_done", Data: nil})
@@ -1314,6 +1321,7 @@ func (s *Server) restoreSession(targetID string) error {
 // fresh session id and resets every piece of session-scoped state in place, so
 // /resume and the JSONL no longer see the pre-clear history.
 func (s *Server) clearConversation() {
+	s.stopMemoryTasks()
 	_ = s.rotateSessionState(session.NewID())
 	s.mcpAnnounced = map[string]bool{}
 }
@@ -1728,10 +1736,11 @@ func (s *Server) handleRewindAction(snapshotID, action string) {
 		return
 	}
 	snap := snapshots[snapshotIndex]
-	// The reference stops memory tasks here for non-code-only rewinds. Go's
-	// background extractor drains a copied snapshot of the messages, so
-	// truncating the live conversation cannot corrupt in-flight extraction;
-	// there is nothing to stop.
+	// Mirrors the reference's fire-and-forget `void handle.stopMemoryTasks()`:
+	// the rewind proceeds while the in-flight extraction drains.
+	if action != "code_only" {
+		go s.stopMemoryTasks()
+	}
 	fileList := func(changed []string) string {
 		if len(changed) == 0 {
 			return ""
@@ -2563,7 +2572,18 @@ func (s *Server) rebuildClientFor(provider *config.ProviderConfig) error {
 	if err != nil {
 		return err
 	}
+	// Mirrors the reference applyModel/applyProviderSwitch: dispose the memory
+	// tasks before the client swap so the next loop completion recreates them
+	// with the new client. The swap shares OnLoopComplete's lock because the
+	// lazy recreation reads s.client on its own goroutine.
+	s.memoryMu.Lock()
+	stale := s.memoryTasks
+	s.memoryTasks = nil
 	s.client = client
+	s.memoryMu.Unlock()
+	if stale != nil {
+		stale.Dispose()
+	}
 	if s.ag != nil {
 		s.ag.Client = client
 		s.ag.ContextWindow = config.GetContextWindow(provider)
@@ -2982,14 +3002,43 @@ func loadCustomInstructions(wd string) string {
 	return memory.LoadInstructions(wd)
 }
 
-func installMemoryTasks(ag *agent.Agent, wd string, client llm.Client, conv *conversation.Manager) *background.Tasks {
-	tasks := background.New(client, wd, background.Callbacks{
-		AppendSystem: func(s string) { conv.AddSystemReminder(s) },
-	})
+// installMemoryTasks wires the agent's loop-complete hook to lazily create and
+// run the background memory tasks, mirroring the reference onLoopComplete
+// (`if (!this.memoryEnabled || this.disposed) return;
+// this.memoryTasks ??= new BackgroundMemoryTasks(this.client, this.cwd, ...);
+// this.memoryTasks.run(conv)`). Lazy creation lets stopMemoryTasks dispose the
+// tasks on resume/clear/rewind/client-swap and have them recreated on the next
+// loop completion bound to the reset conversation and current client.
+func (s *Server) installMemoryTasks(ag *agent.Agent, wd string) {
 	ag.OnLoopComplete = func(loopConv *conversation.Manager) {
-		tasks.Run(loopConv)
+		if !s.memoryEnabled || s.disposed.Load() {
+			return
+		}
+		s.memoryMu.Lock()
+		defer s.memoryMu.Unlock()
+		if s.disposed.Load() {
+			return
+		}
+		if s.memoryTasks == nil {
+			s.memoryTasks = background.New(s.client, wd, background.Callbacks{
+				AppendSystem: func(message string) { s.conv.AddSystemReminder(message) },
+			})
+		}
+		s.memoryTasks.Run(loopConv)
 	}
-	return tasks
+}
+
+// stopMemoryTasks disposes the background memory tasks and clears the reference
+// so the next loop completion recreates them, mirroring the reference
+// stopMemoryTasks (dispose + null).
+func (s *Server) stopMemoryTasks() {
+	s.memoryMu.Lock()
+	tasks := s.memoryTasks
+	s.memoryTasks = nil
+	s.memoryMu.Unlock()
+	if tasks != nil {
+		tasks.Dispose()
+	}
 }
 
 func newAgentHookRunner(client llm.Client) func(prompt string, ctx hooks.HookContext) (string, error) {

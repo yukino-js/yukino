@@ -1,9 +1,9 @@
 {
   "reference_commit": "1847a71e03f90d0e5fc60a2a797c60af327b7750",
   "counts": {
-    "Corrected": 250,
+    "Corrected": 251,
     "Language-specific difference": 5,
-    "Partially aligned": 26,
+    "Partially aligned": 25,
     "Reviewed": 38,
     "Shared browser build": 51,
     "Synchronized artifact": 7
@@ -1027,7 +1027,7 @@
       "source": "src/remote/session-state.ts",
       "source_sha256": "a57c9d543be27bb1b50b0b07b210893ecce5754e8a465a214a8a54ca6f09a2ed",
       "counterpart": "`internal/remote/server.go`, `internal/remote/goal.go`",
-      "status": "Partially aligned"
+      "status": "Corrected"
     },
     {
       "source": "src/sandbox/bwrap.ts",
