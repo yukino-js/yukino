@@ -88,5 +88,5 @@ func (m Model) renderThinkingDialog() string {
 		}
 		lines = append(lines, line)
 	}
-	return renderSelectorFrame(selectorFrameParams{title: "Thinking level", subtitle: subtitle, hint: "↑↓/←→ navigate · Enter select · Esc cancel", content: strings.Join(lines, "\n"), width: m.width, rows: rows})
+	return m.renderSelectorFrame(selectorFrameParams{title: "Thinking level", subtitle: subtitle, hint: "↑↓/←→ navigate · Enter select · Esc cancel", content: strings.Join(lines, "\n"), width: m.width, rows: rows, scrollKey: "thinking"})
 }

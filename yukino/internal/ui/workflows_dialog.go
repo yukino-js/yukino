@@ -347,5 +347,5 @@ func (m Model) renderWorkflowsDialog() string {
 	for i, line := range lines {
 		lines[i] = truncateToWidth(line, width, "…")
 	}
-	return renderSelectorFrame(selectorFrameParams{title: workflow.WorkflowPanelTitle, subtitle: subtitle, hint: hint, content: strings.Join(lines, "\n"), width: m.width, rows: rows})
+	return m.renderSelectorFrame(selectorFrameParams{title: workflow.WorkflowPanelTitle, subtitle: subtitle, hint: hint, content: strings.Join(lines, "\n"), width: m.width, rows: rows, scrollKey: "workflows"})
 }

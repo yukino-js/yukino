@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -170,5 +171,49 @@ func TestPlanApprovalFeedbackFieldActions(t *testing.T) {
 	}
 	if got := m.planApprovalEditor.Value(); got != "" {
 		t.Fatalf("editor must reset after submit, got %q", got)
+	}
+}
+
+// TestSelectorFrameScrollHysteresis pins the reference ContentViewport
+// scroll: the window moves only when the focused row would leave it
+// (down → bottom edge, up → top edge), keeping its position in between.
+func TestSelectorFrameScrollHysteresis(t *testing.T) {
+	m := newChatModel(t)
+	m.selectorScrolls = map[string]int{}
+	var lines []string
+	for i := 0; i < 20; i++ {
+		lines = append(lines, fmt.Sprintf("l%d", i))
+	}
+	p := selectorFrameParams{
+		title:       "t",
+		hint:        "h",
+		content:     strings.Join(lines, "\n"),
+		width:       80,
+		rows:        12,
+		focusRow:    0,
+		focusHeight: 1,
+		scrollKey:   "test",
+	}
+	// rows=12 → borders+title+hint chrome (4) → limit 8.
+	rendered := m.renderSelectorFrame(p)
+	if !strings.Contains(rendered, " l0") || strings.Contains(rendered, " l8") {
+		t.Fatalf("initial window must be l0..l7:\n%s", rendered)
+	}
+	p.focusRow = 8
+	rendered = m.renderSelectorFrame(p)
+	if strings.Contains(rendered, " l0") || !strings.Contains(rendered, " l8") {
+		t.Fatalf("scrolling down must move the focus to the bottom edge:\n%s", rendered)
+	}
+	// Moving back up one row keeps the window (hysteresis); the stateless
+	// bottom-pinned formula would have re-pinned l7 to the bottom edge.
+	p.focusRow = 7
+	rendered = m.renderSelectorFrame(p)
+	if strings.Contains(rendered, " l0") || !strings.Contains(rendered, " l8") {
+		t.Fatalf("moving up inside the window must not scroll:\n%s", rendered)
+	}
+	p.focusRow = 0
+	rendered = m.renderSelectorFrame(p)
+	if !strings.Contains(rendered, " l0") || strings.Contains(rendered, " l8") {
+		t.Fatalf("reaching above the window must scroll to the top edge:\n%s", rendered)
 	}
 }

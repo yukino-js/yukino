@@ -704,7 +704,7 @@ func (m Model) renderLoginFrame(rows int) string {
 	content.WriteString("\n")
 	content.WriteString(selectorHintStyle().Render("Home/End · Ctrl+B/F move cursor"))
 
-	return renderSelectorFrame(selectorFrameParams{
+	return m.renderSelectorFrame(selectorFrameParams{
 		title:    "Provider login",
 		subtitle: subtitle,
 		hint:     "↑↓/Tab field · ←→ choose in protocol/thinking/model-list fields · Enter submit · Esc cancel",

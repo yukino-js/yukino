@@ -345,5 +345,5 @@ func (m Model) renderAskUserDialog() string {
 	for i, line := range lines {
 		lines[i] = truncateToWidth(line, width, "…")
 	}
-	return renderSelectorFrame(selectorFrameParams{title: "Answer questions", hint: hint, content: strings.Join(lines, "\n"), width: m.width, rows: m.dialogAvailableRows(), focusRow: focus, focusHeight: focusHeight})
+	return m.renderSelectorFrame(selectorFrameParams{title: "Answer questions", hint: hint, content: strings.Join(lines, "\n"), width: m.width, rows: m.dialogAvailableRows(), focusRow: focus, focusHeight: focusHeight, scrollKey: "ask"})
 }

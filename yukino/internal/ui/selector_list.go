@@ -226,7 +226,9 @@ func renderSelectorList(p selectorListParams) string {
 		content.WriteString(p.renderRows(windowStart, visibleCount, contentWidth))
 	}
 
-	return renderSelectorFrame(selectorFrameParams{
+	// The reference SelectorList passes no focusRef, so its frame never
+	// scrolls: a stateless Model renders it exactly like the focus-less case.
+	return Model{}.renderSelectorFrame(selectorFrameParams{
 		title:   p.title,
 		hint:    p.hint,
 		content: strings.TrimSuffix(content.String(), "\n"),

@@ -79,10 +79,17 @@ type selectorFrameParams struct {
 	rows        int
 	focusRow    int
 	focusHeight int
+	// scrollKey identifies the dialog for the persistent ContentViewport
+	// scroll position (empty for focus-less list frames, which never scroll).
+	scrollKey string
 }
 
-// renderSelectorFrame mirrors SelectorFrame in src/ui/selector-frame.tsx.
-func renderSelectorFrame(p selectorFrameParams) string {
+// renderSelectorFrame mirrors SelectorFrame in src/ui/selector-frame.tsx,
+// including the ContentViewport focus scroll: the window position persists
+// per scrollKey across renders and moves only when the focused row would
+// leave the viewport (up → focus at the top edge, down → focus at the
+// bottom edge), exactly like the reference's scroll state.
+func (m Model) renderSelectorFrame(p selectorFrameParams) string {
 	if p.rows <= 0 {
 		return ""
 	}
@@ -129,9 +136,28 @@ func renderSelectorFrame(p selectorFrameParams) string {
 		lines = nil
 	}
 	limit := max(0, p.rows-chrome.height)
-	focusHeight := max(1, p.focusHeight)
-	start := min(max(0, p.focusRow+min(focusHeight, limit)-limit), max(0, len(lines)-limit))
-	for _, line := range lines[start:min(len(lines), start+limit)] {
+	overflow := max(0, len(lines)-limit)
+	scroll := 0
+	if m.selectorScrolls != nil && p.scrollKey != "" {
+		scroll = m.selectorScrolls[p.scrollKey]
+	}
+	if scroll > overflow {
+		scroll = overflow
+	}
+	if limit > 0 {
+		start := p.focusRow
+		end := start + min(max(1, p.focusHeight), limit)
+		if start < scroll {
+			scroll = start
+		} else if end > scroll+limit {
+			scroll = end - limit
+		}
+		scroll = max(0, min(overflow, scroll))
+	}
+	if m.selectorScrolls != nil && p.scrollKey != "" {
+		m.selectorScrolls[p.scrollKey] = scroll
+	}
+	for _, line := range lines[scroll:min(len(lines), scroll+limit)] {
 		sb.WriteString(pad(truncateToWidth(line, contentWidth, "…")))
 		sb.WriteString("\n")
 	}

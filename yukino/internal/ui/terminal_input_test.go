@@ -118,7 +118,7 @@ func TestSetThemeUpdatesAllRuntimeStyles(t *testing.T) {
 		if GetThemeMode() != mode || Theme != palette || string(accentColor) != palette.Accent || string(normalText) != palette.Text || string(dimText) != palette.Dim || string(brightText) != palette.Bright {
 			t.Fatalf("stale styles after %s", mode)
 		}
-		frame := renderSelectorFrame(selectorFrameParams{title: "title", subtitle: "subtitle", hint: "Enter select", rows: 8, width: 80})
+		frame := Model{}.renderSelectorFrame(selectorFrameParams{title: "title", subtitle: "subtitle", hint: "Enter select", rows: 8, width: 80})
 		var got, want [3]int
 		if _, err := fmt.Sscanf(frame, "\x1b[38;2;%d;%d;%dm", &got[0], &got[1], &got[2]); err != nil {
 			t.Fatal(err)

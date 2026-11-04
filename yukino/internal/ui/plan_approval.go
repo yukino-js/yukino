@@ -138,7 +138,7 @@ func (m Model) renderPlanApprovalDialog() string {
 			lines = append(lines, " "+paint("Feedback is required.", Theme.Error))
 		}
 	}
-	return renderSelectorFrame(selectorFrameParams{
+	return m.renderSelectorFrame(selectorFrameParams{
 		title:       "Plan complete",
 		subtitle:    "Yukino has written a plan and is ready to execute.",
 		hint:        "↑↓ navigate · Enter select · Shift+Tab submit feedback · Esc approve with manual confirmation",

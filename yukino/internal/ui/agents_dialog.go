@@ -235,7 +235,7 @@ func (m Model) renderAgentEntries(entries []agentDialogEntry) string {
 	for i, line := range lines {
 		lines[i] = truncateToWidth(line, width, "…")
 	}
-	return renderSelectorFrame(selectorFrameParams{title: title, subtitle: subtitle, hint: hint, content: strings.Join(lines, "\n"), width: m.width, rows: rows})
+	return m.renderSelectorFrame(selectorFrameParams{title: title, subtitle: subtitle, hint: hint, content: strings.Join(lines, "\n"), width: m.width, rows: rows, scrollKey: "agents"})
 }
 func formatAgentElapsed(start int64) string {
 	seconds := int((time.Now().UnixMilli() - start) / 1000)

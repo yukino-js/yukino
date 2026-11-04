@@ -1,9 +1,9 @@
 {
   "reference_commit": "1847a71e03f90d0e5fc60a2a797c60af327b7750",
   "counts": {
-    "Corrected": 264,
+    "Corrected": 266,
     "Language-specific difference": 7,
-    "Partially aligned": 10,
+    "Partially aligned": 8,
     "Reviewed": 38,
     "Shared browser build": 51,
     "Synchronized artifact": 7
@@ -1789,7 +1789,7 @@
       "source": "src/ui/selector-frame.tsx",
       "source_sha256": "a051a49a9ec42300a7d79041ef048d5504b847ef5200b691159aa8240695fccc",
       "counterpart": "`internal/ui/selector_frame.go`",
-      "status": "Partially aligned"
+      "status": "Corrected"
     },
     {
       "source": "src/ui/selector-layout.ts",
@@ -1801,7 +1801,7 @@
       "source": "src/ui/selector-list.tsx",
       "source_sha256": "2a78ba1a8c2cc0293c23e33a58794e5a4d0dbafd8d7678cceed792c5ea175065",
       "counterpart": "`internal/ui/selector_list.go`",
-      "status": "Partially aligned"
+      "status": "Corrected"
     },
     {
       "source": "src/ui/selector-search.ts",

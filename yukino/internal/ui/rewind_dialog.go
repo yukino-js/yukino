@@ -97,7 +97,7 @@ func (m Model) renderRewindSnapshotList() string {
 		content.WriteString(" " + line + "\n")
 	}
 
-	return renderSelectorFrame(selectorFrameParams{
+	return m.renderSelectorFrame(selectorFrameParams{
 		title:   "Rewind to checkpoint",
 		hint:    "↑↓ navigate · Enter select · Escape cancel",
 		content: strings.TrimSuffix(content.String(), "\n"),
@@ -136,7 +136,7 @@ func (m Model) renderRewindOptionsDialog() string {
 		content.WriteString(" " + line + "\n")
 	}
 
-	return renderSelectorFrame(selectorFrameParams{
+	return m.renderSelectorFrame(selectorFrameParams{
 		title:    "Choose rewind scope",
 		subtitle: subtitle,
 		hint:     "↑↓ navigate · Enter select · Escape back",

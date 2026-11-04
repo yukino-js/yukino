@@ -36,6 +36,11 @@ func (m *Model) presentNextPermission() {
 		m.permissionCurrent = &request
 		m.permDialog = true
 		m.permCursor = 0
+		// The reference remounts the dialog per request, resetting the
+		// ContentViewport scroll along with the cursor.
+		if m.selectorScrolls != nil {
+			m.selectorScrolls["perm"] = 0
+		}
 		m.permToolName = request.ToolName
 		m.permDesc = request.Desc
 		m.permRespCh = request.ResponseCh
@@ -65,6 +70,9 @@ func (m *Model) presentNextAsk() {
 			continue
 		}
 		m.askUserDialog = true
+		if m.selectorScrolls != nil {
+			m.selectorScrolls["ask"] = 0
+		}
 		m.askUserQuestions = req.Questions
 		m.askUserRespCh = req.ResponseCh
 		m.askUserQIdx = 0

@@ -184,9 +184,12 @@ type Model struct {
 	fileHistory  *file_history.History
 	defaultTools tools.DefaultTools
 
-	planApprovalDialog   bool
-	planApprovalCursor   int
-	planApprovalEditor   inputEditor
+	planApprovalDialog bool
+	planApprovalCursor int
+	planApprovalEditor inputEditor
+	// selectorScrolls holds the per-dialog ContentViewport scroll position
+	// (reference: ContentViewport useState, remounted with each dialog).
+	selectorScrolls      map[string]int
 	planFeedbackRequired bool
 
 	rewindDialog       bool
@@ -351,6 +354,7 @@ func New(providers []config.ProviderConfig, mcpConfigs []config.MCPServerConfig,
 		subAgentProgressCh: subProgressCh,
 		goalBinder:         binder,
 		ideMentionCh:       make(chan vscode.IdeAtMention, 16),
+		selectorScrolls:    map[string]int{},
 	}
 	if m.providerCursor < 0 || m.providerCursor >= len(providers) {
 		m.providerCursor = 0

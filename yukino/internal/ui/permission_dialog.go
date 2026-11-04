@@ -100,7 +100,7 @@ func (m Model) renderPermDialog() string {
 		}
 		lines = append(lines, line)
 	}
-	return renderSelectorFrame(selectorFrameParams{title: fmt.Sprintf("%s: %s requires approval", agentName, m.permToolName), subtitle: truncateToWidth(detail, 160, "…"), hint: "↑↓ navigate · Enter select · Escape deny", content: strings.Join(lines, "\n"), width: m.width, rows: m.dialogAvailableRows(), focusRow: focus})
+	return m.renderSelectorFrame(selectorFrameParams{title: fmt.Sprintf("%s: %s requires approval", agentName, m.permToolName), subtitle: truncateToWidth(detail, 160, "…"), hint: "↑↓ navigate · Enter select · Escape deny", content: strings.Join(lines, "\n"), width: m.width, rows: m.dialogAvailableRows(), focusRow: focus, scrollKey: "perm"})
 }
 
 func nextPermissionMode(current permissions.PermissionMode) permissions.PermissionMode {

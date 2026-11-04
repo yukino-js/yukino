@@ -317,7 +317,7 @@ func (m Model) renderModelDialog() string {
 		}
 		content := renderDialogTextField("Model id: ", m.modelCustomText, m.modelCustomCursor, max(1, m.width-4)) + "\n" +
 			selectorHintStyle().Render("Any id is accepted, even one the provider does not list.")
-		return renderSelectorFrame(selectorFrameParams{
+		return m.renderSelectorFrame(selectorFrameParams{
 			title:    "Select model",
 			subtitle: StatusMessages[status] + " — type a model id",
 			hint:     "Enter set model · Esc cancel",
@@ -328,7 +328,7 @@ func (m Model) renderModelDialog() string {
 	}
 
 	if m.modelState.status != ModelPickerReady {
-		return renderSelectorFrame(selectorFrameParams{
+		return m.renderSelectorFrame(selectorFrameParams{
 			title:    "Select model",
 			subtitle: "Current model: " + currentModel,
 			hint:     "Esc cancel",
