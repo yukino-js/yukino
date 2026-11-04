@@ -1,8 +1,8 @@
 package ui
 
 import (
-	"bytes"
 	"math"
+	"os"
 	"testing"
 )
 
@@ -50,18 +50,26 @@ func TestVteVersion(t *testing.T) {
 }
 
 func TestSyncOutputWriter(t *testing.T) {
-	var buf bytes.Buffer
-	w := syncOutputWriter{out: &buf}
-	n, err := w.Write([]byte("frame"))
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	defer w.Close()
+	sw := syncOutputWriter{out: w}
+	n, err := sw.Write([]byte("frame"))
 	if err != nil || n != 5 {
 		t.Fatal(n, err)
 	}
-	if buf.String() != "\x1b[?2026hframe\x1b[?2026l" {
-		t.Fatalf("%q", buf.String())
+	buf := make([]byte, len("\x1b[?2026hframe\x1b[?2026l"))
+	if _, err := r.Read(buf); err != nil {
+		t.Fatal(err)
 	}
-	written := buf.Len()
-	n, err = w.Write(nil)
-	if err != nil || n != 0 || buf.Len() != written {
-		t.Fatal(n, err, buf.Len())
+	if string(buf) != "\x1b[?2026hframe\x1b[?2026l" {
+		t.Fatalf("%q", buf)
+	}
+	n, err = sw.Write(nil)
+	if err != nil || n != 0 {
+		t.Fatal(n, err)
 	}
 }

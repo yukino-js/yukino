@@ -53,8 +53,17 @@ func vteVersion() int {
 // syncOutputWriter frames every write in BSU/ESU. bubbletea's standard
 // renderer flushes each frame as a single write, so one write is one frame —
 // the granularity the reference achieves by corking stdout around each Ink
-// render pass.
-type syncOutputWriter struct{ out io.Writer }
+// render pass. It must keep implementing term.File (Fd/Read/Close) so
+// bubbletea still recognizes the output TTY and delivers WindowSizeMsg.
+type syncOutputWriter struct{ out *os.File }
+
+var _ term.File = syncOutputWriter{}
+
+func (w syncOutputWriter) Fd() uintptr { return w.out.Fd() }
+
+func (w syncOutputWriter) Read(p []byte) (int, error) { return w.out.Read(p) }
+
+func (w syncOutputWriter) Close() error { return w.out.Close() }
 
 func (w syncOutputWriter) Write(p []byte) (int, error) {
 	if len(p) == 0 {
@@ -79,5 +88,5 @@ func InstallTerminalOutput(out io.Writer) io.Writer {
 	if !ok || !term.IsTerminal(file.Fd()) || !isSyncOutputSupported() {
 		return out
 	}
-	return syncOutputWriter{out: out}
+	return syncOutputWriter{out: file}
 }
