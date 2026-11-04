@@ -2,6 +2,7 @@ package ui
 
 import (
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -23,10 +24,22 @@ func TestDownNavigatesHistoryBeforeOpeningAgents(t *testing.T) {
 		t.Fatal(err)
 	}
 	block := make(chan struct{})
-	defer close(block)
-	if _, err := taskMgr.Create("bg", func(string) (string, error) { <-block; return "", nil }, func() {}, tools.TaskOptions{}); err != nil {
+	bgID, err := taskMgr.Create("bg", func(string) (string, error) { <-block; return "", nil }, func() {}, tools.TaskOptions{})
+	if err != nil {
 		t.Fatal(err)
 	}
+	// Unblock the task at teardown and wait for its goroutine to leave running so
+	// its session-dir writes settle before t.TempDir cleanup removes the tree.
+	defer func() {
+		close(block)
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			if task := taskMgr.Get(bgID); task == nil || task.Status != "running" {
+				return
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}()
 	m.taskMgr = taskMgr
 	if len(m.agentEntries()) == 0 {
 		t.Fatal("expected a running background task entry")

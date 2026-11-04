@@ -72,6 +72,10 @@ func (m *Model) activateInitialProvider(p *config.ProviderConfig) tea.Cmd {
 	ag.NotificationFn = m.drainTaskNotifications
 	ag.ToolNameFilter = teams.CoordinatorToolFilter(m.EnableCoordinatorMode)
 	ag.CoordinatorActiveFn = teams.CoordinatorActiveFn(m.EnableCoordinatorMode)
+	// Mirror the reference's `shouldContinueGoal: () => !followUps.hasPending()`:
+	// a queued follow-up pauses goal continuation at the next turn boundary. The
+	// queue depth is pushed via syncFollowUps at the Update return points.
+	ag.ShouldContinueGoal = ag.NoPendingFollowUps
 	if len(m.hookConfigs) > 0 {
 		eng := hooks.NewEngine(m.hookConfigs)
 		eng.AgentRunner = newAgentHookRunner(client)

@@ -152,8 +152,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			next.pendingMessages = append([]queuedMessage{message}, next.pendingMessages...)
 			next.queuePaused = true
 		}
+		next.syncFollowUps()
 		return next, tea.Batch(cmd, dispatchCmd)
 	}
+	next.syncFollowUps()
 	return next, cmd
 }
 
@@ -228,6 +230,16 @@ func (m Model) dispatchInput(text string, input *history.InputEntry) (tea.Model,
 		return m, nil
 	}
 	return m.sendMessage(text, input)
+}
+
+// syncFollowUps pushes the current follow-up queue depth to the agent so its
+// goal-continuation gate (ShouldContinueGoal) reflects queued input. Every
+// pendingMessages mutation settles before one of the two Update return points
+// that call this, so the agent always observes the post-mutation depth.
+func (m Model) syncFollowUps() {
+	if m.ag != nil {
+		m.ag.SetPendingFollowUps(len(m.pendingMessages))
+	}
 }
 
 func (m *Model) recallQueued() (string, bool) {

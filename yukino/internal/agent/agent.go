@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/yukino-js/yukino/yukino/internal/compact"
@@ -62,6 +63,10 @@ type Agent struct {
 	surfacedMemPaths    map[string]struct{}
 	steeringMu          sync.Mutex
 	steeringQueue       []SteeringMessage
+	// pendingFollowUps is the depth of the UI follow-up queue, written by the UI
+	// goroutine (SetPendingFollowUps) and read by the run loop at goal-continuation
+	// boundaries (NoPendingFollowUps). Atomic because the two run concurrently.
+	pendingFollowUps int32
 }
 
 type SteeringMessage struct {
@@ -119,6 +124,21 @@ func (a *Agent) hasSteering() bool {
 	a.steeringMu.Lock()
 	defer a.steeringMu.Unlock()
 	return len(a.steeringQueue) > 0
+}
+
+// SetPendingFollowUps records how many follow-up messages the UI has queued but
+// not yet dispatched. The UI pushes this after every queue mutation so the run
+// loop's goal-continuation gate reflects queued input.
+func (a *Agent) SetPendingFollowUps(n int) {
+	atomic.StoreInt32(&a.pendingFollowUps, int32(n))
+}
+
+// NoPendingFollowUps mirrors the reference's `shouldContinueGoal: () =>
+// !followUps.hasPending()`: a goal run yields at the next turn boundary when the
+// UI has queued a follow-up, so the queued input is dispatched promptly instead
+// of waiting for the whole goal to finish.
+func (a *Agent) NoPendingFollowUps() bool {
+	return atomic.LoadInt32(&a.pendingFollowUps) == 0
 }
 
 func (a *Agent) deliverSteering(ctx context.Context, conv *conversation.Manager, ch chan AgentEvent) (int, error) {

@@ -1,9 +1,9 @@
 {
   "reference_commit": "1847a71e03f90d0e5fc60a2a797c60af327b7750",
   "counts": {
-    "Corrected": 243,
+    "Corrected": 244,
     "Language-specific difference": 5,
-    "Partially aligned": 33,
+    "Partially aligned": 32,
     "Reviewed": 38,
     "Shared browser build": 51,
     "Synchronized artifact": 7
@@ -1933,7 +1933,7 @@
       "source": "src/ui/use-follow-up-queue.ts",
       "source_sha256": "42bed4a36254b3062522d918c68f7c72b89e5388c7ebf5ea01aeafbd4e5432e2",
       "counterpart": "`internal/ui/terminal_controls.go`",
-      "status": "Partially aligned"
+      "status": "Corrected"
     },
     {
       "source": "src/ui/use-ide-input.ts",
