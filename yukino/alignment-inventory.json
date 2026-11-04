@@ -1,9 +1,9 @@
 {
   "reference_commit": "1847a71e03f90d0e5fc60a2a797c60af327b7750",
   "counts": {
-    "Corrected": 232,
+    "Corrected": 233,
     "Language-specific difference": 5,
-    "Partially aligned": 44,
+    "Partially aligned": 43,
     "Reviewed": 38,
     "Shared browser build": 51,
     "Synchronized artifact": 7
@@ -1219,7 +1219,7 @@
       "source": "src/teams/index.ts",
       "source_sha256": "db5c0ac1bc34cd9cf577f016a33d25901c1b2a39ba054ab9636732462e7dca6f",
       "counterpart": "`internal/teams/teams.go`, `internal/teams/runner.go`, `internal/teams/in_process.go`, `internal/teams/plan.go`",
-      "status": "Partially aligned"
+      "status": "Corrected"
     },
     {
       "source": "src/teams/progress.ts",

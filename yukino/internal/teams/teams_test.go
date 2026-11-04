@@ -261,3 +261,25 @@ func TestSpawnTeammateReusesInactiveMember(t *testing.T) {
 		t.Errorf("missing terminal idle notification: %+v", msgs)
 	}
 }
+
+func TestDeleteAllRemovesInMemoryAndResidualTeams(t *testing.T) {
+	useTempHome(t)
+	mgr := NewTeamManager(t.TempDir())
+	if _, err := mgr.CreateTeam("alpha", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mgr.CreateTeam("beta", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	residual := teamDir(mgr.cwd, "gamma")
+	if err := os.MkdirAll(residual, 0700); err != nil {
+		t.Fatal(err)
+	}
+	mgr.DeleteAll()
+	if len(mgr.ListTeams()) != 0 {
+		t.Fatalf("in-memory teams survived DeleteAll: %v", mgr.ListTeams())
+	}
+	if names := ListTeamNames(mgr.cwd); len(names) != 0 {
+		t.Fatalf("residual team directories survived DeleteAll: %v", names)
+	}
+}

@@ -163,8 +163,8 @@ func TestDrainLeadMailbox(t *testing.T) {
 	mgr := NewTeamManager(t.TempDir())
 	t1 := &Team{Name: "alpha", Members: map[string]*Member{}, MailBox: NewFileMailBox(t.TempDir())}
 	t2 := &Team{Name: "beta", Members: map[string]*Member{}, MailBox: NewFileMailBox(t.TempDir())}
-	mgr.CreateTeamWith(t1)
-	mgr.CreateTeamWith(t2)
+	createTeamWith(mgr, t1)
+	createTeamWith(mgr, t2)
 
 	_ = t1.MailBox.Send(LeadName, FileMailMessage{From: "ann", Text: "[idle] ann (reason: available)"})
 	_ = t2.MailBox.Send(LeadName, FileMailMessage{From: "bob", Text: "[idle] bob (reason: failed)"})
@@ -216,7 +216,7 @@ func TestHasLeaderNotifications(t *testing.T) {
 		t.Fatal("nil manager must report no notifications")
 	}
 	team := &Team{Name: "alpha", Members: map[string]*Member{}, MailBox: NewFileMailBox(t.TempDir())}
-	mgr.CreateTeamWith(team)
+	createTeamWith(mgr, team)
 	if HasLeaderNotifications(mgr) {
 		t.Fatal("expected no notifications before any message")
 	}

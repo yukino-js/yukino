@@ -187,7 +187,7 @@ func (t *Team) pruneTerminatedMembers() {
 	var terminal []*Member
 	for _, name := range t.memberOrder {
 		member := t.Members[name]
-		if member == nil || member.Active || member.Cancel != nil || member.Progress == nil {
+		if member == nil || member.Active || member.Cancel != nil || member.Done != nil || member.Progress == nil {
 			continue
 		}
 		switch member.Progress.GetStatus() {
@@ -215,18 +215,6 @@ func (t *Team) pruneTerminatedMembers() {
 	}
 	t.memberOrder = keep
 	WriteTeamFile(t.Cwd, t.Name, t.snapshot(), removedNames...)
-}
-
-func (t *Team) GetTeammateProgress() []*TeammateProgress {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	var result []*TeammateProgress
-	for _, m := range t.Members {
-		if m.Progress != nil {
-			result = append(result, m.Progress)
-		}
-	}
-	return result
 }
 
 func (t *Team) SendMessage(from, to, content string) error {
@@ -368,25 +356,15 @@ func (tm *TeamManager) GetTaskStore(teamName string) *SharedTaskStore {
 	return store
 }
 
-func (tm *TeamManager) CreateTeamWith(team *Team) {
-	defer tm.emitChange()
-	tm.mu.Lock()
-	defer tm.mu.Unlock()
-	key := sanitizeTeamName(team.Name)
-	if tm.teams[key] == nil {
-		tm.order = append(tm.order, key)
-	}
-	tm.teams[key] = team
-}
-
 func (tm *TeamManager) GetTeam(name string) *Team {
 	tm.mu.Lock()
-	defer tm.mu.Unlock()
 	if team, ok := tm.teams[sanitizeTeamName(name)]; ok {
+		tm.mu.Unlock()
 		return team
 	}
 	tf := ReadTeamFile(tm.cwd, name)
 	if tf == nil {
+		tm.mu.Unlock()
 		return nil
 	}
 	team := NewTeam(tm.cwd, tf.Name)
@@ -415,6 +393,8 @@ func (tm *TeamManager) GetTeam(name string) *Team {
 			status = "failed"
 		}
 		team.Members[m.Name].Progress = NewTeammateProgress(m.Name, team.Name, TeammateSpinnerVerb)
+		// The reference hydrates the UI start time from joinedAt, not now.
+		team.Members[m.Name].Progress.StartTime = m.JoinedAt * 1000
 		team.Members[m.Name].Progress.SetStatus(status)
 		team.releaseMemberTasks(m.Name)
 	}
@@ -424,6 +404,8 @@ func (tm *TeamManager) GetTeam(name string) *Team {
 	team.pruneTerminatedMembers()
 	tm.teams[sanitizeTeamName(name)] = team
 	tm.order = append(tm.order, sanitizeTeamName(name))
+	tm.mu.Unlock()
+	tm.emitChange()
 	return team
 }
 
@@ -447,6 +429,18 @@ func (tm *TeamManager) DeleteTeam(name string) {
 		}
 	}
 	_ = os.RemoveAll(teamDir(tm.cwd, name))
+}
+
+// DeleteAll mirrors TeamManager.deleteAll: every in-memory team is deleted,
+// then residual team directories from previous sessions. Other project
+// namespaces remain untouched.
+func (tm *TeamManager) DeleteAll() {
+	for _, name := range tm.ListTeams() {
+		tm.DeleteTeam(name)
+	}
+	for _, name := range ListTeamNames(tm.cwd) {
+		tm.DeleteTeam(name)
+	}
 }
 func (tm *TeamManager) ListTeams() []string {
 	tm.mu.Lock()
@@ -486,16 +480,6 @@ func (tm *TeamManager) RestoreFromDisk() {
 	}
 }
 
-func (tm *TeamManager) GetAllTeammateProgress() []*TeammateProgress {
-	tm.mu.Lock()
-	defer tm.mu.Unlock()
-	var result []*TeammateProgress
-	for _, team := range tm.teams {
-		result = append(result, team.GetTeammateProgress()...)
-	}
-	return result
-}
-
 // StopAll stops every teammate runtime across all teams while retaining the
 // teams themselves, mirroring TeamManager.stopAll in the reference.
 func (tm *TeamManager) StopAll() {
@@ -526,6 +510,9 @@ func (tm *TeamManager) CloseAll() {
 	tm.teams = map[string]*Team{}
 	tm.taskStores = map[string]*SharedTaskStore{}
 	tm.order = nil
+	tm.listenersMu.Lock()
+	tm.listeners = map[int]func(){}
+	tm.listenersMu.Unlock()
 }
 func (tm *TeamManager) SetPermissionChecker(checker *permissions.Checker) {
 	tm.mu.Lock()

@@ -125,8 +125,13 @@ func requestPlanApproval(ctx context.Context, team *Team, member *Member, fallba
 	}
 	team.mu.Lock()
 	requestID := member.PendingPlan.Request.RequestID
+	active := member.Active
+	hasChecker := member.AgentRef != nil && member.AgentRef.Checker != nil
 	manual := team.RequiresLeaderPlanApproval
 	team.mu.Unlock()
+	if requestID == "" || !active || ctx.Err() != nil || !hasChecker {
+		return "", nil
+	}
 	if !manual {
 		response := NewPlanApprovalResponse(LeadName, requestID, true, PlanAutoApprovedAckMessage)
 		if err := team.MailBox.Send(LeadName, response); err != nil {
@@ -147,7 +152,7 @@ func requestPlanApproval(ctx context.Context, team *Team, member *Member, fallba
 			return "", err
 		}
 		for _, m := range messages {
-			if IsShutdownRequest(m) {
+			if m.From == LeadName && IsShutdownRequest(m) {
 				_ = team.MailBox.Send(LeadName, NewShutdownResponse(member.Name, m.RequestID, true, StoppedAwaitingPlanReviewMessage))
 				return "", nil
 			}
@@ -189,7 +194,7 @@ func readPlanForReview(member *Member, fallback string) string {
 	return "(The teammate returned no plan.)"
 }
 func resumeAfterPlanReview(team *Team, member *Member, review string) (string, error) {
-	messages, err := team.MailBox.ReceiveMatching(member.Name, func(m FileMailMessage) bool { return m.Type == "" || m.Type == MsgText })
+	messages, err := team.MailBox.ReceiveMatching(member.Name, func(m FileMailMessage) bool { return (m.Type == "" || m.Type == MsgText) && !IsShutdownRequest(m) })
 	if err != nil {
 		return "", err
 	}
