@@ -384,6 +384,30 @@ func (m Model) Init() tea.Cmd {
 
 func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.BatchMsg:
+		// A BatchMsg carries commands, not messages; bubbletea's Program runs
+		// them concurrently itself. Executing them here keeps direct Update
+		// calls (tests, embedded drivers) equivalent.
+		current := m
+		var cmds []tea.Cmd
+		for _, batched := range msg {
+			if batched == nil {
+				continue
+			}
+			result := batched()
+			if result == nil {
+				continue
+			}
+			updated, cmd := current.update(result)
+			if next, ok := updated.(Model); ok {
+				current = next
+			}
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+		return current, tea.Batch(cmds...)
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -606,7 +630,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case spinner.TickMsg:
-		if m.streaming {
+		// The reference animates the spinner on an 80ms interval whenever a
+		// status label is shown and the state is not an error: streaming,
+		// compacting and user Bash all keep the tick chain alive.
+		if m.activityError == "" && (m.streaming || m.compacting || m.userBash != nil) {
 			var cmd tea.Cmd
 			m.spinner, cmd = m.spinner.Update(msg)
 			return m, cmd

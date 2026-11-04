@@ -272,7 +272,7 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 			compactCtx, cancel := context.WithCancel(context.Background())
 			m.compacting = true
 			m.cancelStream = cancel
-			return m, func() tea.Msg {
+			return m, tea.Batch(func() tea.Msg {
 				result, err := compact.ForceCompact(compactCtx, conv, client, recovery, names, schemas, sessionFilePath, customInstructions)
 				if err == nil && result.Boundary != nil {
 					_ = session.SaveCompactBoundary(compactWD, compactSessionID, result.Boundary.Summary, result.Boundary.Keep)
@@ -282,7 +282,7 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 					message = result.Message
 				}
 				return compactDoneMsg{message: message, err: err}
-			}
+			}, m.spinner.Tick)
 		case "resume":
 			return m.handleResume(args)
 		case "rewind":

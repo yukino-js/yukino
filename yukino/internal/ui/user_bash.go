@@ -113,7 +113,7 @@ func (m Model) submitUserBash(text string) (Model, tea.Cmd, bool) {
 		run.mu.Unlock()
 		close(run.done)
 	}()
-	return m, func() tea.Msg { <-run.done; return userBashDoneMsg{run} }, true
+	return m, tea.Batch(func() tea.Msg { <-run.done; return userBashDoneMsg{run} }, m.spinner.Tick), true
 }
 func (m Model) listenUserBashOutput() tea.Cmd {
 	ch, ctx := m.userBashOutputCh, m.lifeCtx
