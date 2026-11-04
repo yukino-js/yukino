@@ -17,7 +17,6 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/commands"
 	"github.com/yukino-js/yukino/yukino/internal/config"
 	"github.com/yukino-js/yukino/yukino/internal/conversation"
-	"github.com/yukino-js/yukino/yukino/internal/file_history"
 	"github.com/yukino-js/yukino/yukino/internal/goal"
 	"github.com/yukino-js/yukino/yukino/internal/history"
 	"github.com/yukino-js/yukino/yukino/internal/hooks"
@@ -124,14 +123,40 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 		return 0, err
 	}
 
+	// Print mode feeds the raw prompt to the agent and session; @ref
+	// expansion is a UI/remote concern only (mirrors the reference). The
+	// message is persisted before any runtime chunk is built, so even the
+	// /workflows command path leaves it in the session.
 	conv := conversation.NewManager()
-	fh := file_history.New(sessionID)
+	recorded, err := session.SaveUserMessage(wd, sessionID, input, session.Message{Content: userPrompt})
+	if err != nil {
+		return 0, err
+	}
+	conv.AppendMessages([]conversation.Message{recorded.ToConversation()})
 
 	taskMgr := subagent.NewTaskManager()
 	if err := taskMgr.UseSession(sessionID); err != nil {
 		return 0, err
 	}
-	defer taskMgr.StopAll(context.Background())
+	// Mirrors the reference finally block: background tasks and team runtimes
+	// stop first, then the registry disposes, then MCP disconnects.
+	var (
+		teamMgr  *teams.TeamManager
+		registry *tools.Registry
+		mcpMgr   *mcp.Manager
+	)
+	defer func() {
+		_ = taskMgr.StopAll(context.Background())
+		if teamMgr != nil {
+			teamMgr.CloseAll()
+		}
+		if registry != nil {
+			_ = registry.Dispose()
+		}
+		if mcpMgr != nil {
+			mcpMgr.DisconnectAll()
+		}
+	}()
 	store, err := todo.NewStore(sessionID)
 	if err != nil {
 		return 0, err
@@ -143,9 +168,8 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 	loader := subagent.NewAgentLoader()
 	loader.LoadAll()
 
-	teamMgr := teams.NewTeamManager(wd)
+	teamMgr = teams.NewTeamManager(wd)
 	teamMgr.CoordinatorMode = cfg.EnableCoordinatorMode
-	defer teamMgr.StopAll()
 
 	defaultTools := bootstrap.CreateToolRegistry(todoList, bootstrap.ToolRegistryOptions{
 		InteractionMode: "non-interactive",
@@ -153,10 +177,7 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 		WorkDir:         wd,
 		GoalManager:     func() *goal.GoalManager { return goalManager },
 	})
-	registry := defaultTools.Registry
-	defer registry.Dispose()
-	defaultTools.EditFile.FileHistory = fh
-	defaultTools.WriteFile.FileHistory = fh
+	registry = defaultTools.Registry
 
 	// Print mode intentionally bypasses permission prompts.
 	checker := permissions.NewChecker(
@@ -174,19 +195,6 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 	registry.Register(&teams.SendMessageTool{TeamMgr: teamMgr, SenderName: "leader"})
 	registry.Register(&teams.TaskStopTool{TeamMgr: teamMgr, TaskManager: taskMgr})
 	registry.Register(&tools.SyntheticOutputTool{})
-
-	if len(cfg.MCPServers) > 0 {
-		mcpMgr := mcp.NewManager(false)
-		result := mcpMgr.ConnectAll(context.Background(), cfg.MCPServers)
-		for _, connected := range result.Tools {
-			registry.Register(connected.Tool)
-		}
-		for _, connectError := range result.Errors {
-			fmt.Fprintf(os.Stderr, "MCP warning: %s: %s\n", connectError.ServerName, connectError.Error)
-		}
-		mcp.DecideAndApply(registry, p.BaseURL, p.Protocol, config.GetContextWindow(p), cfg.MCPLoading)
-		defer mcpMgr.DisconnectAll()
-	}
 
 	registry.Register(&subagent.AgentTool{
 		Client:       client,
@@ -208,11 +216,49 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 		TaskManager: taskMgr,
 	})
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	printOwnsSignals.Store(true)
+	defer printOwnsSignals.Store(false)
+	var aborted atomic.Bool
+	var signalExit atomic.Int32
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
+	go func() {
+		sig := <-sigCh
+		if sig == syscall.SIGTERM {
+			signalExit.Store(143)
+		} else {
+			signalExit.Store(130)
+		}
+		aborted.Store(true)
+		cancel()
+		for _, task := range taskMgr.List() {
+			taskMgr.Stop(task.ID)
+		}
+	}()
+
+	// Connect to MCP. Done after all built-in tools are registered: the MCP
+	// tool load mode compares total schema size against the context window,
+	// so it only computes accurately once all tools are in place.
+	if len(cfg.MCPServers) > 0 {
+		mcpMgr = mcp.NewManager(false)
+		result := mcpMgr.ConnectAll(context.Background(), cfg.MCPServers)
+		for _, connected := range result.Tools {
+			registry.Register(connected.Tool)
+		}
+		for _, connectError := range result.Errors {
+			fmt.Fprintf(os.Stderr, "MCP warning: %s: %s\n", connectError.ServerName, connectError.Error)
+		}
+		mcp.DecideAndApply(registry, p.BaseURL, p.Protocol, config.GetContextWindow(p), cfg.MCPLoading)
+	}
+
 	if isCmd && cmdName == "workflows" {
 		service := workflow.GetWorkflowService(registry)
 		message := "Workflow service is not initialized"
 		if service != nil {
-			hostCtx := tools.WithExecutionContext(context.Background(), tools.ExecutionContext{
+			hostCtx := tools.WithExecutionContext(ctx, tools.ExecutionContext{
 				WorkDir:   wd,
 				SessionID: sessionID,
 				Plan:      &tools.PlanContext{Owner: checker},
@@ -249,7 +295,6 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 	ag.ContextWindow = config.GetContextWindow(p)
 	ag.MaxOutputTokens = config.GetMaxOutputTokens(p)
 	ag.Instructions = instructionsContent
-	ag.FileHistory = fh
 	ag.SetSessionID(sessionID)
 	ag.GoalManager = goalManager
 	ag.Checker = checker
@@ -276,37 +321,6 @@ func runPrint(userPrompt string, cfg *config.AppConfig, hookCfgs []config.HookCo
 	if at, ok := registry.Get("Agent").(*subagent.AgentTool); ok {
 		at.ParentChecker = ag.Checker
 	}
-
-	// Print mode feeds the raw prompt to the agent and session; @ref expansion
-	// is a UI/remote concern only (mirrors the reference).
-	recorded, err := session.SaveUserMessage(wd, sessionID, input, session.Message{Content: userPrompt})
-	if err != nil {
-		return 0, err
-	}
-	conv.AppendMessages([]conversation.Message{recorded.ToConversation()})
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	printOwnsSignals.Store(true)
-	defer printOwnsSignals.Store(false)
-	var aborted atomic.Bool
-	var signalExit atomic.Int32
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-	defer signal.Stop(sigCh)
-	go func() {
-		sig := <-sigCh
-		if sig == syscall.SIGTERM {
-			signalExit.Store(143)
-		} else {
-			signalExit.Store(130)
-		}
-		aborted.Store(true)
-		cancel()
-		for _, task := range taskMgr.List() {
-			taskMgr.Stop(task.ID)
-		}
-	}()
 
 	ch := ag.Run(ctx, conv)
 
