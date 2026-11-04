@@ -1,9 +1,9 @@
 {
   "reference_commit": "1847a71e03f90d0e5fc60a2a797c60af327b7750",
   "counts": {
-    "Corrected": 252,
+    "Corrected": 253,
     "Language-specific difference": 7,
-    "Partially aligned": 22,
+    "Partially aligned": 21,
     "Reviewed": 38,
     "Shared browser build": 51,
     "Synchronized artifact": 7
@@ -157,7 +157,7 @@
       "source": "src/commands/subagent.ts",
       "source_sha256": "91634cdcbe9377ec2d5d5ac581ac385ee2fa500392ffd700507985cece4df2a6",
       "counterpart": "`internal/commands/subagent.go`, `internal/ui/send_message.go`, `internal/remote/server.go`",
-      "status": "Partially aligned"
+      "status": "Corrected"
     },
     {
       "source": "src/commands/usage-tracker.ts",

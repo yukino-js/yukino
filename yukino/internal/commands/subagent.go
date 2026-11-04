@@ -17,12 +17,12 @@ func RunSubagentCommand(ctx context.Context, name, prompt, input string, registr
 	events := make(chan agent.AgentEvent, 32)
 	go func() {
 		defer close(events)
+		if ctx.Err() != nil {
+			return
+		}
 		tool := registry.Get("Agent")
 		if tool == nil {
 			events <- agent.ErrorEvent{Message: SubagentCommandUnavailable}
-			return
-		}
-		if ctx.Err() != nil {
 			return
 		}
 		if inputEntry == nil {
@@ -67,12 +67,18 @@ func RunSubagentCommand(ctx context.Context, name, prompt, input string, registr
 		} else {
 			result = tool.Execute(execution, args)
 		}
-		conv.AddAssistantFull(result.Output, nil, nil)
 		session.SaveMessage(cwd, sessionID, session.Message{Role: "assistant", Content: result.Output, Timestamp: time.Now().Unix()})
-		events <- agent.ToolResultEvent{ToolID: id, ToolName: "Agent", Output: result.Output, IsError: result.IsError, Elapsed: time.Since(start)}
+		conv.AddAssistantFull(result.Output, nil, nil)
+		events <- agent.ToolResultEvent{ToolID: id, ToolName: "Agent", Output: result.Output, IsError: result.IsError, Elapsed: time.Since(start), ContentBlocks: result.ContentBlocks, McpApp: result.McpApp}
 		events <- agent.StreamText{Text: result.Output}
 		events <- agent.TurnComplete{Turn: 1}
-		events <- agent.LoopComplete{TotalTurns: 1, PlanReady: name == "plan" && !result.IsError && ctx.Err() == nil}
+		stopReason := "end_turn"
+		if ctx.Err() != nil {
+			stopReason = "interrupted"
+		} else if result.IsError {
+			stopReason = "error"
+		}
+		events <- agent.LoopComplete{TotalTurns: 1, PlanReady: name == "plan" && !result.IsError && ctx.Err() == nil, StopReason: stopReason}
 	}()
 	return events
 }
