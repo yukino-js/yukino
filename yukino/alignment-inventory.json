@@ -3,8 +3,8 @@
   "counts": {
     "Corrected": 227,
     "Language-specific difference": 5,
-    "Partially aligned": 50,
-    "Reviewed": 37,
+    "Partially aligned": 49,
+    "Reviewed": 38,
     "Shared browser build": 51,
     "Synchronized artifact": 7
   },
@@ -1513,7 +1513,7 @@
       "source": "src/tools/index.ts",
       "source_sha256": "1c4979c4e5bb1488b4b56ca24c1a06f63610a20711a704188dc1738ea06ec13a",
       "counterpart": "`internal/tools`",
-      "status": "Partially aligned"
+      "status": "Reviewed"
     },
     {
       "source": "src/tools/is-diff-tool.ts",

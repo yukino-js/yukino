@@ -97,6 +97,8 @@ func formatShellResult(prompt, command string, exit shellExit, merged string, ti
 		output += "\nProcess terminated"
 		if exit.signal != "" {
 			output += " by " + exit.signal
+		} else {
+			output += " unexpectedly"
 		}
 	}
 	if exit.sizeKilled {
