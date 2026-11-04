@@ -1,9 +1,9 @@
 {
   "reference_commit": "1847a71e03f90d0e5fc60a2a797c60af327b7750",
   "counts": {
-    "Corrected": 227,
+    "Corrected": 228,
     "Language-specific difference": 5,
-    "Partially aligned": 49,
+    "Partially aligned": 48,
     "Reviewed": 38,
     "Shared browser build": 51,
     "Synchronized artifact": 7
@@ -619,7 +619,7 @@
       "source": "src/prompt/prompts.ts",
       "source_sha256": "f05f3ae6587c90f7ad9eb528ca7d7c2b0ef89d8dee14c453b2e8ab6b7fee4320",
       "counterpart": "`internal/prompt`",
-      "status": "Partially aligned"
+      "status": "Corrected"
     },
     {
       "source": "src/prompt/sections.ts",

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+
+	"github.com/yukino-js/yukino/yukino/internal/prompt"
 )
 
 // jsonString mirrors JSON.stringify: no HTML escaping, keys as provided.
@@ -86,4 +88,6 @@ func BuildStructuredOutputPrompt(prompt, schemaJSON string) string {
 // SchemaJSON renders a schema map as JSON text.
 func SchemaJSON(schema map[string]any) string { return jsonString(schema) }
 
-const WorkflowRule = "Use Workflow when the user requests a workflow or multi-agent orchestration. Scripts run in the background; use the returned task_id with TaskOutput/TaskStop and integrate the completion notification. Default concurrency is 3. Subagent permissions still apply; avoid overlapping writes and handle null results."
+// WorkflowRule lives in the prompt package (the tool-guidance builder consumes
+// it); the reference keeps it in workflow/prompts.ts and imports it from there.
+const WorkflowRule = prompt.WORKFLOW_RULE
