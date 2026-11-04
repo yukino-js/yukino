@@ -85,9 +85,10 @@ func (m *Model) activateInitialProvider(p *config.ProviderConfig) tea.Cmd {
 }
 
 // renderProviderSelectView covers the startup state with no configured
-// providers: the login form takes over the whole screen.
+// providers: the login form takes over the whole screen. Outside the dock the
+// reference budget is frameRows = max(1, rows-1) (the caret-row reserve).
 func (m Model) renderProviderSelectView() string {
-	return m.renderLoginFrame(m.height)
+	return m.renderLoginFrame(max(1, m.height-1))
 }
 
 func (m Model) handleProviderSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

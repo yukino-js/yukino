@@ -603,7 +603,12 @@ func (m Model) loginDisplayValue(field string) string {
 // renderLoginFrame renders the login form inside a SelectorFrame with the
 // given row budget; the startup state passes the full terminal height.
 func (m Model) renderLoginFrame(rows int) string {
-	frameWidth := max(1, m.width)
+	// Reference: max(1, columns || 80).
+	columns := m.width
+	if columns == 0 {
+		columns = 80
+	}
+	frameWidth := max(1, columns)
 	framePadding := 0
 	if frameWidth > 2 {
 		framePadding = 2

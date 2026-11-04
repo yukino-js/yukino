@@ -1,9 +1,9 @@
 {
   "reference_commit": "1847a71e03f90d0e5fc60a2a797c60af327b7750",
   "counts": {
-    "Corrected": 266,
+    "Corrected": 267,
     "Language-specific difference": 7,
-    "Partially aligned": 8,
+    "Partially aligned": 7,
     "Reviewed": 38,
     "Shared browser build": 51,
     "Synchronized artifact": 7
@@ -1771,7 +1771,7 @@
       "source": "src/ui/provider-login.tsx",
       "source_sha256": "fa405c5e0178f056182bd72abb2e290ca194d031cc22b3661887f7b29ae34515",
       "counterpart": "`internal/ui/provider_login.go`",
-      "status": "Partially aligned"
+      "status": "Corrected"
     },
     {
       "source": "src/ui/provider-select.tsx",
