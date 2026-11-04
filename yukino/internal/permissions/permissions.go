@@ -74,6 +74,9 @@ func escapeRuleLiteral(content string) string {
 // become canonical absolute paths; wildcard patterns resolve their fixed
 // prefix and keep the wildcard suffix. Traversal after a wildcard is rejected.
 func normalizePathPattern(cwd, pattern string) (string, error) {
+	if filepath.Separator == '\\' {
+		pattern = strings.ReplaceAll(pattern, "\\", "/")
+	}
 	if pattern == "*" {
 		return pattern, nil
 	}

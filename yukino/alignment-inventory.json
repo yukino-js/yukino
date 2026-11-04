@@ -1,9 +1,9 @@
 {
   "reference_commit": "1847a71e03f90d0e5fc60a2a797c60af327b7750",
   "counts": {
-    "Corrected": 254,
+    "Corrected": 255,
     "Language-specific difference": 7,
-    "Partially aligned": 20,
+    "Partially aligned": 19,
     "Reviewed": 38,
     "Shared browser build": 51,
     "Synchronized artifact": 7
@@ -553,7 +553,7 @@
       "source": "src/permissions/index.ts",
       "source_sha256": "c3b52f517efc8aafb9aa6112e45ee473560de2c2d0a001085c1b56f7a61a0b3c",
       "counterpart": "`internal/permissions/permissions.go`, `internal/permissions/mode.go`, `internal/permissions/worktree.go`",
-      "status": "Partially aligned"
+      "status": "Corrected"
     },
     {
       "source": "src/permissions/request.ts",
