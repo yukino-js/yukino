@@ -4,6 +4,8 @@ import (
 	"math"
 	"os"
 	"testing"
+
+	"github.com/yukino-js/yukino/yukino/internal/crash_log"
 )
 
 func TestSyncOutputDetection(t *testing.T) {
@@ -56,7 +58,7 @@ func TestSyncOutputWriter(t *testing.T) {
 	}
 	defer r.Close()
 	defer w.Close()
-	sw := syncOutputWriter{out: w}
+	sw := terminalOutputWriter{out: w, sync: true}
 	n, err := sw.Write([]byte("frame"))
 	if err != nil || n != 5 {
 		t.Fatal(n, err)
@@ -71,5 +73,65 @@ func TestSyncOutputWriter(t *testing.T) {
 	n, err = sw.Write(nil)
 	if err != nil || n != 0 {
 		t.Fatal(n, err)
+	}
+}
+
+func TestTerminalOutputWriterNoSyncFraming(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	defer w.Close()
+	tw := terminalOutputWriter{out: w, sync: false}
+	n, err := tw.Write([]byte("frame"))
+	if err != nil || n != 5 {
+		t.Fatal(n, err)
+	}
+	buf := make([]byte, 5)
+	if _, err := r.Read(buf); err != nil {
+		t.Fatal(err)
+	}
+	if string(buf) != "frame" {
+		t.Fatalf("non-sync write must not be framed: %q", buf)
+	}
+}
+
+// A write that fails because the terminal vanished (EPIPE from a closed reader)
+// must trigger the terminal-gone exit, mirroring the reference's stdout 'error'
+// handler. The handler is swapped so the test observes the call instead of
+// exiting.
+func TestTerminalOutputWriterDetectsTerminalGone(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Closing the read end makes the next write fail with EPIPE.
+	r.Close()
+	defer w.Close()
+
+	var gotContext string
+	var gotDetail any
+	called := false
+	original := terminalGoneExit
+	terminalGoneExit = func(context string, detail any) {
+		called = true
+		gotContext = context
+		gotDetail = detail
+	}
+	defer func() { terminalGoneExit = original }()
+
+	tw := terminalOutputWriter{out: w, sync: false}
+	if _, err := tw.Write([]byte("frame")); err == nil {
+		t.Fatal("expected a write error on a closed pipe")
+	}
+	if !called {
+		t.Fatal("terminal-gone write failure did not trigger the exit handler")
+	}
+	if gotContext != "stdio" {
+		t.Fatalf("context = %q, want stdio", gotContext)
+	}
+	if err, ok := gotDetail.(error); !ok || !crash_log.IsTerminalGone(err) {
+		t.Fatalf("detail is not a terminal-gone error: %v", gotDetail)
 	}
 }

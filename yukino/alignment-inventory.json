@@ -1,9 +1,9 @@
 {
   "reference_commit": "1847a71e03f90d0e5fc60a2a797c60af327b7750",
   "counts": {
-    "Corrected": 246,
+    "Corrected": 247,
     "Language-specific difference": 5,
-    "Partially aligned": 30,
+    "Partially aligned": 29,
     "Reviewed": 38,
     "Shared browser build": 51,
     "Synchronized artifact": 7
@@ -637,7 +637,7 @@
       "source": "src/recover.ts",
       "source_sha256": "d50c475217fe94274bd58498868a83fcedf77ae979adf3a2b3d1f1338a7ed6ed",
       "counterpart": "`cmd/yukino`, `internal/crash_log`",
-      "status": "Partially aligned"
+      "status": "Corrected"
     },
     {
       "source": "src/remote/address.ts",
