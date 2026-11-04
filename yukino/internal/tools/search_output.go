@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/dlclark/regexp2/v2"
 )
 
 type searchOutput struct {
@@ -156,12 +158,13 @@ func searchAllowed(ctx ExecutionContext, path string, traverse bool) bool {
 	return true
 }
 
-// matchSegment matches a single path segment against a glob pattern that may use
-// the @(a|b), ?(a|b), *(a|b), +(a|b) extglob forms, mirroring minimatch in the
-// reference. The !(...) negation form is intentionally not treated as extglob:
-// minimatch compiles a leading !(...) with a known quirk that matches almost
-// everything, so it is left to literal path.Match handling. Segments without
-// extglob keep using path.Match unchanged.
+// matchSegment matches a single path segment against a glob pattern that may
+// use the @(a|b), ?(a|b), *(a|b), +(a|b), !(a|b) extglob forms, mirroring
+// minimatch in the reference. !(...) compiles to a negative lookahead whose
+// body also contains everything following the group in the segment — the
+// minimatch AST copies the trailing parts into the negation (fillNegs) — so
+// !(a).ts rejects exactly the segment "a.ts" while !(a) alone still matches
+// it. Segments without extglob keep using path.Match unchanged.
 func matchSegment(pattern, name string) bool {
 	if !hasExtglob(pattern) {
 		if strings.HasPrefix(pattern, "[!") {
@@ -177,31 +180,82 @@ func matchSegment(pattern, name string) bool {
 	return re.MatchString(name)
 }
 
-// hasExtglob reports whether the pattern uses one of the supported extglob group
-// forms OP(...) with OP in @ ? * +.
+// hasExtglob reports whether the pattern uses one of the extglob group forms
+// OP(...) with OP in @ ? * + !.
 func hasExtglob(pattern string) bool {
 	for i := 0; i+1 < len(pattern); i++ {
-		if pattern[i+1] == '(' && strings.IndexByte("?*+@", pattern[i]) >= 0 {
+		if pattern[i+1] == '(' && strings.IndexByte("?*+@!", pattern[i]) >= 0 {
 			return true
 		}
 	}
 	return false
 }
 
+// segmentMatcher abstracts over regexp.Regexp and regexp2.Regexp; the !(...)
+// negative lookahead requires the backtracking engine.
+type segmentMatcher interface {
+	MatchString(string) bool
+}
+
+type regexp2Matcher struct{ re *regexp2.Regexp }
+
+func (m regexp2Matcher) MatchString(s string) bool {
+	ok, err := m.re.MatchString(s)
+	return err == nil && ok
+}
+
 // compileGlobSegment converts a glob segment (possibly with extglob) into an
-// anchored regular expression.
-func compileGlobSegment(pattern string) (*regexp.Regexp, error) {
-	body, _, err := globSegmentRegex(pattern, false)
+// anchored matcher.
+func compileGlobSegment(pattern string) (segmentMatcher, error) {
+	body, _, err := globSegmentRegex(pattern, false, "")
 	if err != nil {
 		return nil, err
 	}
-	return regexp.Compile("^" + body + "$")
+	source := "^" + body + "$"
+	if strings.Contains(body, "(?!") {
+		re, err := regexp2.Compile(source, regexp2.None)
+		if err != nil {
+			return nil, err
+		}
+		return regexp2Matcher{re: re}, nil
+	}
+	return regexp.Compile(source)
+}
+
+// splitExtglobAlternatives scans the alternatives of an extglob group starting
+// just past the opening paren and returns the raw alternative sources plus the
+// index just past the closing paren.
+func splitExtglobAlternatives(pattern string, start int) ([]string, int, error) {
+	var alts []string
+	depth := 1
+	altStart := start
+	for i := start; i < len(pattern); i++ {
+		switch pattern[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				alts = append(alts, pattern[altStart:i])
+				return alts, i + 1, nil
+			}
+		case '|':
+			if depth == 1 {
+				alts = append(alts, pattern[altStart:i])
+				altStart = i + 1
+			}
+		}
+	}
+	return nil, 0, fmt.Errorf("unbalanced extglob group in %q", pattern)
 }
 
 // globSegmentRegex builds a regex fragment for pattern and reports the bytes
 // consumed. When inGroup is true, an unescaped '|' or ')' terminates the
-// fragment because it belongs to the enclosing extglob group.
-func globSegmentRegex(pattern string, inGroup bool) (string, int, error) {
+// fragment because it belongs to the enclosing extglob group. outerTail is
+// the regex of everything following the current context within the segment;
+// !(...) lookaheads must include it because the minimatch AST copies the
+// trailing parts of enclosing groups into the negation.
+func globSegmentRegex(pattern string, inGroup bool, outerTail string) (string, int, error) {
 	var sb strings.Builder
 	i := 0
 	for i < len(pattern) {
@@ -209,25 +263,23 @@ func globSegmentRegex(pattern string, inGroup bool) (string, int, error) {
 		if inGroup && (c == '|' || c == ')') {
 			return sb.String(), i, nil
 		}
-		if strings.IndexByte("?*+@", c) >= 0 && i+1 < len(pattern) && pattern[i+1] == '(' {
-			var alternatives []string
-			j := i + 2
-			for {
-				frag, consumed, err := globSegmentRegex(pattern[j:], true)
+		if strings.IndexByte("?*+@!", c) >= 0 && i+1 < len(pattern) && pattern[i+1] == '(' {
+			alts, end, err := splitExtglobAlternatives(pattern, i+2)
+			if err != nil {
+				return "", 0, err
+			}
+			tail, tailConsumed, err := globSegmentRegex(pattern[end:], inGroup, outerTail)
+			if err != nil {
+				return "", 0, err
+			}
+			suffix := tail + outerTail
+			alternatives := make([]string, 0, len(alts))
+			for _, alt := range alts {
+				frag, _, err := globSegmentRegex(alt, true, suffix)
 				if err != nil {
 					return "", 0, err
 				}
 				alternatives = append(alternatives, frag)
-				j += consumed
-				if j < len(pattern) && pattern[j] == '|' {
-					j++
-					continue
-				}
-				if j < len(pattern) && pattern[j] == ')' {
-					j++
-					break
-				}
-				return "", 0, fmt.Errorf("unbalanced extglob group in %q", pattern)
 			}
 			group := "(?:" + strings.Join(alternatives, "|") + ")"
 			switch c {
@@ -239,8 +291,22 @@ func globSegmentRegex(pattern string, inGroup bool) (string, int, error) {
 				sb.WriteString(group + "+")
 			case '@':
 				sb.WriteString(group)
+			case '!':
+				if len(alts) == 1 && alts[0] == "" {
+					// An empty !() is exactly equivalent to a non-empty star.
+					sb.WriteString(".+?")
+				} else {
+					sb.WriteString("(?:(?!(?:" + strings.Join(alternatives, "|") + suffix + "(?:$|/))).*?)")
+				}
 			}
-			i = j
+			if c == '!' {
+				// The negation consumed the tail: it was emitted inside the
+				// lookahead and must follow the lazy star exactly once.
+				sb.WriteString(tail)
+				i = end + tailConsumed
+			} else {
+				i = end
+			}
 			continue
 		}
 		switch c {

@@ -1,9 +1,9 @@
 {
   "reference_commit": "1847a71e03f90d0e5fc60a2a797c60af327b7750",
   "counts": {
-    "Corrected": 223,
+    "Corrected": 224,
     "Language-specific difference": 5,
-    "Partially aligned": 54,
+    "Partially aligned": 53,
     "Reviewed": 37,
     "Shared browser build": 51,
     "Synchronized artifact": 7
@@ -1495,7 +1495,7 @@
       "source": "src/tools/glob.ts",
       "source_sha256": "f3e5746f5d27d94b240a765dd2ea253719dd3b81486aaf14addfd57d588f84fd",
       "counterpart": "`internal/tools/glob.go`, `internal/tools/search_output.go`",
-      "status": "Partially aligned"
+      "status": "Corrected"
     },
     {
       "source": "src/tools/goal.ts",

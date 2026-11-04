@@ -96,6 +96,34 @@ func TestMatchGlobExtglob(t *testing.T) {
 		{"@(*.ts|*.tsx)", "app.go", false},
 		{"src/@(a|b)/*.go", "src/a/x.go", true},
 		{"src/@(a|b)/*.go", "src/c/x.go", false},
+		// !(a|b): negation. The lookahead includes the segment tail, so
+		// !(a).ts rejects exactly "a.ts" while !(a) alone still matches it.
+		{"!(a).ts", "a.ts", false},
+		{"!(a).ts", "ab.ts", true},
+		{"!(a).ts", "foo.ts", true},
+		{"!(a)", "a", false},
+		{"!(a)", "ab", true},
+		{"!(a)", "a.ts", true},
+		{"!(a|b).ts", "a.ts", false},
+		{"!(a|b).ts", "b.ts", false},
+		{"!(a|b).ts", "c.ts", true},
+		{"*.!(ts)", "a.ts", false},
+		{"*.!(ts)", "b.tsx", true},
+		{"*.!(ts)", ".hidden.ts", true},
+		{"*.!(ts)", "x.js", true},
+		{"!(*.ts)", "a.ts", false},
+		{"!(*.ts)", "b.tsx", true},
+		{"!(a)*", "a.ts", false},
+		{"!(a)*", "ab.ts", false},
+		{"!(a)*", "ba.ts", true},
+		{"@(x|!(a)).ts", "a.ts", false},
+		{"@(x|!(a)).ts", "ab.ts", true},
+		{"!(deep)", "deep", false},
+		{"!(deep)", "a.ts", true},
+		{"!(src)", "src", false},
+		{"x!(a)b", "xab", false},
+		{"x!(a)b", "xaab", true},
+		{"!()", "a", true},
 		// Non-extglob patterns must keep working.
 		{"*.go", "main.go", true},
 		{"*.go", "main.ts", false},
@@ -106,6 +134,11 @@ func TestMatchGlobExtglob(t *testing.T) {
 		if got := matchGlob(tc.pattern, tc.name); got != tc.want {
 			t.Errorf("matchGlob(%q, %q) = %v, want %v", tc.pattern, tc.name, got, tc.want)
 		}
+	}
+	// An empty !() is a non-empty star at the segment level (matchGlob maps
+	// the empty name through path.Base before matching).
+	if matchSegment("!()", "") {
+		t.Error(`matchSegment("!()", "") = true, want false`)
 	}
 }
 
