@@ -34,6 +34,16 @@ func (m Model) visibleTasks() ([]*todo.Task, string) {
 				id, _ := json.Marshal([]string{name, task.ID})
 				task.ID = string(id)
 				task.Subject = "[" + name + "] " + task.Subject
+				remap := func(ids []string) []string {
+					out := make([]string, 0, len(ids))
+					for _, dependency := range ids {
+						encoded, _ := json.Marshal([]string{name, dependency})
+						out = append(out, string(encoded))
+					}
+					return out
+				}
+				task.Blocks = remap(task.Blocks)
+				task.BlockedBy = remap(task.BlockedBy)
 			}
 			tasks = append(tasks, task)
 		}

@@ -1,9 +1,9 @@
 {
   "reference_commit": "1847a71e03f90d0e5fc60a2a797c60af327b7750",
   "counts": {
-    "Corrected": 237,
+    "Corrected": 239,
     "Language-specific difference": 5,
-    "Partially aligned": 39,
+    "Partially aligned": 37,
     "Reviewed": 38,
     "Shared browser build": 51,
     "Synchronized artifact": 7
@@ -1957,13 +1957,13 @@
       "source": "src/ui/use-task-progress.ts",
       "source_sha256": "ba5ee3ebc3510dd1dad20dd7480e9407de202643c8021b590eaf790d74876bf3",
       "counterpart": "`internal/ui/status_progress.go`",
-      "status": "Partially aligned"
+      "status": "Corrected"
     },
     {
       "source": "src/ui/use-teammate-states.ts",
       "source_sha256": "430e41173c2002199e63ce71c01f36e2fac07927b47e6987ff9c793a5286eb89",
       "counterpart": "`internal/ui/agents_dialog.go`, `internal/ui/status_progress.go`",
-      "status": "Partially aligned"
+      "status": "Corrected"
     },
     {
       "source": "src/ui/use-terminal-controls.ts",
