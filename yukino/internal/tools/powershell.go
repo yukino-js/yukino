@@ -16,7 +16,7 @@ func (t *PowerShellTool) Name() string           { return "PowerShell" }
 func (t *PowerShellTool) Description() string    { return PowerShellDescription }
 func (t *PowerShellTool) Category() ToolCategory { return CategoryCommand }
 func (t *PowerShellTool) Schema() map[string]any {
-	return shellSchema(t.Name(), t.Description(), t.TaskManager != nil)
+	return shellSchema(t.Name(), t.Description(), "PowerShell command to execute", PowerShellBackgroundDescription, t.TaskManager != nil)
 }
 func (t *PowerShellTool) HasForegroundTasks() bool       { return t.state.hasForeground() }
 func (t *PowerShellTool) BackgroundForegroundTasks() int { return t.state.backgroundForeground() }

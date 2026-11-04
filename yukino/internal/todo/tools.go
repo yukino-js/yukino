@@ -18,7 +18,7 @@ func (t *TodoWriteTool) Schema() map[string]any {
 	id := func() map[string]any { return map[string]any{"type": "string", "pattern": `^[1-9]\d*$`} }
 	ids := func() map[string]any { return map[string]any{"type": "array", "items": id()} }
 	fields := map[string]any{
-		"id": id(), "subject": map[string]any{"type": "string", "minLength": 1}, "description": map[string]any{"type": "string"}, "status": map[string]any{"type": "string", "enum": []string{"pending", "in_progress", "completed", "blocked", "cancelled"}}, "owner": map[string]any{"type": "string"}, "priority": map[string]any{"type": "string", "enum": []string{"high", "medium", "low"}}, "metadata": map[string]any{"type": "object", "additionalProperties": map[string]any{}}, "blocks": ids(), "blockedBy": ids(),
+		"id": id(), "subject": map[string]any{"type": "string", "minLength": 1}, "description": map[string]any{"type": "string"}, "status": map[string]any{"type": "string", "enum": []string{"pending", "in_progress", "completed", "blocked", "cancelled"}}, "owner": map[string]any{"type": "string"}, "priority": map[string]any{"type": "string", "enum": []string{"high", "medium", "low"}}, "metadata": map[string]any{"type": "object", "propertyNames": map[string]any{"type": "string"}, "additionalProperties": map[string]any{}}, "blocks": ids(), "blockedBy": ids(),
 	}
 	descriptions := map[string]string{
 		"id":          "Existing task ID: a positive decimal integer string. Omit to create a task.",

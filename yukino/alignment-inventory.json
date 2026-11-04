@@ -1,9 +1,9 @@
 {
   "reference_commit": "1847a71e03f90d0e5fc60a2a797c60af327b7750",
   "counts": {
-    "Corrected": 222,
+    "Corrected": 223,
     "Language-specific difference": 4,
-    "Partially aligned": 56,
+    "Partially aligned": 55,
     "Reviewed": 37,
     "Shared browser build": 51,
     "Synchronized artifact": 7
@@ -1537,7 +1537,7 @@
       "source": "src/tools/prompts.ts",
       "source_sha256": "3a9667895edccc929f460f8647ffc219920e2accb54c65631b1192f0b4f6f9f0",
       "counterpart": "`internal/tools/descriptions.go` and related files",
-      "status": "Partially aligned"
+      "status": "Corrected"
     },
     {
       "source": "src/tools/read-file.ts",

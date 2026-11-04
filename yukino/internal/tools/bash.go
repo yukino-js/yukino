@@ -54,13 +54,13 @@ func (t *BashTool) IsConcurrencySafe(args map[string]any) bool {
 func (t *BashTool) HasForegroundTasks() bool       { return t.state.hasForeground() }
 func (t *BashTool) BackgroundForegroundTasks() int { return t.state.backgroundForeground() }
 func (t *BashTool) Schema() map[string]any {
-	return shellSchema(t.Name(), t.Description(), t.TaskManager != nil)
+	return shellSchema(t.Name(), t.Description(), "Shell command to execute", BashBackgroundDescription, t.TaskManager != nil)
 }
-func shellSchema(name, description string, background bool) map[string]any {
-	properties := map[string]any{"command": map[string]any{"type": "string", "description": "Shell command to execute"}, "timeout": map[string]any{"type": "integer", "description": "Timeout in seconds (max 600)", "default": 120}}
+func shellSchema(name, description, commandDescription, backgroundDescription string, background bool) map[string]any {
+	properties := map[string]any{"command": map[string]any{"type": "string", "description": commandDescription}, "timeout": map[string]any{"type": "integer", "description": "Timeout in seconds (max 600)", "default": 120}}
 	if background {
 		properties["run_in_background"] = map[string]any{"type": "boolean", "default": false, "description": "Run the command in the background. Returns a task ID immediately; the result arrives later as a task notification."}
-		description += "\n" + BashBackgroundDescription
+		description += "\n" + backgroundDescription
 	}
 	return map[string]any{"name": name, "description": description, "input_schema": map[string]any{"type": "object", "properties": properties, "required": []string{"command"}}}
 }

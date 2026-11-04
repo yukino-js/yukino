@@ -28,11 +28,11 @@ func (t *ToolSearchTool) Schema() map[string]any {
 			"properties": map[string]any{
 				"query": map[string]any{
 					"type":        "string",
-					"description": `Query to find deferred tools. Use "select:Name1,Name2" for direct selection, or keywords to search.`,
+					"description": `Search query. Use "select:name1,name2" to load specific tools by name, or keywords to search.`,
 				},
 				"max_results": map[string]any{
 					"type":        "integer",
-					"description": "Maximum results to return (default: 5)",
+					"description": "Max results to return",
 					"default":     5,
 				},
 			},
