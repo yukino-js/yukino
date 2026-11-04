@@ -182,11 +182,13 @@ func CreateDefaultRegistry() *Registry {
 		Name:        "login",
 		Type:        TypeLocalUI,
 		Description: "Configure, save, and activate LLM provider",
+		Handler:     func(ctx *Context) string { return "login" },
 	})
 	r.Register(&Command{
 		Name:        "model",
 		Type:        TypeLocalUI,
 		Description: "Switch the model of the current provider",
+		Handler:     func(ctx *Context) string { return "model" },
 	})
 	r.Register(&Command{
 		Name:        "help",
@@ -225,11 +227,13 @@ func CreateDefaultRegistry() *Registry {
 		Name:        "clear",
 		Type:        TypeLocalUI,
 		Description: "Clear conversation history",
+		Handler:     func(ctx *Context) string { return "clear" },
 	})
 	r.Register(&Command{
 		Name:        "compact",
 		Type:        TypeLocalUI,
 		Description: "Force context compaction",
+		Handler:     func(ctx *Context) string { return "compact" },
 	})
 	r.Register(&Command{
 		Name:        "status",
@@ -282,11 +286,13 @@ func CreateDefaultRegistry() *Registry {
 		Name:        "resume",
 		Type:        TypeLocalUI,
 		Description: "Resume a previous session",
+		Handler:     func(ctx *Context) string { return "resume" },
 	})
 	r.Register(&Command{
 		Name:        "quit",
 		Type:        TypeLocalUI,
 		Description: "Exit Yukino",
+		Handler:     func(ctx *Context) string { return "quit" },
 	})
 	r.Register(&Command{
 		Name:        "memory",
@@ -300,11 +306,13 @@ func CreateDefaultRegistry() *Registry {
 		Name:        "skills",
 		Type:        TypeLocalUI,
 		Description: "List available skills",
+		Handler:     func(ctx *Context) string { return "skills" },
 	})
 	r.Register(&Command{
 		Name:        "worktree",
 		Type:        TypeLocalUI,
 		Description: "Manage git worktrees",
+		Handler:     func(ctx *Context) string { return "worktree" },
 	})
 	r.Register(&Command{
 		Name:        "review",
@@ -317,6 +325,7 @@ func CreateDefaultRegistry() *Registry {
 		Name:        "rewind",
 		Type:        TypeLocalUI,
 		Description: "Rewind conversation to a previous checkpoint",
+		Handler:     func(ctx *Context) string { return "rewind" },
 	})
 	r.Register(&Command{
 		Name:        "mcp",
@@ -330,6 +339,7 @@ func CreateDefaultRegistry() *Registry {
 		Name:        "sandbox",
 		Type:        TypeLocalUI,
 		Description: "Toggle OS sandbox mode for command execution (auto, manual, off)",
+		Handler:     func(ctx *Context) string { return "sandbox" },
 	})
 	r.Register(&Command{
 		Name:        "thinking",
