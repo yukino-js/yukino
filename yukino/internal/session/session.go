@@ -140,6 +140,14 @@ type SessionInfo struct {
 	LastUserMessageTime *time.Time
 }
 
+// ProjectSessionInfo is a SessionInfo annotated with its owning project, as
+// returned by ListAllSessions.
+type ProjectSessionInfo struct {
+	SessionInfo
+	Cwd        string
+	ProjectKey string
+}
+
 func NewID() string {
 	timestamp := strconv.FormatInt(time.Now().UnixMilli(), 36)
 	buf := make([]byte, 4)
@@ -405,6 +413,41 @@ func ListSessions(workDir string) []SessionInfo {
 		}
 		if ti != tj {
 			return ti > tj
+		}
+		return sessions[i].ID < sessions[j].ID
+	})
+	return sessions
+}
+
+// ListAllSessions lists sessions across every registered project, ordered by
+// newest user activity, then project key, then id — mirroring the reference
+// listAllSessions. A project whose sessions cannot be listed contributes
+// nothing (ListSessions returns nil on error), matching the reference's
+// per-project try/catch that logs and skips.
+func ListAllSessions() []ProjectSessionInfo {
+	projects, err := history.ListProjects()
+	if err != nil {
+		return nil
+	}
+	var sessions []ProjectSessionInfo
+	for _, project := range projects {
+		for _, info := range ListSessions(project.Cwd) {
+			sessions = append(sessions, ProjectSessionInfo{SessionInfo: info, Cwd: project.Cwd, ProjectKey: project.ProjectKey})
+		}
+	}
+	sort.SliceStable(sessions, func(i, j int) bool {
+		ti, tj := int64(-1), int64(-1)
+		if sessions[i].LastUserMessageTime != nil {
+			ti = sessions[i].LastUserMessageTime.UnixMilli()
+		}
+		if sessions[j].LastUserMessageTime != nil {
+			tj = sessions[j].LastUserMessageTime.UnixMilli()
+		}
+		if ti != tj {
+			return ti > tj
+		}
+		if sessions[i].ProjectKey != sessions[j].ProjectKey {
+			return sessions[i].ProjectKey < sessions[j].ProjectKey
 		}
 		return sessions[i].ID < sessions[j].ID
 	})

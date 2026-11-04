@@ -102,3 +102,53 @@ func TestTruncateAndExpiryRemoveArtifacts(t *testing.T) {
 		t.Fatalf("expired artifact remains: %v", err)
 	}
 }
+
+// Mirrors the reference listAllSessions: sessions across every registered
+// project are returned annotated with their owning project's cwd and key.
+func TestListAllSessionsAcrossProjects(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cwdA := t.TempDir()
+	cwdB := t.TempDir()
+	if err := history.RegisterProject(cwdA); err != nil {
+		t.Fatal(err)
+	}
+	if err := history.RegisterProject(cwdB); err != nil {
+		t.Fatal(err)
+	}
+
+	idA := NewID()
+	inputA, err := history.RecordInput(history.InputOptions{Cwd: cwdA, SessionID: &idA, Source: "sdk", Text: "a request"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SaveUserMessage(cwdA, idA, inputA, Message{Content: "a"}); err != nil {
+		t.Fatal(err)
+	}
+
+	idB := NewID()
+	inputB, err := history.RecordInput(history.InputOptions{Cwd: cwdB, SessionID: &idB, Source: "sdk", Text: "b request"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SaveUserMessage(cwdB, idB, inputB, Message{Content: "b"}); err != nil {
+		t.Fatal(err)
+	}
+
+	all := ListAllSessions()
+	if len(all) != 2 {
+		t.Fatalf("got %d sessions, want 2: %#v", len(all), all)
+	}
+	byID := map[string]ProjectSessionInfo{}
+	for _, s := range all {
+		byID[s.ID] = s
+		if s.Cwd == "" || s.ProjectKey == "" {
+			t.Fatalf("session missing project annotation: %#v", s)
+		}
+	}
+	if _, ok := byID[idA]; !ok {
+		t.Fatalf("missing session A (%s): %v", idA, byID)
+	}
+	if _, ok := byID[idB]; !ok {
+		t.Fatalf("missing session B (%s): %v", idB, byID)
+	}
+}
