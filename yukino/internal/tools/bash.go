@@ -10,10 +10,18 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/sandbox"
 )
 
+// backgroundRequest is the Ctrl+B handshake between backgroundForeground and
+// the command's select loop: the loop acknowledges whether the command was
+// actually moved to the background.
+type backgroundRequest struct {
+	reason string
+	ack    chan bool
+}
+
 type shellState struct {
 	mu         sync.Mutex
 	next       uint64
-	foreground map[uint64]chan string
+	foreground map[uint64]chan backgroundRequest
 }
 
 func (s *shellState) hasForeground() bool {
@@ -21,15 +29,36 @@ func (s *shellState) hasForeground() bool {
 	defer s.mu.Unlock()
 	return len(s.foreground) > 0
 }
+
+// backgroundForeground moves every running foreground command to the
+// background, mirroring the reference's synchronous backgroundForegroundTasks:
+// each request waits for the command loop's acknowledgement, successfully
+// backgrounded entries are dropped before returning, and the count reflects
+// commands actually backgrounded (a command that finished in the meantime is
+// acknowledged false by the loop's exit path instead of being counted).
 func (s *shellState) backgroundForeground() int {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	count := 0
-	for _, request := range s.foreground {
+	type pendingRequest struct {
+		id  uint64
+		ack chan bool
+	}
+	var requests []pendingRequest
+	for id, request := range s.foreground {
+		ack := make(chan bool, 1)
 		select {
-		case request <- "user":
-			count++
+		case request <- backgroundRequest{reason: "user", ack: ack}:
+			requests = append(requests, pendingRequest{id: id, ack: ack})
 		default:
+		}
+	}
+	s.mu.Unlock()
+	count := 0
+	for _, entry := range requests {
+		if <-entry.ack {
+			count++
+			s.mu.Lock()
+			delete(s.foreground, entry.id)
+			s.mu.Unlock()
 		}
 	}
 	return count

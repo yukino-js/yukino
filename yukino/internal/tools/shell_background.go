@@ -244,18 +244,33 @@ func executeShell(ctx context.Context, name, prompt string, args map[string]any,
 		done <- err
 	}()
 	manager := TaskManagerForContext(ctx, fallback)
-	requests := make(chan string, 1)
+	requests := make(chan backgroundRequest, 1)
 	var foregroundID uint64
 	if manager != nil {
 		state.mu.Lock()
 		state.next++
 		foregroundID = state.next
 		if state.foreground == nil {
-			state.foreground = map[uint64]chan string{}
+			state.foreground = map[uint64]chan backgroundRequest{}
 		}
 		state.foreground[foregroundID] = requests
 		state.mu.Unlock()
-		defer func() { state.mu.Lock(); delete(state.foreground, foregroundID); state.mu.Unlock() }()
+		// On exit the entry is dropped and any request still buffered is
+		// acknowledged false, so a concurrent Ctrl+B never counts a command
+		// that already finished and never waits on a lost acknowledgement.
+		defer func() {
+			state.mu.Lock()
+			delete(state.foreground, foregroundID)
+			state.mu.Unlock()
+			for {
+				select {
+				case pending := <-requests:
+					pending.ack <- false
+				default:
+					return
+				}
+			}
+		}()
 	}
 	timer := time.NewTimer(time.Duration(timeout) * time.Second)
 	defer timer.Stop()
@@ -352,8 +367,10 @@ func executeShell(ctx context.Context, name, prompt string, args map[string]any,
 				exit.signal = shellExitSignal(cmd)
 			}
 			return cleanup(buildShellResult(prompt, command, exit, path, timeout, MaxShellOutputBytes, prepared.AnnotateOutput))
-		case reason := <-requests:
-			if result, ok := runBackground(reason); ok {
+		case request := <-requests:
+			result, ok := runBackground(request.reason)
+			request.ack <- ok
+			if ok {
 				return result
 			}
 		case <-abortCh:
