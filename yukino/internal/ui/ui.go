@@ -293,14 +293,21 @@ func New(providers []config.ProviderConfig, mcpConfigs []config.MCPServerConfig,
 
 	askCh := make(chan tools.AskUserRequest, 1)
 	subProgressCh := make(chan subagent.SubAgentProgress, 32)
-	dt := tools.CreateDefaultTools()
-	reg := dt.Registry
-	reg.Register(&tools.AskUserQuestionTool{RequestCh: askCh})
+	// The core tool set comes from the shared bootstrap constructor, exactly
+	// like the reference app's mount-time createToolRegistry; the TeamManager
+	// exists from mount so TeamTodoWrite can be part of that set.
 	binder := &goalBinder{}
-	reg.Register(&tools.GoalTool{Manager: func() *goal.GoalManager { return binder.get() }})
+	initialTodos, _ := todo.NewTaskList(nil)
+	wd, _ := os.Getwd()
+	teamMgr := teams.NewTeamManager(wd)
+	dt := bootstrap.CreateToolRegistry(initialTodos, bootstrap.ToolRegistryOptions{
+		InteractionMode: "interactive",
+		TeamMgr:         teamMgr,
+		GoalManager:     func() *goal.GoalManager { return binder.get() },
+	})
+	reg := dt.Registry
 
 	sCfg := sandboxCfg
-	initialTodos, _ := todo.NewTaskList(nil)
 
 	lifeCtx, lifeCancel := context.WithCancel(context.Background())
 	m := Model{
@@ -312,6 +319,7 @@ func New(providers []config.ProviderConfig, mcpConfigs []config.MCPServerConfig,
 		memorySystemCh:     make(chan string, 64),
 		providers:          providers,
 		todoList:           initialTodos,
+		teamMgr:            teamMgr,
 		mcpConfigs:         mcpConfigs,
 		mcpAnnounced:       map[string]bool{},
 		hookConfigs:        hookConfigs,

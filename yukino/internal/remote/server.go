@@ -2876,28 +2876,10 @@ func (s *Server) wireSkillsToAgent(wd string) {
 	})
 }
 
+// wireSkillCommands mirrors the reference's remote wireSkillsToCommands:
+// skills are captured at wire time and taken names are skipped.
 func (s *Server) wireSkillCommands() {
-	for _, meta := range s.skillCatalog.List() {
-		if s.cmdRegistry.Find(meta.Name) != nil {
-			continue
-		}
-		command := &commands.Command{Name: meta.Name, Description: meta.Description + " [skill]", IsSkill: true}
-		if meta.IsFork() {
-			command.Type = commands.TypeSkillFork
-			command.Handler = func(*commands.Context) string { return "" }
-		} else {
-			captured := meta.Name
-			command.Type = commands.TypePrompt
-			command.Handler = func(ctx *commands.Context) string {
-				skill := s.skillCatalog.Get(captured)
-				if skill == nil {
-					return fmt.Sprintf("[skill error] unknown skill: %s", captured)
-				}
-				return skills.RunInline(skill, ctx.Args, s)
-			}
-		}
-		s.cmdRegistry.Register(command)
-	}
+	bootstrap.WireSkillsToRegistry(s.skillCatalog, s.cmdRegistry, s)
 }
 
 func (s *Server) ActivateSkill(name, body string) {

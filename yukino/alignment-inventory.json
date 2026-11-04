@@ -1,9 +1,9 @@
 {
   "reference_commit": "1847a71e03f90d0e5fc60a2a797c60af327b7750",
   "counts": {
-    "Corrected": 221,
+    "Corrected": 222,
     "Language-specific difference": 4,
-    "Partially aligned": 57,
+    "Partially aligned": 56,
     "Reviewed": 37,
     "Shared browser build": 51,
     "Synchronized artifact": 7
@@ -115,7 +115,7 @@
       "source": "src/bootstrap/tool-registry.ts",
       "source_sha256": "ee178cdcaf972dcc6a0460a06d9360b8ad51e1d5acb9e51202706e89899d6271",
       "counterpart": "`internal/bootstrap/tool_registry.go`",
-      "status": "Partially aligned"
+      "status": "Corrected"
     },
     {
       "source": "src/cli.ts",

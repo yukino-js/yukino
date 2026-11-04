@@ -10,7 +10,40 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/config"
 	"github.com/yukino-js/yukino/yukino/internal/memory"
 	"github.com/yukino-js/yukino/yukino/internal/permissions"
+	"github.com/yukino-js/yukino/yukino/internal/skills"
 )
+
+// TestUIRegistryOrderMatchesReference pins the full tool registration order:
+// the mount-time createToolRegistry core set followed by the initClient
+// additions (skill tools, ask tool, team/task tools, SyntheticOutput, Agent).
+func TestUIRegistryOrderMatchesReference(t *testing.T) {
+	provider := config.ProviderConfig{Name: "test", Protocol: "anthropic", Model: "m", APIKey: "k"}
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	m := New([]config.ProviderConfig{provider}, nil, nil, nil, 0, "", false)
+	m.skillCatalog = skills.LoadCatalog(dir)
+	m.registerAgentTools(nil, &provider, "anthropic", dir)
+	var names []string
+	for _, tool := range m.registry.ListTools() {
+		names = append(names, tool.Name())
+	}
+	want := []string{
+		"Goal", "TodoWrite", "TaskOutput", "Bash", "PowerShell", "ComputerUse", "EditFile",
+		"EnterPlanMode", "EnterWorktree", "ExitPlanMode", "ExitWorktree",
+		"ReadFile", "ToolSearch", "McpCall", "WriteFile", "Glob", "Grep", "WebFetch",
+		"LoadSkill", "InstallSkill", "AskUserQuestion",
+		"TeamCreate", "SendMessage", "TeamList", "TeamDelete", "TaskStop",
+		"SyntheticOutput", "Agent",
+	}
+	if len(names) != len(want) {
+		t.Fatalf("tool count = %d (%v), want %d", len(names), names, len(want))
+	}
+	for i := range want {
+		if names[i] != want[i] {
+			t.Fatalf("order[%d] = %q, want %q (full: %v)", i, names[i], want[i], names)
+		}
+	}
+}
 
 func TestInitialPermissionMode(t *testing.T) {
 	cases := map[string]permissions.PermissionMode{

@@ -9,6 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/yukino-js/yukino/yukino/internal/agent"
+	"github.com/yukino-js/yukino/yukino/internal/bootstrap"
 	"github.com/yukino-js/yukino/yukino/internal/commands"
 	"github.com/yukino-js/yukino/yukino/internal/config"
 	"github.com/yukino-js/yukino/yukino/internal/conversation"
@@ -94,26 +95,34 @@ func (m *Model) registerAgentTools(client llm.Client, providerCfg *config.Provid
 	loader := subagent.NewAgentLoader()
 	loader.LoadAll()
 
-	teamMgr := teams.NewTeamManager(wd)
-	teamMgr.CoordinatorMode = m.EnableCoordinatorMode
+	// The TeamManager exists from ui.New (the mount-time core registry holds
+	// TeamTodoWrite); activation only finalizes and restores it.
+	m.teamMgr.CoordinatorMode = m.EnableCoordinatorMode
 	// Restore pending notifications and reclaim interrupted teammates' work.
-	teamMgr.RestoreFromDisk()
-	m.teamMgr = teamMgr
-	m.registry.Register(&teams.TeamTodoWriteTool{TeamMgr: m.teamMgr, Fallback: m.todoList})
-
-	m.registry.Register(&tools.EnterWorktreeTool{})
-	m.registry.Register(&tools.ExitWorktreeTool{})
-
-	m.registry.Register(&tools.ExitPlanModeTool{})
-
-	m.registry.Register(&tools.ToolSearchTool{Registry: m.registry})
-	m.registry.Register(&tools.McpCallTool{Registry: m.registry})
+	m.teamMgr.RestoreFromDisk()
+	teamMgr := m.teamMgr
+	// The reference initClient registers skill tools, the ask tool and the
+	// team/task tools on top of the mount-time core registry, in this order.
+	m.registry.Register(&skills.LoadSkillTool{Catalog: m.skillCatalog, Host: m})
+	m.registry.Register(&skills.InstallSkillTool{
+		Cwd:     wd,
+		Catalog: m.skillCatalog,
+		OnInstalled: func() {
+			// Only rewire the slash commands; newly installed skills are
+			// delivered by skillDelta on the next turn.
+			bootstrap.WireSkillsToRegistry(m.skillCatalog, m.cmdRegistry, m)
+		},
+	})
+	m.registry.Register(&tools.AskUserQuestionTool{RequestCh: m.askUserCh})
 	m.registry.Register(&teams.TeamCreateTool{TeamMgr: teamMgr})
-	m.registry.Register(&teams.TeamDeleteTool{TeamMgr: teamMgr})
-	m.registry.Register(&teams.TeamListTool{TeamMgr: teamMgr})
 	m.registry.Register(&teams.SendMessageTool{TeamMgr: teamMgr, SenderName: "leader"})
+	m.registry.Register(&teams.TeamListTool{TeamMgr: teamMgr})
+	m.registry.Register(&teams.TeamDeleteTool{TeamMgr: teamMgr})
 	m.registry.Register(&teams.TaskStopTool{TeamMgr: teamMgr, TaskManager: m.taskMgr})
 	m.registry.Register(&tools.SyntheticOutputTool{})
+	// Wire every loaded skill as a slash command after user commands so user
+	// *.md files take precedence (idempotent, skips taken names).
+	bootstrap.WireSkillsToRegistry(m.skillCatalog, m.cmdRegistry, m)
 	progressCh, life := m.subAgentProgressCh, m.lifeCtx
 	m.registry.Register(&subagent.AgentTool{
 		Client:        client,
@@ -162,67 +171,6 @@ func (m *Model) loadSkillsAndBuildPrompt(wd string) string {
 	return m.rebuildSystemPrompt(wd)
 }
 
-func (m *Model) wireSkillsToAgent() {
-	if m.skillCatalog == nil || m.ag == nil {
-		return
-	}
-	for _, meta := range m.skillCatalog.List() {
-		m.registerSkillCommand(meta.Name)
-	}
-	m.registry.Register(&skills.LoadSkillTool{
-		Catalog: m.skillCatalog,
-		Host:    m,
-	})
-	wd, _ := os.Getwd()
-	m.registry.Register(&skills.InstallSkillTool{
-		Cwd:     wd,
-		Catalog: m.skillCatalog,
-		OnInstalled: func() {
-			// Only rewire the slash commands; newly installed skills are
-			// delivered by skillDelta on the next turn.
-			for _, meta := range m.skillCatalog.List() {
-				if m.cmdRegistry.Find(meta.Name) == nil {
-					m.registerSkillCommand(meta.Name)
-				}
-			}
-		},
-	})
-}
-
-func (m *Model) registerSkillCommand(name string) {
-	if m.skillCatalog == nil || m.cmdRegistry == nil {
-		return
-	}
-	if m.cmdRegistry.Find(name) != nil {
-		return
-	}
-	meta := m.skillCatalog.Get(name)
-	if meta == nil {
-		return
-	}
-	cmd := &commands.Command{
-		Name:        name,
-		Description: meta.Meta.Description + " [skill]",
-	}
-	if meta.Meta.IsFork() {
-		cmd.Type = commands.TypeSkillFork
-		cmd.Handler = func(ctx *commands.Context) string {
-			return ""
-		}
-	} else {
-		cmd.Type = commands.TypePrompt
-		captured := name
-		cmd.Handler = func(ctx *commands.Context) string {
-			skill := m.skillCatalog.Get(captured)
-			if skill == nil {
-				return fmt.Sprintf("[skill error] unknown skill: %s", captured)
-			}
-			return skills.RunInline(skill, ctx.Args, m)
-		}
-	}
-	m.cmdRegistry.Register(cmd)
-}
-
 func (m *Model) refreshSkillsIfNeeded() {
 	if m.skillCatalog == nil || m.client == nil {
 		return
@@ -231,9 +179,7 @@ func (m *Model) refreshSkillsIfNeeded() {
 		return
 	}
 	m.skillCatalog.Reload()
-	for _, meta := range m.skillCatalog.List() {
-		m.registerSkillCommand(meta.Name)
-	}
+	bootstrap.WireSkillsToRegistry(m.skillCatalog, m.cmdRegistry, m)
 }
 
 func (m *Model) skillDelta() string {

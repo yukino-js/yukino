@@ -150,31 +150,27 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 		m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: info})
 		return m, nil
 	case "skills":
+		if m.skillCatalog == nil {
+			m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: "Skills: no catalog loaded."})
+			return m, nil
+		}
 		if strings.TrimSpace(args) == "reload" {
-			if m.skillCatalog != nil {
-				m.skillCatalog.Reload()
-				for _, meta := range m.skillCatalog.List() {
-					if m.cmdRegistry.Find(meta.Name) == nil {
-						m.registerSkillCommand(meta.Name)
-					}
-				}
-			}
+			m.skillCatalog.Reload()
+			bootstrap.WireSkillsToRegistry(m.skillCatalog, m.cmdRegistry, m)
+			m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: fmt.Sprintf("Skills reloaded. %d skill(s) available.", len(m.skillCatalog.List()))})
+			return m, nil
+		}
+		list := m.skillCatalog.List()
+		if len(list) == 0 {
+			m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: "No skills found in .agents/skills/."})
+			return m, nil
 		}
 		var sb strings.Builder
-		if m.skillCatalog == nil || len(m.skillCatalog.List()) == 0 {
-			sb.WriteString("No skills installed.\n\nAdd skills to .yukino/skills/<skill-name>/SKILL.md")
-		} else {
-			sb.WriteString(fmt.Sprintf("Available skills (%d):\n\n", len(m.skillCatalog.List())))
-			for _, s := range m.skillCatalog.List() {
-				desc := s.Description
-				if len(desc) > 100 {
-					desc = desc[:100] + "…"
-				}
-				sb.WriteString(fmt.Sprintf("  /%s\n    %s\n\n", s.Name, desc))
-			}
-			sb.WriteString("Type /<skill-name> to invoke a skill.\n")
-			sb.WriteString("Type /skills reload to hot-reload skills from disk.")
+		sb.WriteString("Available skills:\n")
+		for _, s := range list {
+			sb.WriteString(fmt.Sprintf("  /%s — %s\n", s.Name, s.Description))
 		}
+		sb.WriteString("\nType /skills reload to hot-reload skills from disk.")
 		m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: sb.String()})
 		return m, nil
 	case "goal":
