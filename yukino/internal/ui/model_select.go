@@ -244,6 +244,7 @@ func (m Model) applyModelSelection(modelID string) (tea.Model, tea.Cmd) {
 		})
 		return m, nil
 	}
+	m.stopMemoryTasks()
 	m.client = client
 	for i := range m.providers {
 		if m.providers[i].BaseURL == updated.BaseURL {

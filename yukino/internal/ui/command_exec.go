@@ -34,7 +34,7 @@ func (m Model) buildCommandContext(args string) *commands.Context {
 	if m.selectedProvider != nil {
 		modelName = m.selectedProvider.Model
 	}
-	return &commands.Context{
+	ctx := &commands.Context{
 		Args:  args,
 		Cwd:   wd,
 		Model: modelName,
@@ -73,11 +73,6 @@ func (m Model) buildCommandContext(args string) *commands.Context {
 			}
 			return nil
 		},
-		SetThinkingLevel: func(level string) {
-			if control, ok := m.client.(llm.ThinkingLevelControl); ok {
-				control.SetThinkingLevel(level)
-			}
-		},
 		PersistThinkingLevel: func(level string) error {
 			if m.selectedProvider == nil {
 				return fmt.Errorf("no active provider")
@@ -85,6 +80,15 @@ func (m Model) buildCommandContext(args string) *commands.Context {
 			return config.PersistThinkingLevel(m.selectedProvider.BaseURL, level)
 		},
 	}
+	if control, ok := m.client.(llm.ThinkingLevelControl); ok {
+		ctx.SetThinkingLevel = func(level string) {
+			control.SetThinkingLevel(level)
+			if m.selectedProvider != nil {
+				m.selectedProvider.Thinking = control.GetThinkingLevel()
+			}
+		}
+	}
+	return ctx
 }
 
 // newUICommandRegistry mirrors the app-level command registration in
@@ -189,6 +193,7 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 			}
+			m.stopMemoryTasks()
 			m.chatMessages = nil
 			m.committedUpTo = 0
 			m.conversation.Reset()

@@ -49,6 +49,8 @@ type Model struct {
 	userBash                               *userBashRun
 	userBashTool                           *toolBlockInfo
 	userBashOutputCh                       chan userBashOutputMsg
+	memoryLoopCh                           chan memoryLoopMsg
+	memorySystemCh                         chan string
 	pendingBashRecords                     []session.Message
 	lifeCtx                                context.Context
 	lifeCancel                             context.CancelFunc
@@ -306,6 +308,8 @@ func New(providers []config.ProviderConfig, mcpConfigs []config.MCPServerConfig,
 		sessionID:        session.NewID(),
 		loginForm:        newProviderLoginForm(nil),
 		lifeCtx:          lifeCtx, lifeCancel: lifeCancel, hostPermissionCh: make(chan agent.PermissionRequestEvent, 32), userBashOutputCh: make(chan userBashOutputMsg, 16),
+		memoryLoopCh:       make(chan memoryLoopMsg, 4),
+		memorySystemCh:     make(chan string, 64),
 		providers:          providers,
 		todoList:           initialTodos,
 		mcpConfigs:         mcpConfigs,
@@ -344,7 +348,7 @@ func New(providers []config.ProviderConfig, mcpConfigs []config.MCPServerConfig,
 }
 
 func (m Model) Init() tea.Cmd {
-	cmds := []tea.Cmd{m.connectIde(), m.listenForAskUser(), m.listenForSubAgentProgress(), m.listenForHostPermission(), m.pollUIStatus(), m.checkUpdate(), m.listenUserBashOutput()}
+	cmds := []tea.Cmd{m.connectIde(), m.listenForAskUser(), m.listenForSubAgentProgress(), m.listenForHostPermission(), m.pollUIStatus(), m.checkUpdate(), m.listenUserBashOutput(), m.listenMemoryLoop(), m.listenMemorySystem()}
 	if len(m.providers) > 0 {
 		cmds = append(cmds, func() tea.Msg { return initSingleProviderMsg{} })
 	}
@@ -399,6 +403,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.userBashTool.output = plainTerminalText(msg.output)
 		}
 		return m, m.listenUserBashOutput()
+
+	case memoryLoopMsg:
+		return m.handleMemoryLoop(msg)
+
+	case memorySystemMsg:
+		return m.handleMemorySystem(msg)
 	case userBashDoneMsg:
 		if m.userBash != msg.run {
 			return m, nil

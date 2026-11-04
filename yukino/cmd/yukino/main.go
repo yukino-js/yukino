@@ -221,7 +221,7 @@ func main() {
 	m.EnableCoordinatorMode = cfg.EnableCoordinatorMode
 	m.MCPLoading = cfg.MCPLoading
 	m.StartupResume = mode.Resume
-	p := tea.NewProgram(m, tea.WithInput(terminalInput.Stdin))
+	p := tea.NewProgram(m, tea.WithInput(terminalInput.Stdin), tea.WithOutput(ui.InstallTerminalOutput(os.Stdout)))
 
 	finalModel, err := p.Run()
 	model, hasModel := finalModel.(ui.Model)

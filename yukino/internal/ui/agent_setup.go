@@ -16,7 +16,6 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/llm"
 	"github.com/yukino-js/yukino/yukino/internal/mcp"
 	"github.com/yukino-js/yukino/yukino/internal/memory"
-	"github.com/yukino-js/yukino/yukino/internal/memory/background"
 	"github.com/yukino-js/yukino/yukino/internal/permissions"
 	"github.com/yukino-js/yukino/yukino/internal/prompt"
 	"github.com/yukino-js/yukino/yukino/internal/skills"
@@ -344,25 +343,6 @@ func (m Model) RunSubagent(ctx context.Context, prompt string) (string, error) {
 
 func (m *Model) loadCustomInstructions(wd string) string {
 	return memory.LoadInstructions(wd)
-}
-
-func (m *Model) installMemoryTasks(ag *agent.Agent, wd string) *background.Tasks {
-	if m.client == nil || m.conversation == nil || !m.memoryEnabled {
-		return nil
-	}
-	conv := m.conversation
-	tasks := background.New(m.client, wd, background.Callbacks{
-		OnSaved: func(saved []string) {
-			if len(saved) > 0 {
-				conv.AddSystemReminder("Memory saved: " + strings.Join(saved, ", "))
-			}
-		},
-		AppendSystem: func(s string) { conv.AddSystemReminder(s) },
-	})
-	ag.OnLoopComplete = func(loopConv *conversation.Manager) {
-		tasks.Run(loopConv)
-	}
-	return tasks
 }
 
 func (m *Model) prefetchRelevantMemories(query string) <-chan agent.RecallResult {

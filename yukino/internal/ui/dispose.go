@@ -56,9 +56,7 @@ func (m *Model) Dispose() error {
 	if m.teamMgr != nil {
 		m.teamMgr.CloseAll()
 	}
-	if m.memoryTasks != nil {
-		m.memoryTasks.Dispose()
-	}
+	m.stopMemoryTasks()
 	if m.registry != nil {
 		if err := m.registry.Dispose(); err != nil {
 			failures = append(failures, err)

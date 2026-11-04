@@ -305,14 +305,16 @@ func (m Model) handleComposerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		cmd := m.pasteImage()
 		return m, cmd
 	}
-	if key == "ctrl+j" || key == "shift+enter" || key == "alt+enter" {
+	if key == "ctrl+j" || key == "shift+enter" {
 		m.editor.InsertString("\n")
 		m.resizeInput()
 		m.updateSlashMenu()
 		m.updateAtMenu()
 		return m, nil
 	}
-	if key == "enter" {
+	// The reference submits on any return keypress that is not a newline
+	// request, including alt/option+enter.
+	if key == "enter" || key == "alt+enter" {
 		if showAt && m.atCursor < len(m.atMatches) {
 			m.completeFile(m.atMatches[m.atCursor])
 			return m, nil

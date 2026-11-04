@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -55,12 +56,14 @@ func (m Model) submitUserBash(text string) (Model, tea.Cmd, bool) {
 		m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: message})
 		return m, m.commitStaticOutput(), false
 	}
-	input, err := history.RecordInput(history.InputOptions{Cwd: m.getWorkDir(), SessionID: &m.sessionID, Source: "cli", Text: text})
+	// The reference records the trimmed submission text (onStart(text.trim())).
+	trimmed := strings.TrimSpace(text)
+	input, err := history.RecordInput(history.InputOptions{Cwd: m.getWorkDir(), SessionID: &m.sessionID, Source: "cli", Text: trimmed})
 	if err != nil {
 		next, cmd := m.inputError(err)
 		return next.(Model), cmd, false
 	}
-	m.historyEntries = append(m.historyEntries, text)
+	m.historyEntries = append(m.historyEntries, trimmed)
 	m.historyIndex = 0
 	m.historyDraft = nil
 	m.updateDismissed = true

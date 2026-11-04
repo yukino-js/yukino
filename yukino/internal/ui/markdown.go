@@ -434,7 +434,7 @@ func fitTableToWidth(rows [][]string, columns, width int) ([][]string, []int, bo
 			if col < len(row) {
 				value = row[col]
 			}
-			wrapped[i][col] = strings.Join(wrapWordsToLines(value, widths[col]-2), "\n")
+			wrapped[i][col] = strings.Join(wrapWordsToLines(expandTabs(value), widths[col]-2), "\n")
 		}
 	}
 	return wrapped, widths, true

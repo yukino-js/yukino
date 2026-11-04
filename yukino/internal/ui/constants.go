@@ -26,6 +26,28 @@ const OtherLabel = "Other (type your own)"
 
 const TabSize = 2
 
+const (
+	oscBackground = "\x1b]11;"
+	colorScheme   = "\x1b[?997;"
+	pasteStart    = "\x1b[200~"
+	pasteEnd      = "\x1b[201~"
+
+	bsu = "\x1b[?2026h" // Begin Synchronized Update
+	esu = "\x1b[?2026l" // End Synchronized Update
+)
+
+// syncOutputTermPrograms lists TERM_PROGRAM values whose terminal emulator
+// implements synchronized output.
+var syncOutputTermPrograms = map[string]bool{
+	"alacritty":    true,
+	"contour":      true,
+	"ghostty":      true,
+	"iTerm.app":    true,
+	"vscode":       true,
+	"WarpTerminal": true,
+	"WezTerm":      true,
+}
+
 // CellPadding is one space of padding on each side of a cell, in terminal
 // columns.
 const CellPadding = 2

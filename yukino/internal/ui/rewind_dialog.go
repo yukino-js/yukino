@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -32,10 +33,9 @@ func formatRewindAgo(t time.Time) string {
 	if t.IsZero() {
 		return "0s ago"
 	}
-	seconds := int64(time.Since(t).Seconds())
-	if seconds < 0 {
-		seconds = 0
-	}
+	// The reference does not clamp: a future timestamp renders as a negative
+	// number of seconds.
+	seconds := int64(math.Floor(time.Since(t).Seconds()))
 	if seconds < 60 {
 		return fmt.Sprintf("%ds ago", seconds)
 	}
@@ -277,6 +277,7 @@ func (m Model) executeRewindOption() (tea.Model, tea.Cmd) {
 			return m.finishRewindError(err)
 		}
 		transcript = m.rewindConversation(snap)
+		m.stopMemoryTasks()
 		summary = fmt.Sprintf("⟲ Rewound to checkpoint. Restored %d file(s) and conversation.", len(changed))
 		for _, f := range changed {
 			summary += "\n  " + f
@@ -285,6 +286,7 @@ func (m Model) executeRewindOption() (tea.Model, tea.Cmd) {
 
 	case 1:
 		transcript = m.rewindConversation(snap)
+		m.stopMemoryTasks()
 		summary = "⟲ Rewound conversation. Files unchanged."
 		rebuilt = true
 

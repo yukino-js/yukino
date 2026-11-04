@@ -84,7 +84,7 @@ func (m *Model) activateInitialProvider(p *config.ProviderConfig) tea.Cmd {
 	}
 	m.wireSkillsToAgent()
 	m.attachWorkflow()
-	m.memoryTasks = m.installMemoryTasks(ag, wd)
+	m.wireMemoryTasks(ag)
 	entries, err := history.LoadInputTexts()
 	if err != nil {
 		m.chatMessages = append(m.chatMessages, chatMessage{role: "error", content: "Unable to load input history: " + err.Error()})
@@ -247,6 +247,7 @@ func (m Model) switchProvider(provider config.ProviderConfig) (tea.Model, tea.Cm
 		})
 		return m, nil
 	}
+	m.stopMemoryTasks()
 	m.client = client
 	for i := range m.providers {
 		if m.providers[i].BaseURL == provider.BaseURL {

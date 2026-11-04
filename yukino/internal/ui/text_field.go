@@ -31,11 +31,13 @@ func editTextField(editor *inputEditor, key tea.KeyMsg, multiline bool) string {
 		editor.InsertString(value)
 		return ""
 	}
-	if multiline && (name == "ctrl+j" || name == "shift+enter" || name == "alt+enter") {
+	if multiline && (name == "ctrl+j" || name == "shift+enter") {
 		editor.InsertString("\n")
 		return ""
 	}
-	if name == "enter" {
+	// The reference submits on any return keypress that is not a newline
+	// request, including alt/option+enter.
+	if name == "enter" || name == "alt+enter" {
 		return "submit"
 	}
 	line := []rune(editor.lines[editor.line])

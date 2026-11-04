@@ -1,11 +1,10 @@
 {
   "reference_commit": "1847a71e03f90d0e5fc60a2a797c60af327b7750",
   "counts": {
-    "Corrected": 213,
-    "Language-specific difference": 2,
-    "Partially aligned": 58,
-    "Pending review": 20,
-    "Reviewed": 26,
+    "Corrected": 221,
+    "Language-specific difference": 4,
+    "Partially aligned": 57,
+    "Reviewed": 37,
     "Shared browser build": 51,
     "Synchronized artifact": 7
   },
@@ -350,7 +349,7 @@
       "source": "src/index.ts",
       "source_sha256": "da7270e4c5a473ea2bba71d30f67328957cba953d15fd1fb769c300cf77cc789",
       "counterpart": "`cmd/yukino`",
-      "status": "Pending review"
+      "status": "Reviewed"
     },
     {
       "source": "src/llm/anthropic.ts",
@@ -1424,7 +1423,7 @@
       "source": "src/tools/constants.ts",
       "source_sha256": "7abeff289636c68d68f376446d1c53375e9faee31274b944800ef1f1e6463606",
       "counterpart": "`internal/tools/constants.go` and related files",
-      "status": "Partially aligned"
+      "status": "Corrected"
     },
     {
       "source": "src/tools/diff.ts",
@@ -1634,7 +1633,7 @@
       "source": "src/ui/agents-dialog.tsx",
       "source_sha256": "13ca5bf430e03ead7f482819045646ea27a979f942e3f9fc8f1a3f0875eaf85c",
       "counterpart": "`internal/ui`",
-      "status": "Pending review"
+      "status": "Reviewed"
     },
     {
       "source": "src/ui/app.tsx",
@@ -1646,13 +1645,13 @@
       "source": "src/ui/ask-user-dialog.tsx",
       "source_sha256": "95228a2d313d55a1d35f39994559bf7823931240c72b1ac302a8eef6858b859b",
       "counterpart": "`internal/ui`",
-      "status": "Pending review"
+      "status": "Corrected"
     },
     {
       "source": "src/ui/chat.tsx",
       "source_sha256": "9d2e18e4626995063cbfe333181530f90cfe20b74422c7eaa9d473d36638a9f7",
       "counterpart": "`internal/ui`",
-      "status": "Pending review"
+      "status": "Reviewed"
     },
     {
       "source": "src/ui/constants.ts",
@@ -1664,7 +1663,7 @@
       "source": "src/ui/cursor-text.tsx",
       "source_sha256": "b5b7164a60e8d33fb1aa441c685b06a6f1d465b958f1f39967af5fe3e62aaed7",
       "counterpart": "`internal/ui`",
-      "status": "Pending review"
+      "status": "Partially aligned"
     },
     {
       "source": "src/ui/diff-render.tsx",
@@ -1742,7 +1741,7 @@
       "source": "src/ui/model-select.tsx",
       "source_sha256": "9c7e06d77270363f3cfdeac0fefd775af5529be8105d6cea1182ab7821f64c46",
       "counterpart": "`internal/ui`",
-      "status": "Pending review"
+      "status": "Reviewed"
     },
     {
       "source": "src/ui/pending-queue.tsx",
@@ -1754,13 +1753,13 @@
       "source": "src/ui/permission-dialog.tsx",
       "source_sha256": "bcead2c2de8591b93450df24308e8922b80c6f2f256842cdee6da4035105bb7c",
       "counterpart": "`internal/ui`",
-      "status": "Pending review"
+      "status": "Reviewed"
     },
     {
       "source": "src/ui/permission-request.ts",
       "source_sha256": "9a9253b26653743380fd5cd4694626c5dddeef4b14290c53f9f4f278b8bdfe5b",
       "counterpart": "`internal/ui`",
-      "status": "Pending review"
+      "status": "Reviewed"
     },
     {
       "source": "src/ui/plan-approval.tsx",
@@ -1778,13 +1777,13 @@
       "source": "src/ui/provider-select.tsx",
       "source_sha256": "a61cdc2f686cfa1fc2875d69766d1fffa557aa6128047562cf63df7277e0e07f",
       "counterpart": "`internal/ui`",
-      "status": "Pending review"
+      "status": "Reviewed"
     },
     {
       "source": "src/ui/rewind-dialog.tsx",
       "source_sha256": "0e9ee98aedcdfb01c403a763dd5b6e8890f2ac3b3aa07e71d08b9b337a824e8c",
       "counterpart": "`internal/ui`",
-      "status": "Pending review"
+      "status": "Corrected"
     },
     {
       "source": "src/ui/selector-frame.tsx",
@@ -1814,7 +1813,7 @@
       "source": "src/ui/session-selector.tsx",
       "source_sha256": "270189ffeafa31cd15b6d078a2a4a8985a3a9dd8f35684a1fc0cd3b498718249",
       "counterpart": "`internal/ui`",
-      "status": "Pending review"
+      "status": "Reviewed"
     },
     {
       "source": "src/ui/status-border.tsx",
@@ -1826,7 +1825,7 @@
       "source": "src/ui/streaming-markdown.ts",
       "source_sha256": "90041162a1dda37c2f0852d6fe1885931bf85c803a388e4454366659bbd1826e",
       "counterpart": "`internal/ui`",
-      "status": "Pending review"
+      "status": "Reviewed"
     },
     {
       "source": "src/ui/styles.ts",
@@ -1838,13 +1837,13 @@
       "source": "src/ui/syntax-highlight.ts",
       "source_sha256": "69d6facf74857550f834c2f4b8fe3189fe7161728092fa1842469d5369a4c6d7",
       "counterpart": "`internal/ui`",
-      "status": "Pending review"
+      "status": "Language-specific difference"
     },
     {
       "source": "src/ui/table-layout.ts",
       "source_sha256": "b567104266018c82b112a952123a9decca4bfbbab5879c97a275b1fa81db9384",
       "counterpart": "`internal/ui`",
-      "status": "Pending review"
+      "status": "Corrected"
     },
     {
       "source": "src/ui/terminal-input.ts",
@@ -1862,7 +1861,7 @@
       "source": "src/ui/terminal-output.ts",
       "source_sha256": "d11ad8b4a2a5412a25cf8aa62918f9220f8a2ee567834830330c59d6f5475ba9",
       "counterpart": "`internal/ui`",
-      "status": "Pending review"
+      "status": "Language-specific difference"
     },
     {
       "source": "src/ui/terminal-text.ts",
@@ -1880,7 +1879,7 @@
       "source": "src/ui/text-field.tsx",
       "source_sha256": "a1d7d11f4d67f9c64a45a482172f4150e13413a3133eac9d8d187247450f44ea",
       "counterpart": "`internal/ui`",
-      "status": "Pending review"
+      "status": "Corrected"
     },
     {
       "source": "src/ui/thinking-block.tsx",
@@ -1892,7 +1891,7 @@
       "source": "src/ui/thinking-select.tsx",
       "source_sha256": "d8a280b2cf12cea12c523f60d8cc6b3b90110076f49a4e9e6d13bf9631c9f0bf",
       "counterpart": "`internal/ui`",
-      "status": "Pending review"
+      "status": "Corrected"
     },
     {
       "source": "src/ui/todo-progress.tsx",
@@ -1904,7 +1903,7 @@
       "source": "src/ui/tool-display.tsx",
       "source_sha256": "434544c5084ef1e17ddc62bb948bb7cbaa396e6a81ee63fd26b2185a42a7dd68",
       "counterpart": "`internal/ui`",
-      "status": "Pending review"
+      "status": "Reviewed"
     },
     {
       "source": "src/ui/tool-preview.ts",
@@ -1988,13 +1987,13 @@
       "source": "src/ui/use-user-bash.ts",
       "source_sha256": "c49ca9ffcf4e309d4384c4a3a8bc6c1d8c1b03a0d0cb3085396b79d1fa76758f",
       "counterpart": "`internal/ui`",
-      "status": "Pending review"
+      "status": "Corrected"
     },
     {
       "source": "src/ui/workflows-dialog.tsx",
       "source_sha256": "e1edf53900c0242b14fb48bd9c5eb8bf2ffbe521e87cf2c30dccf8a520417d40",
       "counterpart": "`internal/ui`",
-      "status": "Pending review"
+      "status": "Reviewed"
     },
     {
       "source": "src/update/constants.ts",
@@ -2108,7 +2107,7 @@
       "source": "src/websocket-security.ts",
       "source_sha256": "661f1e3782a2a1baf21e4be0eb5645ae538a4a6cfc216ba0a9597a2926517df3",
       "counterpart": "`internal/remote/access.go`",
-      "status": "Partially aligned"
+      "status": "Corrected"
     },
     {
       "source": "src/workflow/agent-adapter.ts",

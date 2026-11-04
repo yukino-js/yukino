@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"fmt"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -39,16 +38,10 @@ func (m Model) handleThinkingDialog(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		if len(m.thinkingLevels) > 0 {
 			level := m.thinkingLevels[m.thinkingCursor]
-			ctx := m.buildCommandContext("")
-			ctx.SetThinkingLevel(level)
-			if m.selectedProvider != nil {
-				m.selectedProvider.Thinking = level
-			}
-			if err := ctx.PersistThinkingLevel(level); err != nil {
-				m.activityError = err.Error()
-			}
-			m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: fmt.Sprintf("Thinking level set to %s.", level)})
+			// The reference dialog closes and replays the selection through
+			// handleSlashCommand(`/thinking ${level}`).
 			m.thinkingDialog = false
+			return m.executeCommand("thinking", level)
 		}
 	}
 	return m, nil

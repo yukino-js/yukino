@@ -215,6 +215,7 @@ func (m Model) doResumeSession(wd, targetID string, saved []session.Message) (te
 		if err := m.taskMgr.StopAll(context.Background()); err != nil {
 			return m, nil
 		}
+		m.stopMemoryTasks()
 		if err := m.taskMgr.UseSession(targetID); err != nil {
 			m.chatMessages = append(m.chatMessages, chatMessage{role: "error", content: err.Error()})
 			return m, nil

@@ -7,7 +7,7 @@ import (
 	"github.com/alecthomas/chroma/v2/lexers"
 )
 
-var syntaxLanguages = strings.Fields("bash c c# c++ cjs clj clojure coffee coffeescript console cpp cpp-macro cs csharp css csv cts dart diff docker dockerfile elixir erl erlang f# fs fsharp glsl go gql graphql groovy haml haskell hcl hs html html-derivative http ini java javascript js json jsonc jsx kotlin kt kts less log lua make makefile markdown markdown-vue md mjs mts objc objective-c ocaml perl php plaintext postcss powershell prisma properties proto protobuf ps ps1 pwsh py python r rb regex regexp rs ruby rust scala scss sh shell shellscript shellsession sql svelte swift text toml ts tsx txt typescript vim viml vimscript vue vue-directives vue-interpolations vue-sfc-style-variable-injection xml yaml yml zig zsh")
+var syntaxLanguages = strings.Fields("bash c c# c++ cjs clj clojure coffee coffeescript console cpp cpp-macro cs csharp css csv cts dart diff docker dockerfile elixir erl erlang f# fs fsharp glsl go gql graphql groovy haml haskell hcl hs html html-derivative http ini java javascript js json jsonc jsx kotlin kt kts less log lua make makefile markdown markdown-vue md mjs mts objc objective-c ocaml perl php plain plaintext postcss powershell prisma properties proto protobuf ps ps1 pwsh py python r rb regex regexp rs ruby rust scala scss sh shell shellscript shellsession sql svelte swift text toml ts tsx txt typescript vim viml vimscript vue vue-directives vue-interpolations vue-sfc-style-variable-injection xml yaml yml zig zsh")
 
 func highlightCode(code, language string) string {
 	normalized := strings.ToLower(language)

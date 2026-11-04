@@ -11,13 +11,6 @@ import (
 	"github.com/muesli/cancelreader"
 )
 
-const (
-	oscBackground = "\x1b]11;"
-	colorScheme   = "\x1b[?997;"
-	pasteStart    = "\x1b[200~"
-	pasteEnd      = "\x1b[201~"
-)
-
 type terminalInputFilter struct {
 	pending string
 	pasting bool

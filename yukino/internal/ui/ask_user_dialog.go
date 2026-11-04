@@ -200,7 +200,15 @@ func (m Model) renderAskNav() string {
 		}
 		return paint(truncateToWidth(fmt.Sprintf("← %d/%d · %s →", index+1, total, label), max(1, m.width-2), "…"), Theme.Accent)
 	}
-	result := paint(" ← ", Theme.Dim)
+	// The edge arrows dim out when there is nothing beyond them.
+	leftColor, rightColor := Theme.Text, Theme.Text
+	if index == 0 {
+		leftColor = Theme.Dim
+	}
+	if index >= total-1 {
+		rightColor = Theme.Dim
+	}
+	result := paint(" ← ", leftColor)
 	for i, label := range labels {
 		color, check := Theme.Dim, "☐"
 		if _, ok := m.askUserAnswered[i]; ok {
@@ -223,7 +231,7 @@ func (m Model) renderAskNav() string {
 		}
 		result += text
 	}
-	return result + paint(" → ", Theme.Dim) + "\n"
+	return result + paint(" → ", rightColor) + "\n"
 }
 func (m Model) renderAskUserDialog() string {
 	if !m.askUserDialog || len(m.askUserQuestions) == 0 {
@@ -257,7 +265,11 @@ func (m Model) renderAskUserDialog() string {
 				if i == m.askUserSubmitIdx {
 					pointer, color = Icons.Arrow, Theme.Accent
 				}
-				lines = append(lines, " "+paint(pointer+" "+label, color))
+				text := " " + label
+				if i == m.askUserSubmitIdx {
+					text = ansiStyle(text, "\x1b[1m", "\x1b[22m")
+				}
+				lines = append(lines, " "+paint(pointer, color)+paint(text, color))
 			}
 		}
 	} else {
@@ -277,14 +289,16 @@ func (m Model) renderAskUserDialog() string {
 			lines = append(lines, paint("   (Space to toggle · Enter to confirm)", Theme.Dim))
 		}
 		lines = append(lines, " ")
+		maxIdxWidth := len(strconv.Itoa(len(q.Options) + 1))
 		for i := 0; i <= len(q.Options); i++ {
-			label, description, color := "Other (type your own)", "", Theme.Dim
+			label, description := "Other (type your own)", ""
+			labelColor, pointerColor := Theme.Dim, Theme.Dim
 			if i < len(q.Options) {
 				label = q.Options[i].Label
 				description = q.Options[i].Description
-				color = Theme.Muted
+				labelColor = Theme.Muted
 				if m.askUserAnswered[m.askUserQIdx] == label {
-					color = Theme.Success
+					labelColor = Theme.Success
 				}
 				if q.MultiSelect {
 					marker := "☐ "
@@ -296,24 +310,26 @@ func (m Model) renderAskUserDialog() string {
 			}
 			pointer := " "
 			if i == cursor {
-				pointer, color = Icons.Arrow, Theme.Accent
+				pointer, pointerColor, labelColor = Icons.Arrow, Theme.Accent, Theme.Accent
 				focus = len(lines)
 				if description != "" {
 					focusHeight = 2
 				}
 			}
 			if contentWidth > 0 {
-				lines = append(lines, " "+paint(truncateToWidth(pointer+" "+strconv.Itoa(i+1)+". "+plainTerminalLine(label), contentWidth, "…"), color))
+				idx := strings.Repeat(" ", maxIdxWidth-len(strconv.Itoa(i+1))) + strconv.Itoa(i+1)
+				line := paint(pointer, pointerColor) + paint(" "+idx+". ", Theme.Dim) + paint(plainTerminalLine(label), labelColor)
+				lines = append(lines, " "+truncateToWidth(line, contentWidth, "…"))
 			}
-			if description != "" && contentWidth > 6 {
-				lines = append(lines, strings.Repeat(" ", 7)+paint(truncateToWidth(plainTerminalLine(description), contentWidth-6, "…"), Theme.Muted))
+			if description != "" && contentWidth > maxIdxWidth+5 {
+				lines = append(lines, strings.Repeat(" ", maxIdxWidth+6)+paint(truncateToWidth(plainTerminalLine(description), contentWidth-maxIdxWidth-5, "…"), Theme.Muted))
 			}
 			if i == cursor {
 				focusHeight = max(1, len(lines)-focus)
 			}
 		}
 		if m.askUserOtherMode[m.askUserQIdx] {
-			text, row := m.renderTextField(m.askUserTextEditor, 7, Icons.Arrow+" ")
+			text, row := m.renderTextField(m.askUserTextEditor, maxIdxWidth+6, Icons.Arrow+" ")
 			focus = len(lines) + row
 			lines = append(lines, strings.Split(text, "\n")...)
 			hint = "Enter to confirm · Esc to return to options"
