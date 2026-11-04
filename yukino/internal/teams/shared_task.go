@@ -15,8 +15,14 @@ type SharedTaskStore struct {
 	nextListener int
 }
 
-func NewSharedTaskStore(path string) *SharedTaskStore {
-	return &SharedTaskStore{path: path, listeners: map[int]func([]*todo.Task){}}
+// NewSharedTaskStore mirrors the SharedTaskStore constructor: the board is
+// loaded immediately, so an unreadable file fails at construction time.
+func NewSharedTaskStore(path string) (*SharedTaskStore, error) {
+	store := &SharedTaskStore{path: path, listeners: map[int]func([]*todo.Task){}}
+	if _, err := store.load(); err != nil {
+		return nil, err
+	}
+	return store, nil
 }
 func (s *SharedTaskStore) load() (todo.Snapshot, error) {
 	snapshot, err := todo.LoadSnapshot(s.path, true)

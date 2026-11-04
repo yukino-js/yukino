@@ -55,7 +55,11 @@ func (b *teamTaskBoard) Write(input map[string]any) ([]*todo.Task, error) {
 	if actor == LeadName {
 		actor = ""
 	}
-	tasks, err := b.manager.GetTaskStore(team.Name).Write(input, todo.WriteOptions{Actor: actor, CreateTask: func(task *todo.Task) { name := b.agentName; task.CreatedBy = &name }, ValidateOwner: func(name string) error {
+	store, err := b.manager.GetTaskStore(team.Name)
+	if err != nil {
+		return nil, err
+	}
+	tasks, err := store.Write(input, todo.WriteOptions{Actor: actor, CreateTask: func(task *todo.Task) { name := b.agentName; task.CreatedBy = &name }, ValidateOwner: func(name string) error {
 		if name == LeadName {
 			return nil
 		}
@@ -243,14 +247,21 @@ func SubscribeLeaderTasks(manager *TeamManager, fallback *todo.TaskList, listene
 			generation++
 			storeUnsubs = make([]func(), 0, len(teamNames))
 			for _, name := range teamNames {
-				store := manager.GetTaskStore(name)
+				store, err := manager.GetTaskStore(name)
+				if err != nil {
+					continue
+				}
 				storeUnsubs = append(storeUnsubs, store.Subscribe(func([]*todo.Task) { refresh() }))
 			}
 		}
 		var tasks []*todo.Task
 		if len(teamNames) > 0 {
 			for _, name := range teamNames {
-				storeTasks, err := manager.GetTaskStore(name).ListTasks("", "")
+				store, err := manager.GetTaskStore(name)
+				if err != nil {
+					continue
+				}
+				storeTasks, err := store.ListTasks("", "")
 				if err != nil {
 					continue
 				}

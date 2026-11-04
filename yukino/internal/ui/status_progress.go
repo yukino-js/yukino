@@ -21,7 +21,11 @@ func (m Model) visibleTasks() ([]*todo.Task, string) {
 	names := m.teamMgr.ListTeams()
 	var tasks []*todo.Task
 	for _, name := range names {
-		teamTasks, err := m.teamMgr.GetTaskStore(name).ListTasks("", "")
+		store, err := m.teamMgr.GetTaskStore(name)
+		if err != nil {
+			continue
+		}
+		teamTasks, err := store.ListTasks("", "")
 		if err != nil {
 			continue
 		}

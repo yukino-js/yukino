@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -13,7 +14,11 @@ import (
 
 func newTestStore(t *testing.T) *SharedTaskStore {
 	t.Helper()
-	return NewSharedTaskStore(filepath.Join(t.TempDir(), "tasks.json"))
+	store, err := NewSharedTaskStore(filepath.Join(t.TempDir(), "tasks.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return store
 }
 func sharedWrite(t *testing.T, store *SharedTaskStore, input map[string]any, options todo.WriteOptions) []*todo.Task {
 	t.Helper()
@@ -25,7 +30,10 @@ func sharedWrite(t *testing.T, store *SharedTaskStore, input map[string]any, opt
 }
 func TestSharedTaskTransactionsReloadAndOwnership(t *testing.T) {
 	store := newTestStore(t)
-	second := NewSharedTaskStore(store.path)
+	second, err := NewSharedTaskStore(store.path)
+	if err != nil {
+		t.Fatal(err)
+	}
 	tasks := sharedWrite(t, store, map[string]any{"todos": []any{map[string]any{"subject": "first", "owner": "alice"}, map[string]any{"subject": "second"}}}, todo.WriteOptions{})
 	if tasks[0].ID != "1" || tasks[1].ID != "2" || tasks[0].CreatedBy == nil {
 		t.Fatal(tasks)
@@ -72,7 +80,10 @@ func TestSharedTaskConcurrentWritersAndUnreadableState(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, err := NewSharedTaskStore(path).Write(map[string]any{"todos": []any{map[string]any{"subject": "parallel"}}}, todo.WriteOptions{})
+			store, err := NewSharedTaskStore(path)
+			if err == nil {
+				_, err = store.Write(map[string]any{"todos": []any{map[string]any{"subject": "parallel"}}}, todo.WriteOptions{})
+			}
 			if err != nil {
 				failures <- err
 			}
@@ -83,7 +94,10 @@ func TestSharedTaskConcurrentWritersAndUnreadableState(t *testing.T) {
 	for err := range failures {
 		t.Fatal(err)
 	}
-	store := NewSharedTaskStore(path)
+	store, err := NewSharedTaskStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
 	tasks, err := store.ListTasks("", "")
 	if err != nil || len(tasks) != 20 {
 		t.Fatal(len(tasks), err)
@@ -112,7 +126,11 @@ func TestSharedTaskProcessWriter(t *testing.T) {
 		return
 	}
 	for range 5 {
-		if _, err := NewSharedTaskStore(path).Write(map[string]any{"todos": []any{map[string]any{"subject": "process"}}}, todo.WriteOptions{}); err != nil {
+		store, err := NewSharedTaskStore(path)
+		if err == nil {
+			_, err = store.Write(map[string]any{"todos": []any{map[string]any{"subject": "process"}}}, todo.WriteOptions{})
+		}
+		if err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -137,7 +155,11 @@ func TestSharedTaskCrossProcessWriters(t *testing.T) {
 	for err := range failures {
 		t.Fatal(err)
 	}
-	tasks, err := NewSharedTaskStore(path).ListTasks("", "")
+	finalStore, err := NewSharedTaskStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tasks, err := finalStore.ListTasks("", "")
 	if err != nil || len(tasks) != 20 {
 		t.Fatal(len(tasks), err)
 	}
@@ -147,5 +169,16 @@ func TestSharedTaskCrossProcessWriters(t *testing.T) {
 			t.Fatal("duplicate ID", task.ID)
 		}
 		seen[task.ID] = true
+	}
+}
+
+func TestNewSharedTaskStoreFailsOnUnreadableBoard(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tasks.json")
+	if err := os.WriteFile(path, []byte("{corrupt"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := NewSharedTaskStore(path)
+	if err == nil || !strings.Contains(err.Error(), "Cannot load an unreadable shared task board") {
+		t.Fatalf("expected the unreadable-board error at construction, got %v", err)
 	}
 }

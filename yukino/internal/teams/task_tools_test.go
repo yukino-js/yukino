@@ -30,7 +30,11 @@ func TestTeamTodoWriteFlowAndAtomicAssignment(t *testing.T) {
 	if !result.IsError {
 		t.Fatal(result)
 	}
-	tasks, err := mgr.GetTaskStore("myteam").ListTasks("", "")
+	store, err := mgr.GetTaskStore("myteam")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tasks, err := store.ListTasks("", "")
 	if err != nil || len(tasks) != 0 {
 		t.Fatal(tasks, err)
 	}
@@ -176,7 +180,11 @@ func TestSubscribeLeaderTasksTeamAggregation(t *testing.T) {
 	defer unsubscribe()
 
 	createTestTeam(t, mgr, "alpha")
-	if _, err := mgr.GetTaskStore("alpha").Write(map[string]any{"todos": []any{map[string]any{"subject": "team task", "status": "pending"}}}, todo.WriteOptions{}); err != nil {
+	alphaStore, err := mgr.GetTaskStore("alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := alphaStore.Write(map[string]any{"todos": []any{map[string]any{"subject": "team task", "status": "pending"}}}, todo.WriteOptions{}); err != nil {
 		t.Fatal(err)
 	}
 

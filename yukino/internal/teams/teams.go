@@ -334,7 +334,10 @@ func (tm *TeamManager) CreateTeam(name, leadAgentID, description string) (team *
 	if tm.checker != nil {
 		team.PermissionMode = tm.checker.Mode()
 	}
-	store := NewSharedTaskStore(filepath.Join(teamDir(tm.cwd, name), "tasks.json"))
+	store, err := NewSharedTaskStore(filepath.Join(teamDir(tm.cwd, name), "tasks.json"))
+	if err != nil {
+		return nil, err
+	}
 	if err := store.InitEmpty(); err != nil {
 		return nil, err
 	}
@@ -345,15 +348,21 @@ func (tm *TeamManager) CreateTeam(name, leadAgentID, description string) (team *
 	return team, nil
 }
 
-func (tm *TeamManager) GetTaskStore(teamName string) *SharedTaskStore {
+// GetTaskStore mirrors TeamManager.getTaskStore: the store is cached per
+// canonical team identity, and an unreadable board fails at construction.
+func (tm *TeamManager) GetTaskStore(teamName string) (*SharedTaskStore, error) {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
-	if store, ok := tm.taskStores[sanitizeTeamName(teamName)]; ok {
-		return store
+	key := sanitizeTeamName(teamName)
+	if store, ok := tm.taskStores[key]; ok {
+		return store, nil
 	}
-	store := NewSharedTaskStore(filepath.Join(teamDir(tm.cwd, teamName), "tasks.json"))
-	tm.taskStores[sanitizeTeamName(teamName)] = store
-	return store
+	store, err := NewSharedTaskStore(filepath.Join(teamDir(tm.cwd, teamName), "tasks.json"))
+	if err != nil {
+		return nil, err
+	}
+	tm.taskStores[key] = store
+	return store, nil
 }
 
 func (tm *TeamManager) GetTeam(name string) *Team {
@@ -564,7 +573,11 @@ func (t *Team) membersInOrder() []*Member {
 	return result
 }
 func (t *Team) releaseMemberTasks(name string) {
-	tasks, err := NewSharedTaskStore(filepath.Join(teamDir(t.Cwd, t.Name), "tasks.json")).ReleaseOwner(name)
+	store, err := NewSharedTaskStore(filepath.Join(teamDir(t.Cwd, t.Name), "tasks.json"))
+	if err != nil {
+		return
+	}
+	tasks, err := store.ReleaseOwner(name)
 	if err == nil && len(tasks) > 0 {
 		ids := []string{}
 		for _, task := range tasks {

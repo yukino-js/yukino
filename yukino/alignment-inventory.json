@@ -1,9 +1,9 @@
 {
   "reference_commit": "1847a71e03f90d0e5fc60a2a797c60af327b7750",
   "counts": {
-    "Corrected": 234,
+    "Corrected": 236,
     "Language-specific difference": 5,
-    "Partially aligned": 42,
+    "Partially aligned": 40,
     "Reviewed": 38,
     "Shared browser build": 51,
     "Synchronized artifact": 7
@@ -1249,7 +1249,7 @@
       "source": "src/teams/shared-task.ts",
       "source_sha256": "552efa072a9a88768e361f0f1fbdaf150617443a15cb6b6b6c59f81109fcc650",
       "counterpart": "`internal/teams/shared_task.go`, `internal/todo/write.go`, `internal/todo/store.go`",
-      "status": "Partially aligned"
+      "status": "Corrected"
     },
     {
       "source": "src/teams/task-stop.ts",
@@ -1261,7 +1261,7 @@
       "source": "src/teams/task-tools.ts",
       "source_sha256": "5b9cee37dff5acb0f0017c444065282aad939fdb949944a39ddd83a81d93d0d6",
       "counterpart": "`internal/teams/task_tools.go`",
-      "status": "Partially aligned"
+      "status": "Corrected"
     },
     {
       "source": "src/teams/team-file.ts",
