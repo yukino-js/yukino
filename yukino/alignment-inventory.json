@@ -1,9 +1,9 @@
 {
   "reference_commit": "1847a71e03f90d0e5fc60a2a797c60af327b7750",
   "counts": {
-    "Corrected": 239,
+    "Corrected": 240,
     "Language-specific difference": 5,
-    "Partially aligned": 37,
+    "Partially aligned": 36,
     "Reviewed": 38,
     "Shared browser build": 51,
     "Synchronized artifact": 7
@@ -1657,7 +1657,7 @@
       "source": "src/ui/constants.ts",
       "source_sha256": "152674fee2cb93a03339f4405f1daa7c319a1680964b85aebc2e34c9f394fcd6",
       "counterpart": "`internal/ui/constants.go`",
-      "status": "Partially aligned"
+      "status": "Corrected"
     },
     {
       "source": "src/ui/cursor-text.tsx",
