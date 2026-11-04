@@ -28,7 +28,7 @@ type queuedMessage struct {
 type ctrlCExpiredMsg struct{ generation int }
 
 func (m Model) modalActive() bool {
-	return m.loginDialog || m.providerDialog || m.modelDialog || m.planApprovalDialog || m.rewindDialog || m.resumeDialog || m.permDialog || m.askUserDialog || m.sandboxDialog || m.thinkingDialog || m.agentsDialog || m.workflowsDialog
+	return m.loginDialog || m.providerDialog || m.modelDialog || m.planApprovalDialog || m.rewindDialog || m.resumeDialog || m.permDialog || m.askUserDialog || m.thinkingDialog || m.agentsDialog || m.workflowsDialog
 }
 
 func (m Model) foregroundBusy() bool {

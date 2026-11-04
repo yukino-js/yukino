@@ -211,8 +211,11 @@ type Model struct {
 	memoryTasks           *background.Tasks
 	teamMgr               *teams.TeamManager
 
-	sandboxDialog         bool
-	sandboxCursor         int
+	// sandboxEnabled/sandboxAutoAllow are the mutable sandbox mode, initialized
+	// from sandboxCfg and changed by /sandbox; configureBashSandbox applies them
+	// at each run start (the reference's sandboxEnabled/sandboxAutoAllow state).
+	sandboxEnabled        bool
+	sandboxAutoAllow      bool
 	sandboxCfg            *config.SandboxYamlConfig
 	EnableCoordinatorMode bool
 	MCPLoading            string
@@ -324,6 +327,8 @@ func New(providers []config.ProviderConfig, mcpConfigs []config.MCPServerConfig,
 		mcpAnnounced:       map[string]bool{},
 		hookConfigs:        hookConfigs,
 		sandboxCfg:         sCfg,
+		sandboxEnabled:     sCfg.SandboxEnabled(),
+		sandboxAutoAllow:   sCfg.SandboxAutoAllow(),
 		state:              stateProviderSelect,
 		defaultProvider:    defaultProvider,
 		providerCursor:     defaultProvider,
@@ -666,9 +671,6 @@ func (m Model) handleChat(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.thinkingDialog {
 		return m.handleThinkingDialog(msg)
-	}
-	if m.sandboxDialog {
-		return m.handleSandboxDialog(msg)
 	}
 	return m.handleComposerKey(msg)
 }

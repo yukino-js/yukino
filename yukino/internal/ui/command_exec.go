@@ -288,9 +288,7 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 		case "rewind":
 			return m.handleRewind()
 		case "sandbox":
-			m.sandboxDialog = true
-			m.sandboxCursor = 0
-			return m, nil
+			return m.runSandboxCommand(args)
 		case "quit":
 			return m, tea.Quit
 		case "model":
@@ -374,12 +372,12 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 // provider, sandbox, MCP, session).
 func (m Model) buildSessionStatus() string {
 	permMode := string(permissions.ModeDefault)
-	sandboxEnabled, sandboxAutoAllow := false, false
 	if m.ag != nil && m.ag.Checker != nil {
 		permMode = string(m.ag.Checker.Mode())
-		sandboxEnabled = m.ag.Checker.SandboxEnabled
-		sandboxAutoAllow = m.ag.Checker.SandboxAutoAllow
 	}
+	// The reference /status reads the sandbox mode state (not the availability-
+	// gated checker flags), so an enabled-but-blocked sandbox still shows ON.
+	sandboxEnabled, sandboxAutoAllow := m.sandboxEnabled, m.sandboxAutoAllow
 	var model, providerName, protocol string
 	if m.selectedProvider != nil {
 		model = m.selectedProvider.Model

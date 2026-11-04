@@ -59,8 +59,6 @@ func (m Model) renderActiveDialog() string {
 		return m.renderWorkflowsDialog()
 	case m.thinkingDialog:
 		return m.renderThinkingDialog()
-	case m.sandboxDialog:
-		return m.renderSandboxDialog()
 	}
 	return ""
 }

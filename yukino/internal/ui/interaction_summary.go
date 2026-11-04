@@ -6,6 +6,7 @@ import (
 
 	"github.com/yukino-js/yukino/yukino/internal/agent"
 	"github.com/yukino-js/yukino/yukino/internal/bootstrap"
+	"github.com/yukino-js/yukino/yukino/internal/tools"
 )
 
 func RenderInteractionSummary(summary bootstrap.InteractionSummary, columns int, color bool, endedAt time.Time) string {
@@ -39,6 +40,18 @@ func (m *Model) beginInteractionRun() {
 	// The reference calls prepareSubagentTurn at every run entry; this is the
 	// single Go turn-entry hook shared by all of them.
 	m.prepareSubagentTurn()
+	// Mirror the reference runAgentLoop prep: apply the current sandbox state to
+	// the Bash tool, then gate the checker's sandbox flags on the runtime being
+	// ready (auto-allow is only safe when the sandbox is actually available).
+	bashTool, _ := m.registry.Get("Bash").(*tools.BashTool)
+	sandboxReady := false
+	if bashTool != nil {
+		sandboxReady = m.configureBashSandbox(bashTool)
+	}
+	if m.ag != nil && m.ag.Checker != nil {
+		m.ag.Checker.SandboxEnabled = m.sandboxEnabled && sandboxReady
+		m.ag.Checker.SandboxAutoAllow = m.sandboxAutoAllow && sandboxReady
+	}
 	if m.agentStartedAt.IsZero() {
 		m.agentStartedAt = time.Now()
 	}

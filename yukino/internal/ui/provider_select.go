@@ -15,10 +15,8 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/llm"
 	"github.com/yukino-js/yukino/yukino/internal/mcp"
 	"github.com/yukino-js/yukino/yukino/internal/permissions"
-	"github.com/yukino-js/yukino/yukino/internal/sandbox"
 	"github.com/yukino-js/yukino/yukino/internal/subagent"
 	"github.com/yukino-js/yukino/yukino/internal/teams"
-	"github.com/yukino-js/yukino/yukino/internal/tools"
 )
 
 type initSingleProviderMsg struct{}
@@ -55,20 +53,9 @@ func (m *Model) activateInitialProvider(p *config.ProviderConfig) tea.Cmd {
 		permissions.NewRuleEngine(wd),
 		m.permissionMode,
 	)
-	ag.Checker.SandboxEnabled = m.sandboxCfg.SandboxEnabled()
-	ag.Checker.SandboxAutoAllow = m.sandboxCfg.SandboxAutoAllow()
-	if m.sandboxCfg.SandboxEnabled() {
-		sb := sandbox.New()
-		if bashTool, ok := m.registry.Get("Bash").(*tools.BashTool); ok {
-			bashTool.SandboxRequired = true
-			bashTool.Sandbox = sb
-			bashTool.SandboxConfig = sandbox.Config{
-				AllowWrite:     []string{wd, os.TempDir()},
-				DenyWrite:      nil,
-				NetworkEnabled: m.sandboxCfg.SandboxNetworkEnabled(),
-			}
-		}
-	}
+	// The sandbox is applied per run (beginInteractionRun → configureBashSandbox)
+	// and before each user Bash, mirroring the reference's runAgentLoop prep, so
+	// provider setup does not configure it here.
 	ag.NotificationFn = m.drainTaskNotifications
 	ag.ToolNameFilter = teams.CoordinatorToolFilter(m.EnableCoordinatorMode)
 	ag.CoordinatorActiveFn = teams.CoordinatorActiveFn(m.EnableCoordinatorMode)

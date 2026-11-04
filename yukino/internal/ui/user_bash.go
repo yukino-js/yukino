@@ -76,6 +76,11 @@ func (m Model) submitUserBash(text string) (Model, tea.Cmd, bool) {
 	}
 	m.userBashTool = &toolBlockInfo{toolID: "user-bash", toolName: "Bash", args: map[string]any{"command": plainTerminalLine(command)}, progress: progress, loading: true}
 	tool, _ := m.registry.Get("Bash").(*tools.BashTool)
+	// The reference applies the current sandbox state to the Bash tool before
+	// every user Bash execution (userBash.execute → configureBashSandbox).
+	if tool != nil {
+		m.configureBashSandbox(tool)
+	}
 	execution := tools.ExecutionContext{WorkDir: run.cwd, SessionID: run.sessionID, TaskManager: m.taskMgr}
 	if m.ag != nil {
 		execution.Worktrees = m.ag.Checker

@@ -76,15 +76,6 @@ func TestEscClosesPlanApprovalDialog(t *testing.T) {
 	}
 }
 
-func TestEscClosesSandboxDialog(t *testing.T) {
-	m := newChatModel(t)
-	m.sandboxDialog = true
-	m = pressEsc(t, m)
-	if m.sandboxDialog {
-		t.Error("esc should close the sandbox dialog")
-	}
-}
-
 func TestEscCancelsAskUserDialog(t *testing.T) {
 	for _, onSubmit := range []bool{false, true} {
 		m := newChatModel(t)
