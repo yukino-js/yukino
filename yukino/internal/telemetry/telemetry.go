@@ -94,6 +94,7 @@ var (
 	shutdownDone bool
 
 	remoteSignalHandlersInstalled atomic.Bool
+	remoteSignalFired             atomic.Bool
 )
 
 func hasExporter(value string) bool {
@@ -173,6 +174,13 @@ func ShutdownTelemetry() {
 	rt.Shutdown()
 }
 
+// RemoteSignalFired reports whether a remote-mode shutdown signal was
+// received; the signal handler then owns the exit (telemetry flush + the
+// signal's exit code), so the main goroutine must not exit on its own.
+func RemoteSignalFired() bool {
+	return remoteSignalFired.Load()
+}
+
 // RemoteSignalHandlersInstalled reports whether
 // InstallRemoteTelemetrySignalHandlers has taken ownership of SIGINT/SIGTERM.
 func RemoteSignalHandlersInstalled() bool {
@@ -194,6 +202,7 @@ func InstallRemoteTelemetrySignalHandlers(onShutdown func(exitCode int)) {
 		go func() {
 			<-ch
 			signal.Stop(ch)
+			remoteSignalFired.Store(true)
 			if onShutdown != nil {
 				onShutdown(exitCode)
 			}

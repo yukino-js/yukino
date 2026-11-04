@@ -1,9 +1,9 @@
 {
   "reference_commit": "1847a71e03f90d0e5fc60a2a797c60af327b7750",
   "counts": {
-    "Corrected": 260,
+    "Corrected": 261,
     "Language-specific difference": 7,
-    "Partially aligned": 14,
+    "Partially aligned": 13,
     "Reviewed": 38,
     "Shared browser build": 51,
     "Synchronized artifact": 7
@@ -421,7 +421,7 @@
       "source": "src/main.tsx",
       "source_sha256": "d77f7b95933e2dbea2af97d6589ea7d105ad0103663ddfdb2828376bf5fb60c6",
       "counterpart": "`cmd/yukino/main.go`",
-      "status": "Partially aligned"
+      "status": "Corrected"
     },
     {
       "source": "src/mcp/apps.ts",

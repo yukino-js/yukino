@@ -184,9 +184,14 @@ func main() {
 			telemetry.ShutdownTelemetry()
 			exitNow(1)
 		}
-		// Run only returns nil after Stop, which the signal handler drives;
-		// the handler flushes telemetry and exits with the signal's code.
-		select {}
+		// Run returns nil after Stop. On a signal the handler goroutine
+		// flushes telemetry and exits with the signal's code; on a WS-quit
+		// stop there is no signal, so fall through and exit cleanly like the
+		// reference's runMode tail.
+		if telemetry.RemoteSignalFired() {
+			select {}
+		}
+		return
 	}
 
 	cfg, validHooks, err := loadRuntimeConfig(true)
