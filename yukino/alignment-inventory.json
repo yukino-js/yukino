@@ -1,9 +1,9 @@
 {
   "reference_commit": "1847a71e03f90d0e5fc60a2a797c60af327b7750",
   "counts": {
-    "Corrected": 267,
+    "Corrected": 268,
     "Language-specific difference": 11,
-    "Partially aligned": 3,
+    "Partially aligned": 2,
     "Reviewed": 38,
     "Shared browser build": 51,
     "Synchronized artifact": 7
@@ -73,7 +73,7 @@
       "source": "src/agent/index.ts",
       "source_sha256": "5b6eaf10dfbeccf52fce089b2aab70c273cfd87483e47fffafd602b71c259d07",
       "counterpart": "`internal/agent/agent.go`, `internal/agent/run.go`, `internal/agent/artifacts.go`",
-      "status": "Partially aligned"
+      "status": "Corrected"
     },
     {
       "source": "src/agent/prompts.ts",
