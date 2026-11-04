@@ -1,9 +1,9 @@
 {
   "reference_commit": "1847a71e03f90d0e5fc60a2a797c60af327b7750",
   "counts": {
-    "Corrected": 259,
+    "Corrected": 260,
     "Language-specific difference": 7,
-    "Partially aligned": 15,
+    "Partially aligned": 14,
     "Reviewed": 38,
     "Shared browser build": 51,
     "Synchronized artifact": 7
@@ -1915,7 +1915,7 @@
       "source": "src/ui/transcript.tsx",
       "source_sha256": "fc6f9fd8dc47905210ca0cb8f42922ec33435bcd20d71781ed07240af94b67c0",
       "counterpart": "`internal/ui/chat.go`",
-      "status": "Partially aligned"
+      "status": "Corrected"
     },
     {
       "source": "src/ui/update-notice.tsx",
