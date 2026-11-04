@@ -250,8 +250,8 @@ func SpawnSubagent(ctx context.Context, definition *AgentDefinition, userPrompt 
 				// events answered through the ctx runtime (deny when absent).
 				reply := agent.PermissionReply{Response: agent.PermDeny}
 				if runtime, ok := tools.RuntimeContext(ctx); ok && runtime.RequestPermission != nil {
-					response, feedback := runtime.RequestPermission(ctx, tools.PermissionRequest{ToolName: e.ToolName, Desc: e.Desc, AgentName: e.AgentName, Cwd: e.Cwd, ToolCallID: e.ToolID, Args: e.Args, RememberPatterns: e.Decision.RememberPatterns})
-					reply = agent.PermissionReply{Response: agent.PermissionResponse(response), Feedback: feedback}
+					response := runtime.RequestPermission(ctx, tools.PermissionRequest{ToolName: e.ToolName, Desc: e.Desc, AgentName: e.AgentName, Cwd: e.Cwd, ToolCallID: e.ToolID, Args: e.Args, RememberPatterns: e.Decision.RememberPatterns})
+					reply = agent.PermissionReply{Response: agent.PermissionResponse(response)}
 				}
 				e.ResponseCh <- reply
 			case agent.LoopComplete:

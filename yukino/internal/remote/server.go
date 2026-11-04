@@ -70,7 +70,6 @@ type userMessageData struct {
 type permResponseData struct {
 	ID       string `json:"id"`
 	Response string `json:"response"`
-	Feedback string `json:"feedback,omitempty"`
 }
 
 type askUserResponseData struct {
@@ -1513,11 +1512,7 @@ func (s *Server) handlePermissionResponse(data permResponseData) {
 	default:
 		resp = agent.PermDeny
 	}
-	reply := agent.PermissionReply{Response: resp}
-	if resp == agent.PermDeny {
-		reply.Feedback = data.Feedback
-	}
-	ch <- reply
+	ch <- agent.PermissionReply{Response: resp}
 	response := data.Response
 	if resp == agent.PermAllow && data.Response == "allowAlways" {
 		response = "allow"
@@ -2993,7 +2988,7 @@ func (s *Server) workflowHostContext(wd string) context.Context {
 	return tools.WithExecutionContext(context.Background(), execution)
 }
 
-func (s *Server) requestPermissionViaWS(ctx context.Context, request tools.PermissionRequest) (int, string) {
+func (s *Server) requestPermissionViaWS(ctx context.Context, request tools.PermissionRequest) int {
 	responseCh := make(chan agent.PermissionReply, 1)
 	description := request.Desc
 	if request.AgentName != "" && request.Cwd != "" {
@@ -3001,7 +2996,7 @@ func (s *Server) requestPermissionViaWS(ctx context.Context, request tools.Permi
 	}
 	s.requestPermission(ctx, permissionRequestPayload{ToolName: request.ToolName, Description: description, RememberPatterns: request.RememberPatterns}, responseCh)
 	reply := <-responseCh
-	return int(reply.Response), reply.Feedback
+	return int(reply.Response)
 }
 
 func loadCustomInstructions(wd string) string {

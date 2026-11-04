@@ -1,17 +1,5 @@
 package conversation
 
-import "strings"
-
-const rejectedWithFeedbackPrefix = " To tell you how to proceed, the user said:\n"
-
-func RejectedToolResultWithFeedback(feedback string) string {
-	feedback = strings.TrimSpace(feedback)
-	if feedback == "" {
-		return RejectedToolResult
-	}
-	return RejectedToolResult + rejectedWithFeedbackPrefix + feedback
-}
-
 func EnsureToolPairing(messages []Message) []Message {
 	out := make([]Message, 0, len(messages))
 	for i := 0; i < len(messages); i++ {

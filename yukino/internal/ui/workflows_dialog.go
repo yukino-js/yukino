@@ -76,23 +76,23 @@ func (m Model) workflowContext() context.Context {
 		execution.Worktrees = checker
 		execution.Plan = &tools.PlanContext{Owner: checker, IsPlanMode: func() bool { return checker.Mode() == permissions.ModePlan }, EnterPlanMode: func() { checker.EnterPlanMode() }}
 	}
-	execution.RequestPermission = func(ctx context.Context, request tools.PermissionRequest) (int, string) {
+	execution.RequestPermission = func(ctx context.Context, request tools.PermissionRequest) int {
 		response := make(chan agent.PermissionReply, 1)
 		event := agent.PermissionRequestEvent{Context: ctx, AgentName: request.AgentName, Cwd: request.Cwd, ToolName: request.ToolName, ToolID: request.ToolCallID, Args: request.Args, Desc: request.Desc, Decision: permissions.Decision{RememberPatterns: request.RememberPatterns}, ResponseCh: response}
 		select {
 		case ch <- event:
 		case <-ctx.Done():
-			return int(agent.PermDeny), ""
+			return int(agent.PermDeny)
 		case <-life.Done():
-			return int(agent.PermDeny), ""
+			return int(agent.PermDeny)
 		}
 		select {
 		case reply := <-response:
-			return int(reply.Response), reply.Feedback
+			return int(reply.Response)
 		case <-ctx.Done():
-			return int(agent.PermDeny), ""
+			return int(agent.PermDeny)
 		case <-life.Done():
-			return int(agent.PermDeny), ""
+			return int(agent.PermDeny)
 		}
 	}
 	return tools.WithExecutionContext(m.lifeCtx, execution)

@@ -162,7 +162,7 @@ func (r *remoteMcpApps) Request(ctx context.Context, request mcp.McpAppRequest, 
 	if decision.Effect == permissions.Ask {
 		patterns := handle.Checker.RememberPatterns(toolName, args)
 		desc := formatMcpPermissionDesc(args, decision)
-		response, _ := onPermission(ctx, tools.PermissionRequest{ToolName: toolName, Desc: desc, Args: args, RememberPatterns: patterns, ToolCallID: request.RequestID})
+		response := onPermission(ctx, tools.PermissionRequest{ToolName: toolName, Desc: desc, Args: args, RememberPatterns: patterns, ToolCallID: request.RequestID})
 		if _, validateErr := validate(); validateErr != nil {
 			return nil, validateErr
 		}

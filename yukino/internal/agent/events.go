@@ -56,7 +56,6 @@ const (
 
 type PermissionReply struct {
 	Response PermissionResponse
-	Feedback string
 }
 
 type PermissionRequestEvent struct {

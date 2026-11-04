@@ -31,7 +31,7 @@ type PermissionRequest struct {
 	RememberPatterns []string
 }
 
-type PermissionHandler func(context.Context, PermissionRequest) (int, string)
+type PermissionHandler func(context.Context, PermissionRequest) int
 
 type ExecutionContext struct {
 	Worktrees             WorktreeRuntime

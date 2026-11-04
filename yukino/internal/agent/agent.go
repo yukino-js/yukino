@@ -391,29 +391,35 @@ func (a *Agent) executeSingleTool(ctx context.Context, eventCh chan AgentEvent, 
 		if decision.Effect == permissions.Ask {
 			patterns := append([]string{}, a.Checker.RememberPatterns(tc.toolName, tc.arguments)...)
 			decision.RememberPatterns = patterns
+			// Mirrors requestToolPermission: an abort before or during the
+			// request resolves the race as "deny", so the tool result is the
+			// plain rejection (the loop's dispatch-level abort check reports
+			// the interruption for the remaining calls).
+			if ctx.Err() != nil {
+				return fail(conversation.RejectedToolResult)
+			}
 			response := make(chan PermissionReply, 1)
 			request := PermissionRequestEvent{Context: ctx, AgentName: a.agentName(), Cwd: a.CurrentCwd(), ToolName: tc.toolName, ToolID: tc.toolID, Args: tc.arguments, Decision: decision, Desc: permissions.DescribeToolAction(tc.toolName, tc.arguments), ResponseCh: response}
-			select {
-			case eventCh <- request:
-			case <-ctx.Done():
-				return fail(tools.CommandInterruptedError)
-			}
 			var reply PermissionReply
 			select {
-			case reply = <-response:
+			case eventCh <- request:
+				select {
+				case reply = <-response:
+				case <-ctx.Done():
+					return fail(conversation.RejectedToolResult)
+				}
 			case <-ctx.Done():
-				return fail(tools.CommandInterruptedError)
+				return fail(conversation.RejectedToolResult)
 			}
 			if reply.Response == PermDeny {
-				return fail(conversation.RejectedToolResultWithFeedback(reply.Feedback))
-			}
-			if ctx.Err() != nil {
-				return fail(tools.CommandInterruptedError)
+				return fail(conversation.RejectedToolResult)
 			}
 			if reply.Response == PermAllowAlways && len(patterns) == 0 {
 				reply.Response = PermAllow
 			}
-			if reply.Response == PermAllowAlways {
+			// Persist exactly the displayed scopes, and only while the run is
+			// live (reference: `response === "allowAlways" && !aborted`).
+			if reply.Response == PermAllowAlways && ctx.Err() == nil {
 				if err := a.Checker.AllowAlways(tc.toolName, tc.arguments, patterns); err != nil {
 					return fail("Permission request failed: " + err.Error() + ". The tool was not executed.")
 				}
@@ -433,7 +439,7 @@ func (a *Agent) executeSingleTool(ctx context.Context, eventCh chan AgentEvent, 
 	if a.Checker != nil {
 		worktrees = a.Checker
 	}
-	ctx = tools.WithExecutionContext(ctx, tools.ExecutionContext{Worktrees: worktrees, Plan: planning, RequestPermission: func(requestCtx context.Context, request tools.PermissionRequest) (int, string) {
+	ctx = tools.WithExecutionContext(ctx, tools.ExecutionContext{Worktrees: worktrees, Plan: planning, RequestPermission: func(requestCtx context.Context, request tools.PermissionRequest) int {
 		response := make(chan PermissionReply, 1)
 		agentName := request.AgentName
 		if agentName == "" {
@@ -446,13 +452,13 @@ func (a *Agent) executeSingleTool(ctx context.Context, eventCh chan AgentEvent, 
 		select {
 		case eventCh <- PermissionRequestEvent{Context: requestCtx, AgentName: agentName, Cwd: cwd, ToolName: request.ToolName, ToolID: request.ToolCallID, Args: request.Args, Desc: request.Desc, Decision: permissions.Decision{RememberPatterns: request.RememberPatterns}, ResponseCh: response}:
 		case <-requestCtx.Done():
-			return int(PermDeny), ""
+			return int(PermDeny)
 		}
 		select {
 		case reply := <-response:
-			return int(reply.Response), reply.Feedback
+			return int(reply.Response)
 		case <-requestCtx.Done():
-			return int(PermDeny), ""
+			return int(PermDeny)
 		}
 	}, IsAgentRuntime: true, FileStateCache: a.FileStateCache, FileHistory: a.FileHistory, WorkDir: a.CurrentCwd(), SessionID: a.SessionID, ToolCallID: tc.toolID, TaskManager: a.TaskManager, DisableBackground: a.DisableBackground, CanReadSearchPath: func(path string) bool { return a.Checker == nil || a.Checker.CanReadSearchPath(path) }, CanTraverseSearchPath: func(path string) bool { return a.Checker == nil || a.Checker.CanTraverseSearchPath(path) }, CheckPermission: func(name string, args map[string]any) *tools.ToolResult {
 		if a.Checker == nil {

@@ -42,18 +42,18 @@ func RunSubagentCommand(ctx context.Context, name, prompt, input string, registr
 		id := uuid.NewString()
 		args := map[string]any{"kind": "subagent", "subagent_type": name, "fork": name == "plan", "description": input, "prompt": prompt, "run_in_background": false}
 		events <- agent.ToolUseEvent{ToolID: id, ToolName: "Agent", Args: args}
-		runtime := tools.ExecutionContext{WorkDir: cwd, SessionID: sessionID, ToolCallID: id, RequestPermission: func(requestCtx context.Context, request tools.PermissionRequest) (int, string) {
+		runtime := tools.ExecutionContext{WorkDir: cwd, SessionID: sessionID, ToolCallID: id, RequestPermission: func(requestCtx context.Context, request tools.PermissionRequest) int {
 			response := make(chan agent.PermissionReply, 1)
 			select {
 			case events <- agent.PermissionRequestEvent{Context: requestCtx, AgentName: request.AgentName, Cwd: request.Cwd, ToolName: request.ToolName, ToolID: request.ToolCallID, Args: request.Args, Desc: request.Desc, Decision: permissions.Decision{RememberPatterns: request.RememberPatterns}, ResponseCh: response}:
 			case <-requestCtx.Done():
-				return int(agent.PermDeny), ""
+				return int(agent.PermDeny)
 			}
 			select {
 			case reply := <-response:
-				return int(reply.Response), reply.Feedback
+				return int(reply.Response)
 			case <-requestCtx.Done():
-				return int(agent.PermDeny), ""
+				return int(agent.PermDeny)
 			}
 		}}
 		if checker != nil {
