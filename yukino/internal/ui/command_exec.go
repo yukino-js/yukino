@@ -189,6 +189,9 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 			}
+			if m.teamMgr != nil {
+				m.teamMgr.StopAll()
+			}
 			m.stopMemoryTasks()
 			m.chatMessages = nil
 			m.committedUpTo = 0
@@ -218,6 +221,12 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 			}
 			if err := m.todoList.UseStore(store); err != nil {
 				panic(err)
+			}
+			if m.taskMgr != nil {
+				if err := m.taskMgr.Clear(); err != nil {
+					m.chatMessages = append(m.chatMessages, chatMessage{role: "error", content: err.Error()})
+					return m, nil
+				}
 			}
 			m.totalInput = 0
 			m.interactionStats = bootstrap.InteractionSummary{StartedAt: float64(time.Now().UnixMilli())}

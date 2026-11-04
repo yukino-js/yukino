@@ -18,6 +18,23 @@ type subagentProgress struct {
 }
 type progressTool struct{ id, name string }
 
+// prepareSubagentTurn mirrors the reference prepareTurn: at every run entry,
+// drop finished foreground tracker entries and keep only the background ones
+// whose task is still running.
+func (m *Model) prepareSubagentTurn() {
+	for id, p := range m.subagents {
+		keep := false
+		if p.taskID != "" && m.taskMgr != nil {
+			if task := m.taskMgr.Get(p.taskID); task != nil && task.Status == "running" {
+				keep = true
+			}
+		}
+		if !keep {
+			delete(m.subagents, id)
+		}
+	}
+}
+
 func (m *Model) applySubagentProgress(event subagent.SubAgentProgress) {
 	if event.ToolCallID == "" {
 		return

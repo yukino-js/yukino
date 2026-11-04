@@ -1,9 +1,9 @@
 {
   "reference_commit": "1847a71e03f90d0e5fc60a2a797c60af327b7750",
   "counts": {
-    "Corrected": 242,
+    "Corrected": 243,
     "Language-specific difference": 5,
-    "Partially aligned": 34,
+    "Partially aligned": 33,
     "Reviewed": 38,
     "Shared browser build": 51,
     "Synchronized artifact": 7
@@ -1951,7 +1951,7 @@
       "source": "src/ui/use-subagents.ts",
       "source_sha256": "73c74ea706e33aacab3fbd7af6aa3dccbf23d89edad9c6e831b5f0c38091512e",
       "counterpart": "`internal/ui/agent_progress.go`, `internal/ui/agent_events.go`",
-      "status": "Partially aligned"
+      "status": "Corrected"
     },
     {
       "source": "src/ui/use-task-progress.ts",

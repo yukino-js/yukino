@@ -228,6 +228,7 @@ func (m Model) doResumeSession(wd, targetID string, saved []session.Message) (te
 	m.steeringPending = nil
 	m.queuePaused = false
 	m.sessionID = targetID
+	m.subagents = nil
 
 	// Re-key the session-derived stores to the resumed session.
 	m.fileHistory = file_history.New(m.sessionID)

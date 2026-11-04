@@ -36,6 +36,9 @@ func RenderInteractionSummary(summary bootstrap.InteractionSummary, columns int,
 }
 
 func (m *Model) beginInteractionRun() {
+	// The reference calls prepareSubagentTurn at every run entry; this is the
+	// single Go turn-entry hook shared by all of them.
+	m.prepareSubagentTurn()
 	if m.agentStartedAt.IsZero() {
 		m.agentStartedAt = time.Now()
 	}
