@@ -38,6 +38,19 @@ func TestAgentDefinitionRejectsInvalidFields(t *testing.T) {
 		})
 	}
 }
+
+// TestAgentDefinitionIntegralFloatMaxTurns pins the zod parity edge: YAML
+// parses 25.0 as a float, and the reference's z.number().int() accepts
+// integral floats.
+func TestAgentDefinitionIntegralFloatMaxTurns(t *testing.T) {
+	def, err := ParseAgentFile(writeAgent(t, "---\nname: x\nmax_turns: 25.0\n---\nbody"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if def.MaxTurns != 25 {
+		t.Fatalf("MaxTurns = %d, want 25", def.MaxTurns)
+	}
+}
 func TestAgentDefinitionDropsOldFields(t *testing.T) {
 	def, err := ParseAgentFile(writeAgent(t, "---\nname: x\nmaxTurns: 12\npermissionMode: bogus\ndisallowedTools: [Bash]\n---\nbody"))
 	if err != nil {

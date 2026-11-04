@@ -2,6 +2,7 @@ package subagent
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"strings"
 
@@ -85,6 +86,12 @@ func ParseAgentFile(path string) (*AgentDefinition, error) {
 			}
 		case int64:
 			if n <= 0 {
+				return nil, fmt.Errorf("max_turns must be a positive integer")
+			}
+		case float64:
+			// YAML parses values like 5.0 as floats; the reference's
+			// z.number().int() accepts integral floats, so mirror that.
+			if n <= 0 || n != math.Trunc(n) || n > float64(uint64(^uint(0)>>1)) {
 				return nil, fmt.Errorf("max_turns must be a positive integer")
 			}
 		default:

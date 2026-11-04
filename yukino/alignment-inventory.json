@@ -1,9 +1,9 @@
 {
   "reference_commit": "1847a71e03f90d0e5fc60a2a797c60af327b7750",
   "counts": {
-    "Corrected": 225,
+    "Corrected": 226,
     "Language-specific difference": 5,
-    "Partially aligned": 52,
+    "Partially aligned": 51,
     "Reviewed": 37,
     "Shared browser build": 51,
     "Synchronized artifact": 7
@@ -1141,7 +1141,7 @@
       "source": "src/subagent/definition.ts",
       "source_sha256": "3d3ae54025cb569b9a7de9575ef9d351b50e5e15c04892eb5bd32b10eae7be33",
       "counterpart": "`internal/subagent/definition.go`, `internal/subagent/subagent.go`",
-      "status": "Partially aligned"
+      "status": "Corrected"
     },
     {
       "source": "src/subagent/index.ts",
