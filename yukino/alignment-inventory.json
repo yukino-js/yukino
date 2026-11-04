@@ -1,9 +1,9 @@
 {
   "reference_commit": "1847a71e03f90d0e5fc60a2a797c60af327b7750",
   "counts": {
-    "Corrected": 262,
+    "Corrected": 264,
     "Language-specific difference": 7,
-    "Partially aligned": 12,
+    "Partially aligned": 10,
     "Reviewed": 38,
     "Shared browser build": 51,
     "Synchronized artifact": 7
@@ -1855,7 +1855,7 @@
       "source": "src/ui/terminal-layout.tsx",
       "source_sha256": "6928de26e1298cb82c9306f0c68e5ccf48d6f98d7302b7d8a77e2a103641a4a5",
       "counterpart": "`internal/ui/chat.go`, `internal/ui/footer.go`",
-      "status": "Partially aligned"
+      "status": "Corrected"
     },
     {
       "source": "src/ui/terminal-output.ts",
@@ -1975,7 +1975,7 @@
       "source": "src/ui/use-terminal-layout.ts",
       "source_sha256": "db22c387a2c5fb87bb661ac84d1110c40aaa68bae69c3bd61361e53c552c2abc",
       "counterpart": "`internal/ui/ui.go`, `internal/ui/footer.go`",
-      "status": "Partially aligned"
+      "status": "Corrected"
     },
     {
       "source": "src/ui/use-update-notice.ts",
