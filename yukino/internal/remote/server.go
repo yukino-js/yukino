@@ -168,6 +168,7 @@ type Server struct {
 
 	streaming    bool
 	runCanceled  bool
+	turnCount    int
 	stopping     bool
 	cancelStream context.CancelFunc
 	agentCh      <-chan agent.AgentEvent
@@ -488,6 +489,9 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		case "user_message":
 			var data userMessageData
 			json.Unmarshal(msg.Data, &data)
+			if strings.TrimSpace(data.Content) == "" {
+				continue
+			}
 			if ctx, ok := s.beginRun(); ok {
 				go s.runUserMessage(ctx, data.Content, nil)
 			} else {
@@ -664,6 +668,7 @@ func (s *Server) initAgent() error {
 	s.fileHistory = file_history.New(s.sessionID)
 
 	s.registerTools(client, p, wd)
+	s.conv.InjectLongTermMemory(s.instructionsContent, s.memoryContent, "")
 	if service := workflow.GetWorkflowService(s.registry); service != nil {
 		_ = service.RegisterNamedCommands(s.cmdRegistry)
 	}
@@ -731,7 +736,7 @@ func (s *Server) initAgent() error {
 		at.OnProgress = s.handleSubagentProgress
 	}
 
-	s.wireSkillsToAgent(wd)
+	s.wireSkillCommands()
 	if s.memoryEnabled {
 		s.installMemoryTasks(ag, wd)
 	}
@@ -772,6 +777,7 @@ func (s *Server) registerTools(client llm.Client, p *config.ProviderConfig, wd s
 		GoalManager:     func() *goal.GoalManager { return s.goal() },
 	})
 	s.registry = s.defaultTools.Registry
+	s.registry.Register(&skills.LoadSkillTool{Catalog: s.skillCatalog, Host: s, ForkHost: s})
 	s.registry.Register(&tools.AskUserQuestionTool{RequestCh: s.askUserCh})
 	bootstrap.ConfigureBashSandbox(s.registry, wd, s.sandboxCfg, nil)
 	s.defaultTools.EditFile.FileHistory = s.fileHistory
@@ -820,7 +826,7 @@ func (s *Server) initMCPServers() {
 	for _, connectError := range result.Errors {
 		log.Printf("MCP error: %s: %s", connectError.ServerName, connectError.Error)
 	}
-	if len(s.providers) > 0 {
+	if len(s.providers) > 0 && len(result.Tools) > 0 {
 		p := s.activeProvider()
 		mcp.DecideAndApply(s.registry, p.BaseURL, p.Protocol, config.GetContextWindow(p), s.MCPLoading)
 	}
@@ -1019,18 +1025,23 @@ func (s *Server) runSlashCommand(runContext context.Context, input string, entry
 		return
 	case "goal":
 		result := goal.HandleGoalCommand(s.goal(), args)
-		s.send(wsMessage{Type: "system", Data: map[string]string{"message": result.Message}})
+		s.send(wsMessage{Type: "stream_text", Data: map[string]string{"text": result.Message + "\n"}})
+		s.send(wsMessage{Type: "stream_end", Data: map[string]string{"text": result.Message + "\n"}})
 		if result.Prompt == "" {
-			s.send(wsMessage{Type: "command_done", Data: nil})
+			s.send(wsMessage{Type: "loop_complete", Data: map[string]any{"stopReason": "end_turn", "totalTurns": s.turnCount, "elapsed": 0}})
 			return
 		}
+		s.turnCount++
+		s.send(wsMessage{Type: "turn_complete", Data: map[string]int{"turn": s.turnCount}})
 		c := runContext
-		recorded, err := session.SaveUserMessage(wd, s.sessionID, entry, session.Message{Content: result.Prompt})
+		recorded, err := session.SaveUserMessage(wd, s.sessionID, entry, session.Message{Content: input})
 		if err != nil {
 			s.send(wsMessage{Type: "error", Data: map[string]string{"message": err.Error()}})
 			return
 		}
-		s.conv.AppendMessages([]conversation.Message{recorded.ToConversation()})
+		message := recorded.ToConversation()
+		message.Content = result.Prompt
+		s.conv.AppendMessages([]conversation.Message{message})
 		if s.mcpMgr != nil {
 			mcp.SyncMcpInstructions(s.conv, s.mcpAnnounced, s.mcpMgr)
 		}
@@ -1050,7 +1061,11 @@ func (s *Server) runSlashCommand(runContext context.Context, input string, entry
 	case commands.TypeLocal:
 		if cmd.Handler != nil {
 			result := cmd.Handler(ctx)
-			s.send(wsMessage{Type: "system", Data: map[string]any{"message": result, "markdown": cmd.Markdown}})
+			data := map[string]any{"message": result}
+			if cmd.Markdown {
+				data["markdown"] = true
+			}
+			s.send(wsMessage{Type: "system", Data: data})
 		}
 		s.send(wsMessage{Type: "command_done", Data: nil})
 
@@ -1154,12 +1169,14 @@ func (s *Server) runSlashCommand(runContext context.Context, input string, entry
 		c := runContext
 		wd, _ := os.Getwd()
 		if cmd.Agent == "" {
-			recorded, err := session.SaveUserMessage(wd, s.sessionID, entry, session.Message{Content: prompt})
+			recorded, err := session.SaveUserMessage(wd, s.sessionID, entry, session.Message{Content: displayText})
 			if err != nil {
 				s.send(wsMessage{Type: "error", Data: map[string]string{"message": err.Error()}})
 				return
 			}
-			s.conv.AppendMessages([]conversation.Message{recorded.ToConversation()})
+			message := recorded.ToConversation()
+			message.Content = prompt
+			s.conv.AppendMessages([]conversation.Message{message})
 		}
 
 		if s.mcpMgr != nil {
@@ -1461,7 +1478,7 @@ var agentEventLogger = AgentEventLogger{}
 func (s *Server) consumeAgentEvents() {
 	streamBuf := ""
 	startTime := time.Now()
-	turnCount := 0
+	turnCount := s.turnCount
 	exitPlanSucceeded := false
 
 	for ev := range s.agentCh {
@@ -1546,6 +1563,7 @@ func (s *Server) consumeAgentEvents() {
 				streamBuf = ""
 			}
 			turnCount++
+			s.turnCount = turnCount
 			s.send(wsMessage{Type: "turn_complete", Data: map[string]int{"turn": turnCount}})
 
 		case agent.LoopComplete:
@@ -1559,7 +1577,10 @@ func (s *Server) consumeAgentEvents() {
 				"elapsed":    elapsed,
 				"stopReason": e.StopReason,
 			}})
-			if s.ag.Checker.Mode() == permissions.ModePlan && exitPlanSucceeded {
+			if e.PlanReady {
+				s.broadcastStatus()
+			}
+			if e.PlanReady || (s.ag.Checker.Mode() == permissions.ModePlan && exitPlanSucceeded) {
 				s.requestPlanApproval()
 			}
 
@@ -2304,7 +2325,6 @@ func (s *Server) runNotificationTurn() {
 		return
 	}
 	defer s.finishRun()
-	s.clearSubagents()
 	s.agentCh = s.ag.Run(ctx, s.conv)
 	askDone := make(chan struct{})
 	go s.listenForAskUser(askDone)
@@ -3046,23 +3066,6 @@ func (s *Server) send(msg wsMessage) {
 			log.Printf("[ws] write error: type=%s err=%v", msg.Type, err)
 		}
 	}
-}
-
-func (s *Server) wireSkillsToAgent(wd string) {
-	if s.skillCatalog == nil || s.ag == nil {
-		return
-	}
-	s.wireSkillCommands()
-	s.registry.Register(&skills.LoadSkillTool{
-		Catalog:  s.skillCatalog,
-		Host:     s,
-		ForkHost: s,
-	})
-	s.registry.Register(&skills.InstallSkillTool{
-		Cwd:         wd,
-		Catalog:     s.skillCatalog,
-		OnInstalled: s.wireSkillCommands,
-	})
 }
 
 // wireSkillCommands mirrors the reference's remote wireSkillsToCommands:

@@ -103,6 +103,7 @@ func (s *Server) beginRun() (context.Context, bool) {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.streaming = true
 	s.runCanceled = false
+	s.turnCount = 0
 	s.cancelStream = cancel
 	s.runMu.Unlock()
 	s.closePlanApproval()
