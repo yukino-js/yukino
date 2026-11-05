@@ -308,14 +308,17 @@ func transcriptFromRestored(messages []conversation.Message) []chatMessage {
 			out = append(out, chatMessage{role: "turn_summary", toolGroup: toolGroup})
 			continue
 		}
-		if strings.TrimSpace(msg.Content) != "" {
-			out = append(out, chatMessage{role: msg.Role, content: msg.Content})
+		if text := msg.ContentText(); strings.TrimSpace(text) != "" {
+			out = append(out, chatMessage{role: msg.Role, content: text})
 		}
 	}
 	return out
 }
 
 func (m Model) executeRewindOption() (tea.Model, tea.Cmd) {
+	if m.rewindCursor < 0 || m.rewindCursor >= len(m.rewindSnapshots) {
+		return m.finishRewindError(fmt.Errorf("That checkpoint is no longer available. Reopen /rewind."))
+	}
 	snap := m.rewindSnapshots[m.rewindCursor]
 	var summary string
 	var transcript []chatMessage
@@ -355,6 +358,9 @@ func (m Model) executeRewindOption() (tea.Model, tea.Cmd) {
 		m.rewindDialog = false
 		m.rewindPhase = 0
 		return m, nil
+	}
+	if m.ag != nil {
+		m.ag.FileStateCache.Clear()
 	}
 
 	if rebuilt {

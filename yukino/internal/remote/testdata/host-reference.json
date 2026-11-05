@@ -1,0 +1,1511 @@
+{
+  "reference_commit": "e7c44d941e2d4a72e4f53664ece7ac94701d487e",
+  "source_hashes": {
+    "src/remote/server.ts": "39e665f2543f0c820e25559b4aaaaf1cefdc541db17d1e335bf729ec28dd4852",
+    "src/ui/app.tsx": "1f7628e2286a742d2269ae4511939768569005cca5f8440a5fe87cc484444d62"
+  },
+  "protocol": [
+    {
+      "label": "user_message/valid",
+      "input": {
+        "type": "user_message",
+        "data": {
+          "content": "hello"
+        }
+      },
+      "dispatched": true
+    },
+    {
+      "label": "user_message/no-data",
+      "input": {
+        "type": "user_message"
+      },
+      "dispatched": false
+    },
+    {
+      "label": "user_message/missing-content",
+      "input": {
+        "type": "user_message",
+        "data": {}
+      },
+      "dispatched": false
+    },
+    {
+      "label": "user_message/null-content",
+      "input": {
+        "type": "user_message",
+        "data": {
+          "content": null
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "user_message/wrong-content",
+      "input": {
+        "type": "user_message",
+        "data": {
+          "content": []
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "permission_response/valid",
+      "input": {
+        "type": "permission_response",
+        "data": {
+          "id": "request",
+          "response": "allowAlways"
+        }
+      },
+      "dispatched": true
+    },
+    {
+      "label": "permission_response/no-data",
+      "input": {
+        "type": "permission_response"
+      },
+      "dispatched": false
+    },
+    {
+      "label": "permission_response/missing-id",
+      "input": {
+        "type": "permission_response",
+        "data": {
+          "response": "allowAlways"
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "permission_response/null-id",
+      "input": {
+        "type": "permission_response",
+        "data": {
+          "id": null,
+          "response": "allowAlways"
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "permission_response/wrong-id",
+      "input": {
+        "type": "permission_response",
+        "data": {
+          "id": [],
+          "response": "allowAlways"
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "permission_response/missing-response",
+      "input": {
+        "type": "permission_response",
+        "data": {
+          "id": "request"
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "permission_response/null-response",
+      "input": {
+        "type": "permission_response",
+        "data": {
+          "id": "request",
+          "response": null
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "permission_response/wrong-response",
+      "input": {
+        "type": "permission_response",
+        "data": {
+          "id": "request",
+          "response": []
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "ask_user_response/valid",
+      "input": {
+        "type": "ask_user_response",
+        "data": {
+          "id": "request",
+          "answers": {
+            "question": "answer"
+          }
+        }
+      },
+      "dispatched": true
+    },
+    {
+      "label": "ask_user_response/no-data",
+      "input": {
+        "type": "ask_user_response"
+      },
+      "dispatched": false
+    },
+    {
+      "label": "ask_user_response/missing-id",
+      "input": {
+        "type": "ask_user_response",
+        "data": {
+          "answers": {
+            "question": "answer"
+          }
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "ask_user_response/null-id",
+      "input": {
+        "type": "ask_user_response",
+        "data": {
+          "id": null,
+          "answers": {
+            "question": "answer"
+          }
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "ask_user_response/wrong-id",
+      "input": {
+        "type": "ask_user_response",
+        "data": {
+          "id": [],
+          "answers": {
+            "question": "answer"
+          }
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "ask_user_response/missing-answers",
+      "input": {
+        "type": "ask_user_response",
+        "data": {
+          "id": "request"
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "ask_user_response/null-answers",
+      "input": {
+        "type": "ask_user_response",
+        "data": {
+          "id": "request",
+          "answers": null
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "ask_user_response/wrong-answers",
+      "input": {
+        "type": "ask_user_response",
+        "data": {
+          "id": "request",
+          "answers": []
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "plan_approval_response/valid",
+      "input": {
+        "type": "plan_approval_response",
+        "data": {
+          "id": "request",
+          "choice": "feedback",
+          "feedback": "change this"
+        }
+      },
+      "dispatched": true
+    },
+    {
+      "label": "plan_approval_response/no-data",
+      "input": {
+        "type": "plan_approval_response"
+      },
+      "dispatched": false
+    },
+    {
+      "label": "plan_approval_response/missing-id",
+      "input": {
+        "type": "plan_approval_response",
+        "data": {
+          "choice": "feedback",
+          "feedback": "change this"
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "plan_approval_response/null-id",
+      "input": {
+        "type": "plan_approval_response",
+        "data": {
+          "id": null,
+          "choice": "feedback",
+          "feedback": "change this"
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "plan_approval_response/wrong-id",
+      "input": {
+        "type": "plan_approval_response",
+        "data": {
+          "id": [],
+          "choice": "feedback",
+          "feedback": "change this"
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "plan_approval_response/missing-choice",
+      "input": {
+        "type": "plan_approval_response",
+        "data": {
+          "id": "request",
+          "feedback": "change this"
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "plan_approval_response/null-choice",
+      "input": {
+        "type": "plan_approval_response",
+        "data": {
+          "id": "request",
+          "choice": null,
+          "feedback": "change this"
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "plan_approval_response/wrong-choice",
+      "input": {
+        "type": "plan_approval_response",
+        "data": {
+          "id": "request",
+          "choice": [],
+          "feedback": "change this"
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "plan_approval_response/missing-feedback",
+      "input": {
+        "type": "plan_approval_response",
+        "data": {
+          "id": "request",
+          "choice": "feedback"
+        }
+      },
+      "dispatched": true
+    },
+    {
+      "label": "plan_approval_response/null-feedback",
+      "input": {
+        "type": "plan_approval_response",
+        "data": {
+          "id": "request",
+          "choice": "feedback",
+          "feedback": null
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "plan_approval_response/wrong-feedback",
+      "input": {
+        "type": "plan_approval_response",
+        "data": {
+          "id": "request",
+          "choice": "feedback",
+          "feedback": []
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "set_permission_mode/valid",
+      "input": {
+        "type": "set_permission_mode",
+        "data": {
+          "mode": "plan"
+        }
+      },
+      "dispatched": true
+    },
+    {
+      "label": "set_permission_mode/no-data",
+      "input": {
+        "type": "set_permission_mode"
+      },
+      "dispatched": false
+    },
+    {
+      "label": "set_permission_mode/missing-mode",
+      "input": {
+        "type": "set_permission_mode",
+        "data": {}
+      },
+      "dispatched": false
+    },
+    {
+      "label": "set_permission_mode/null-mode",
+      "input": {
+        "type": "set_permission_mode",
+        "data": {
+          "mode": null
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "set_permission_mode/wrong-mode",
+      "input": {
+        "type": "set_permission_mode",
+        "data": {
+          "mode": []
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "model_select/valid",
+      "input": {
+        "type": "model_select",
+        "data": {
+          "model": "model"
+        }
+      },
+      "dispatched": true
+    },
+    {
+      "label": "model_select/no-data",
+      "input": {
+        "type": "model_select"
+      },
+      "dispatched": false
+    },
+    {
+      "label": "model_select/missing-model",
+      "input": {
+        "type": "model_select",
+        "data": {}
+      },
+      "dispatched": false
+    },
+    {
+      "label": "model_select/null-model",
+      "input": {
+        "type": "model_select",
+        "data": {
+          "model": null
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "model_select/wrong-model",
+      "input": {
+        "type": "model_select",
+        "data": {
+          "model": []
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "provider_select/valid",
+      "input": {
+        "type": "provider_select",
+        "data": {
+          "index": 0
+        }
+      },
+      "dispatched": true
+    },
+    {
+      "label": "provider_select/no-data",
+      "input": {
+        "type": "provider_select"
+      },
+      "dispatched": false
+    },
+    {
+      "label": "provider_select/missing-index",
+      "input": {
+        "type": "provider_select",
+        "data": {}
+      },
+      "dispatched": false
+    },
+    {
+      "label": "provider_select/null-index",
+      "input": {
+        "type": "provider_select",
+        "data": {
+          "index": null
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "provider_select/wrong-index",
+      "input": {
+        "type": "provider_select",
+        "data": {
+          "index": []
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "provider_save/valid",
+      "input": {
+        "type": "provider_save",
+        "data": {
+          "name": "provider",
+          "protocol": "openai",
+          "base_url": "http://localhost",
+          "api_key": "key",
+          "model": "model",
+          "thinking": "low"
+        }
+      },
+      "dispatched": true
+    },
+    {
+      "label": "provider_save/no-data",
+      "input": {
+        "type": "provider_save"
+      },
+      "dispatched": false
+    },
+    {
+      "label": "provider_save/missing-name",
+      "input": {
+        "type": "provider_save",
+        "data": {
+          "protocol": "openai",
+          "base_url": "http://localhost",
+          "api_key": "key",
+          "model": "model",
+          "thinking": "low"
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "provider_save/null-name",
+      "input": {
+        "type": "provider_save",
+        "data": {
+          "name": null,
+          "protocol": "openai",
+          "base_url": "http://localhost",
+          "api_key": "key",
+          "model": "model",
+          "thinking": "low"
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "provider_save/wrong-name",
+      "input": {
+        "type": "provider_save",
+        "data": {
+          "name": [],
+          "protocol": "openai",
+          "base_url": "http://localhost",
+          "api_key": "key",
+          "model": "model",
+          "thinking": "low"
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "provider_save/missing-protocol",
+      "input": {
+        "type": "provider_save",
+        "data": {
+          "name": "provider",
+          "base_url": "http://localhost",
+          "api_key": "key",
+          "model": "model",
+          "thinking": "low"
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "provider_save/null-protocol",
+      "input": {
+        "type": "provider_save",
+        "data": {
+          "name": "provider",
+          "protocol": null,
+          "base_url": "http://localhost",
+          "api_key": "key",
+          "model": "model",
+          "thinking": "low"
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "provider_save/wrong-protocol",
+      "input": {
+        "type": "provider_save",
+        "data": {
+          "name": "provider",
+          "protocol": [],
+          "base_url": "http://localhost",
+          "api_key": "key",
+          "model": "model",
+          "thinking": "low"
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "provider_save/missing-base_url",
+      "input": {
+        "type": "provider_save",
+        "data": {
+          "name": "provider",
+          "protocol": "openai",
+          "api_key": "key",
+          "model": "model",
+          "thinking": "low"
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "provider_save/null-base_url",
+      "input": {
+        "type": "provider_save",
+        "data": {
+          "name": "provider",
+          "protocol": "openai",
+          "base_url": null,
+          "api_key": "key",
+          "model": "model",
+          "thinking": "low"
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "provider_save/wrong-base_url",
+      "input": {
+        "type": "provider_save",
+        "data": {
+          "name": "provider",
+          "protocol": "openai",
+          "base_url": [],
+          "api_key": "key",
+          "model": "model",
+          "thinking": "low"
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "provider_save/missing-api_key",
+      "input": {
+        "type": "provider_save",
+        "data": {
+          "name": "provider",
+          "protocol": "openai",
+          "base_url": "http://localhost",
+          "model": "model",
+          "thinking": "low"
+        }
+      },
+      "dispatched": true
+    },
+    {
+      "label": "provider_save/null-api_key",
+      "input": {
+        "type": "provider_save",
+        "data": {
+          "name": "provider",
+          "protocol": "openai",
+          "base_url": "http://localhost",
+          "api_key": null,
+          "model": "model",
+          "thinking": "low"
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "provider_save/wrong-api_key",
+      "input": {
+        "type": "provider_save",
+        "data": {
+          "name": "provider",
+          "protocol": "openai",
+          "base_url": "http://localhost",
+          "api_key": [],
+          "model": "model",
+          "thinking": "low"
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "provider_save/missing-model",
+      "input": {
+        "type": "provider_save",
+        "data": {
+          "name": "provider",
+          "protocol": "openai",
+          "base_url": "http://localhost",
+          "api_key": "key",
+          "thinking": "low"
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "provider_save/null-model",
+      "input": {
+        "type": "provider_save",
+        "data": {
+          "name": "provider",
+          "protocol": "openai",
+          "base_url": "http://localhost",
+          "api_key": "key",
+          "model": null,
+          "thinking": "low"
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "provider_save/wrong-model",
+      "input": {
+        "type": "provider_save",
+        "data": {
+          "name": "provider",
+          "protocol": "openai",
+          "base_url": "http://localhost",
+          "api_key": "key",
+          "model": [],
+          "thinking": "low"
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "provider_save/missing-thinking",
+      "input": {
+        "type": "provider_save",
+        "data": {
+          "name": "provider",
+          "protocol": "openai",
+          "base_url": "http://localhost",
+          "api_key": "key",
+          "model": "model"
+        }
+      },
+      "dispatched": true
+    },
+    {
+      "label": "provider_save/null-thinking",
+      "input": {
+        "type": "provider_save",
+        "data": {
+          "name": "provider",
+          "protocol": "openai",
+          "base_url": "http://localhost",
+          "api_key": "key",
+          "model": "model",
+          "thinking": null
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "provider_save/wrong-thinking",
+      "input": {
+        "type": "provider_save",
+        "data": {
+          "name": "provider",
+          "protocol": "openai",
+          "base_url": "http://localhost",
+          "api_key": "key",
+          "model": "model",
+          "thinking": []
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "rewind_action/valid",
+      "input": {
+        "type": "rewind_action",
+        "data": {
+          "snapshotId": "snapshot",
+          "action": "conversation_only"
+        }
+      },
+      "dispatched": true
+    },
+    {
+      "label": "rewind_action/no-data",
+      "input": {
+        "type": "rewind_action"
+      },
+      "dispatched": false
+    },
+    {
+      "label": "rewind_action/missing-snapshotId",
+      "input": {
+        "type": "rewind_action",
+        "data": {
+          "action": "conversation_only"
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "rewind_action/null-snapshotId",
+      "input": {
+        "type": "rewind_action",
+        "data": {
+          "snapshotId": null,
+          "action": "conversation_only"
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "rewind_action/wrong-snapshotId",
+      "input": {
+        "type": "rewind_action",
+        "data": {
+          "snapshotId": [],
+          "action": "conversation_only"
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "rewind_action/missing-action",
+      "input": {
+        "type": "rewind_action",
+        "data": {
+          "snapshotId": "snapshot"
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "rewind_action/null-action",
+      "input": {
+        "type": "rewind_action",
+        "data": {
+          "snapshotId": "snapshot",
+          "action": null
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "rewind_action/wrong-action",
+      "input": {
+        "type": "rewind_action",
+        "data": {
+          "snapshotId": "snapshot",
+          "action": []
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "file_complete_request/valid",
+      "input": {
+        "type": "file_complete_request",
+        "data": {
+          "requestId": "request",
+          "query": "src"
+        }
+      },
+      "dispatched": true
+    },
+    {
+      "label": "file_complete_request/no-data",
+      "input": {
+        "type": "file_complete_request"
+      },
+      "dispatched": false
+    },
+    {
+      "label": "file_complete_request/missing-requestId",
+      "input": {
+        "type": "file_complete_request",
+        "data": {
+          "query": "src"
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "file_complete_request/null-requestId",
+      "input": {
+        "type": "file_complete_request",
+        "data": {
+          "requestId": null,
+          "query": "src"
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "file_complete_request/wrong-requestId",
+      "input": {
+        "type": "file_complete_request",
+        "data": {
+          "requestId": [],
+          "query": "src"
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "file_complete_request/missing-query",
+      "input": {
+        "type": "file_complete_request",
+        "data": {
+          "requestId": "request"
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "file_complete_request/null-query",
+      "input": {
+        "type": "file_complete_request",
+        "data": {
+          "requestId": "request",
+          "query": null
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "file_complete_request/wrong-query",
+      "input": {
+        "type": "file_complete_request",
+        "data": {
+          "requestId": "request",
+          "query": []
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "image_upload/valid",
+      "input": {
+        "type": "image_upload",
+        "data": {
+          "clientId": "image",
+          "name": "image.png",
+          "dataBase64": "AA=="
+        }
+      },
+      "dispatched": true
+    },
+    {
+      "label": "image_upload/no-data",
+      "input": {
+        "type": "image_upload"
+      },
+      "dispatched": false
+    },
+    {
+      "label": "image_upload/missing-clientId",
+      "input": {
+        "type": "image_upload",
+        "data": {
+          "name": "image.png",
+          "dataBase64": "AA=="
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "image_upload/null-clientId",
+      "input": {
+        "type": "image_upload",
+        "data": {
+          "clientId": null,
+          "name": "image.png",
+          "dataBase64": "AA=="
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "image_upload/wrong-clientId",
+      "input": {
+        "type": "image_upload",
+        "data": {
+          "clientId": [],
+          "name": "image.png",
+          "dataBase64": "AA=="
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "image_upload/missing-name",
+      "input": {
+        "type": "image_upload",
+        "data": {
+          "clientId": "image",
+          "dataBase64": "AA=="
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "image_upload/null-name",
+      "input": {
+        "type": "image_upload",
+        "data": {
+          "clientId": "image",
+          "name": null,
+          "dataBase64": "AA=="
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "image_upload/wrong-name",
+      "input": {
+        "type": "image_upload",
+        "data": {
+          "clientId": "image",
+          "name": [],
+          "dataBase64": "AA=="
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "image_upload/missing-dataBase64",
+      "input": {
+        "type": "image_upload",
+        "data": {
+          "clientId": "image",
+          "name": "image.png"
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "image_upload/null-dataBase64",
+      "input": {
+        "type": "image_upload",
+        "data": {
+          "clientId": "image",
+          "name": "image.png",
+          "dataBase64": null
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "image_upload/wrong-dataBase64",
+      "input": {
+        "type": "image_upload",
+        "data": {
+          "clientId": "image",
+          "name": "image.png",
+          "dataBase64": []
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "provider_select/index--1",
+      "input": {
+        "type": "provider_select",
+        "data": {
+          "index": -1
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "provider_select/index-0.5",
+      "input": {
+        "type": "provider_select",
+        "data": {
+          "index": 0.5
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "provider_select/index-9007199254740992",
+      "input": {
+        "type": "provider_select",
+        "data": {
+          "index": 9007199254740992
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "permission_response/invalid-response",
+      "input": {
+        "type": "permission_response",
+        "data": {
+          "id": "request",
+          "response": "unknown"
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "plan_approval_response/invalid-choice",
+      "input": {
+        "type": "plan_approval_response",
+        "data": {
+          "id": "request",
+          "choice": "unknown",
+          "feedback": "change this"
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "set_permission_mode/invalid-mode",
+      "input": {
+        "type": "set_permission_mode",
+        "data": {
+          "mode": "unknown"
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "provider_save/invalid-protocol",
+      "input": {
+        "type": "provider_save",
+        "data": {
+          "name": "provider",
+          "protocol": "unknown",
+          "base_url": "http://localhost",
+          "api_key": "key",
+          "model": "model",
+          "thinking": "low"
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "provider_save/invalid-thinking",
+      "input": {
+        "type": "provider_save",
+        "data": {
+          "name": "provider",
+          "protocol": "openai",
+          "base_url": "http://localhost",
+          "api_key": "key",
+          "model": "model",
+          "thinking": "unknown"
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "rewind_action/invalid-action",
+      "input": {
+        "type": "rewind_action",
+        "data": {
+          "snapshotId": "snapshot",
+          "action": "unknown"
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "ask_user_response/answers-{\"question\":null}",
+      "input": {
+        "type": "ask_user_response",
+        "data": {
+          "id": "request",
+          "answers": {
+            "question": null
+          }
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "ask_user_response/answers-{\"question\":1}",
+      "input": {
+        "type": "ask_user_response",
+        "data": {
+          "id": "request",
+          "answers": {
+            "question": 1
+          }
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "ask_user_response/answers-[]",
+      "input": {
+        "type": "ask_user_response",
+        "data": {
+          "id": "request",
+          "answers": []
+        }
+      },
+      "dispatched": false
+    },
+    {
+      "label": "cancel/no-data",
+      "input": {
+        "type": "cancel"
+      },
+      "dispatched": false
+    },
+    {
+      "label": "cancel/valid",
+      "input": {
+        "type": "cancel",
+        "data": null
+      },
+      "dispatched": true
+    },
+    {
+      "label": "ping/no-data",
+      "input": {
+        "type": "ping"
+      },
+      "dispatched": false
+    },
+    {
+      "label": "ping/valid",
+      "input": {
+        "type": "ping",
+        "data": null
+      },
+      "dispatched": true
+    },
+    {
+      "label": "model_list_request/no-data",
+      "input": {
+        "type": "model_list_request"
+      },
+      "dispatched": false
+    },
+    {
+      "label": "model_list_request/valid",
+      "input": {
+        "type": "model_list_request",
+        "data": null
+      },
+      "dispatched": true
+    },
+    {
+      "label": "provider_list_request/no-data",
+      "input": {
+        "type": "provider_list_request"
+      },
+      "dispatched": false
+    },
+    {
+      "label": "provider_list_request/valid",
+      "input": {
+        "type": "provider_list_request",
+        "data": null
+      },
+      "dispatched": true
+    },
+    {
+      "label": "rewind_list_request/no-data",
+      "input": {
+        "type": "rewind_list_request"
+      },
+      "dispatched": false
+    },
+    {
+      "label": "rewind_list_request/valid",
+      "input": {
+        "type": "rewind_list_request",
+        "data": null
+      },
+      "dispatched": true
+    },
+    {
+      "label": "background_shells/no-data",
+      "input": {
+        "type": "background_shells"
+      },
+      "dispatched": false
+    },
+    {
+      "label": "background_shells/valid",
+      "input": {
+        "type": "background_shells",
+        "data": null
+      },
+      "dispatched": true
+    },
+    {
+      "label": "envelope/null",
+      "input": null,
+      "dispatched": false
+    },
+    {
+      "label": "envelope/[]",
+      "input": [],
+      "dispatched": false
+    },
+    {
+      "label": "envelope/{}",
+      "input": {},
+      "dispatched": false
+    },
+    {
+      "label": "envelope/{\"type\":null}",
+      "input": {
+        "type": null
+      },
+      "dispatched": false
+    },
+    {
+      "label": "envelope/{\"type\":2}",
+      "input": {
+        "type": 2
+      },
+      "dispatched": false
+    },
+    {
+      "label": "envelope/{\"type\":\"unknown\",\"data\":{}}",
+      "input": {
+        "type": "unknown",
+        "data": {}
+      },
+      "dispatched": false
+    }
+  ],
+  "stream": {
+    "events": [
+      {
+        "type": "thinking_text",
+        "text": "reason"
+      },
+      {
+        "type": "thinking_complete",
+        "thinking": "reason",
+        "signature": "signature"
+      },
+      {
+        "type": "stream_text",
+        "text": "first"
+      },
+      {
+        "type": "tool_use",
+        "toolId": "tool",
+        "toolName": "ReadFile",
+        "args": {
+          "file_path": "src/file.ts"
+        }
+      },
+      {
+        "type": "stream_text",
+        "text": " second"
+      },
+      {
+        "type": "tool_result",
+        "toolId": "tool",
+        "toolName": "ReadFile",
+        "output": "result",
+        "isError": false,
+        "elapsed": 1.25
+      },
+      {
+        "type": "steering_delivered",
+        "text": "next",
+        "inputId": "input"
+      },
+      {
+        "type": "stream_text",
+        "text": "third"
+      },
+      {
+        "type": "turn_complete"
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "inputTokens": 12,
+          "outputTokens": 3
+        }
+      },
+      {
+        "type": "retry",
+        "reason": "retry",
+        "delay": 250
+      },
+      {
+        "type": "compact",
+        "message": "compacted"
+      },
+      {
+        "type": "permission_request"
+      },
+      {
+        "type": "error",
+        "error": {
+          "message": "failure"
+        }
+      },
+      {
+        "type": "loop_complete",
+        "stopReason": "end_turn"
+      }
+    ],
+    "messages": [
+      {
+        "type": "thinking_text",
+        "data": {
+          "text": "reason"
+        }
+      },
+      {
+        "type": "stream_text",
+        "data": {
+          "text": "first"
+        }
+      },
+      {
+        "type": "tool_use",
+        "data": {
+          "toolId": "tool",
+          "toolName": "ReadFile",
+          "args": {
+            "file_path": "src/file.ts"
+          }
+        }
+      },
+      {
+        "type": "stream_text",
+        "data": {
+          "text": " second"
+        }
+      },
+      {
+        "type": "stream_end",
+        "data": {
+          "text": "first second"
+        }
+      },
+      {
+        "type": "tool_result",
+        "data": {
+          "toolId": "tool",
+          "toolName": "ReadFile",
+          "output": "result",
+          "isError": false,
+          "elapsed": 1.25
+        }
+      },
+      {
+        "type": "steering_delivered",
+        "data": {
+          "text": "next"
+        }
+      },
+      {
+        "type": "stream_text",
+        "data": {
+          "text": "third"
+        }
+      },
+      {
+        "type": "stream_end",
+        "data": {
+          "text": "third"
+        }
+      },
+      {
+        "type": "turn_complete",
+        "data": {
+          "turn": 1
+        }
+      },
+      {
+        "type": "usage",
+        "data": {
+          "inputTokens": 12,
+          "outputTokens": 3,
+          "contextTokens": 0,
+          "contextWindow": 200000
+        }
+      },
+      {
+        "type": "retry",
+        "data": {
+          "reason": "retry",
+          "waitMs": 250
+        }
+      },
+      {
+        "type": "compact",
+        "data": {
+          "message": "compacted"
+        }
+      },
+      {
+        "type": "error",
+        "data": {
+          "message": "failure"
+        }
+      },
+      {
+        "type": "loop_complete",
+        "data": {
+          "stopReason": "end_turn",
+          "totalTurns": 1,
+          "elapsed": "<elapsed>"
+        }
+      }
+    ]
+  }
+}

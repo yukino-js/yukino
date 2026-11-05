@@ -30,8 +30,10 @@ type agentReadyMsg struct {
 }
 
 type mcpReadyMsg struct {
-	result mcp.ConnectResult
-	mgr    *mcp.Manager
+	result     mcp.ConnectResult
+	mgr        *mcp.Manager
+	showStatus bool
+	reloaded   bool
 }
 
 type compactDoneMsg struct {

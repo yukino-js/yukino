@@ -28,19 +28,16 @@ import (
 )
 
 func (m *Model) drainTaskNotifications() ([]string, error) {
-	var messages []string
+	messages := teams.DrainLeadMailbox(m.teamMgr)
 	if m.taskMgr != nil {
 		drained, err := m.taskMgr.DrainNotifications()
 		if err != nil {
 			return nil, err
 		}
-		for _, n := range drained {
-			msg := fmt.Sprintf("<task-notification>\n<task_id>%s</task_id>\n<status>%s</status>\n<summary>Agent \"%s\" %s</summary>\n<result>%s</result>\n</task-notification>",
-				n.ID, n.Status, n.Name, n.Status, n.Output)
-			messages = append(messages, msg)
+		for _, task := range drained {
+			messages = append(messages, subagent.FormatAgentTaskNotification(task))
 		}
 	}
-	messages = append(messages, teams.DrainLeadMailbox(m.teamMgr)...)
 	return messages, nil
 }
 
@@ -155,10 +152,12 @@ func (m *Model) initMCPServersCmd() tea.Cmd {
 
 	m.mcpConnecting = true
 	configs := m.mcpConfigs
+	mgr := mcp.NewManager(false)
+	m.mcpMgr = mgr
+	ctx := m.lifeCtx
 
 	return func() tea.Msg {
-		mgr := mcp.NewManager(false)
-		return mcpReadyMsg{result: mgr.ConnectAll(context.Background(), configs), mgr: mgr}
+		return mcpReadyMsg{result: mgr.ConnectAll(ctx, configs), mgr: mgr}
 	}
 }
 

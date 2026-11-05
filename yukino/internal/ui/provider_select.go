@@ -15,6 +15,7 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/llm"
 	"github.com/yukino-js/yukino/yukino/internal/mcp"
 	"github.com/yukino-js/yukino/yukino/internal/permissions"
+	"github.com/yukino-js/yukino/yukino/internal/prompt"
 	"github.com/yukino-js/yukino/yukino/internal/subagent"
 	"github.com/yukino-js/yukino/yukino/internal/teams"
 )
@@ -37,12 +38,16 @@ func (m *Model) activateInitialProvider(p *config.ProviderConfig) tea.Cmd {
 	m.defaultTools.EditFile.FileHistory = m.fileHistory
 	m.defaultTools.WriteFile.FileHistory = m.fileHistory
 	m.registerAgentTools(client, p, p.Protocol, wd)
+	if m.memoryMgr != nil {
+		m.memoryContent = m.memoryMgr.BuildSystemReminder()
+	}
+	m.conversation.InjectLongTermMemory(m.instructionsContent, m.memoryContent, "")
 	ag := agent.New(client, m.registry, p.Protocol)
 	ag.ContextWindow = config.GetContextWindow(p)
 	ag.MaxOutputTokens = config.GetMaxOutputTokens(p)
 	ag.Instructions = m.instructionsContent
 	ag.MemoryContent = m.memoryContent
-	ag.SkillSection = m.skillDelta()
+	ag.SkillSection = m.buildSkillSection(wd)
 	ag.SkillDeltaFn = m.skillDelta
 	ag.FileHistory = m.fileHistory
 	ag.SetSessionID(m.sessionID)
@@ -230,7 +235,9 @@ func (m Model) renderProviderDialog() string {
 func (m Model) switchProvider(provider config.ProviderConfig) (tea.Model, tea.Cmd) {
 	m.providerDialog = false
 	wd := m.getWorkDir()
-	client, err := llm.NewClient(&provider, m.loadSkillsAndBuildPrompt(wd))
+	environment := prompt.DetectEnvironment(wd)
+	environment.Model = provider.Model
+	client, err := llm.NewClient(&provider, prompt.BuildSystemPrompt(environment))
 	if err != nil {
 		m.chatMessages = append(m.chatMessages, chatMessage{
 			role:    "error",
@@ -249,10 +256,13 @@ func (m Model) switchProvider(provider config.ProviderConfig) (tea.Model, tea.Cm
 	}
 	if m.ag != nil {
 		m.ag.Client = client
+		m.ag.Protocol = provider.Protocol
 		m.ag.ContextWindow = config.GetContextWindow(&provider)
 		m.ag.MaxOutputTokens = config.GetMaxOutputTokens(&provider)
 		if at, ok := m.registry.Get("Agent").(*subagent.AgentTool); ok {
 			at.Client = client
+			at.Provider = &provider
+			at.Protocol = provider.Protocol
 		}
 	}
 	mcp.DecideAndApply(m.registry, provider.BaseURL, provider.Protocol, config.GetContextWindow(&provider), m.MCPLoading)

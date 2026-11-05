@@ -98,8 +98,8 @@ func TestAskUserOtherTextAndQueue(t *testing.T) {
 		t.Fatal("Other answer or FIFO lost")
 	}
 	m.denyAllInteractions()
-	if (<-second).Answers["_declined"] != "true" {
-		t.Fatal("pending question not declined")
+	if len((<-second).Answers) != 0 {
+		t.Fatal("canceled question did not receive empty answers")
 	}
 }
 func TestAskUserNumericMultiSelectPreservesSelectionOrder(t *testing.T) {

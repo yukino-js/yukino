@@ -11,6 +11,7 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/config"
 	"github.com/yukino-js/yukino/yukino/internal/llm"
 	"github.com/yukino-js/yukino/yukino/internal/mcp"
+	"github.com/yukino-js/yukino/yukino/internal/prompt"
 	"github.com/yukino-js/yukino/yukino/internal/subagent"
 )
 
@@ -31,8 +32,9 @@ type modelPickerState struct {
 }
 
 type modelDiscoveryDoneMsg struct {
-	models []llm.DiscoveredModel
-	err    error
+	generation int
+	models     []llm.DiscoveredModel
+	err        error
 }
 
 // modelEntry mirrors the Entry union: a discovered model or the free-text row.
@@ -49,18 +51,25 @@ func modelFuseKeys() []fuseKey[llm.DiscoveredModel] {
 	}
 }
 
-func (m Model) startModelDiscovery() tea.Cmd {
+func (m *Model) startModelDiscovery() tea.Cmd {
 	if m.selectedProvider == nil {
 		return nil
 	}
 	provider := *m.selectedProvider
+	if m.modelDiscoveryCancel != nil {
+		m.modelDiscoveryCancel()
+	}
+	ctx, cancel := context.WithCancel(m.lifeCtx)
+	m.modelDiscoveryCancel = cancel
+	m.modelDiscoveryGeneration++
+	generation := m.modelDiscoveryGeneration
 	return func() tea.Msg {
-		models, err := llm.DiscoverModels(context.Background(), llm.DiscoveryConfig{
+		models, err := llm.DiscoverModels(ctx, llm.DiscoveryConfig{
 			Protocol: provider.Protocol,
 			BaseURL:  provider.BaseURL,
 			APIKey:   config.ResolveAPIKey(&provider),
 		})
-		return modelDiscoveryDoneMsg{models: models, err: err}
+		return modelDiscoveryDoneMsg{generation: generation, models: models, err: err}
 	}
 }
 
@@ -80,6 +89,11 @@ func (m Model) openModelDialog() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) closeModelDialog() (tea.Model, tea.Cmd) {
+	if m.modelDiscoveryCancel != nil {
+		m.modelDiscoveryCancel()
+		m.modelDiscoveryCancel = nil
+	}
+	m.modelDiscoveryGeneration++
 	m.modelDialog = false
 	return m, nil
 }
@@ -235,7 +249,9 @@ func (m Model) applyModelSelection(modelID string) (tea.Model, tea.Cmd) {
 	updated := *m.selectedProvider
 	updated.Model = nextModel
 	wd := m.getWorkDir()
-	client, err := llm.NewClient(&updated, m.loadSkillsAndBuildPrompt(wd))
+	environment := prompt.DetectEnvironment(wd)
+	environment.Model = updated.Model
+	client, err := llm.NewClient(&updated, prompt.BuildSystemPrompt(environment))
 	if err != nil {
 		m.modelDialog = false
 		m.chatMessages = append(m.chatMessages, chatMessage{
@@ -255,10 +271,13 @@ func (m Model) applyModelSelection(modelID string) (tea.Model, tea.Cmd) {
 	}
 	if m.ag != nil {
 		m.ag.Client = client
+		m.ag.Protocol = updated.Protocol
 		m.ag.ContextWindow = config.GetContextWindow(&updated)
 		m.ag.MaxOutputTokens = config.GetMaxOutputTokens(&updated)
 		if at, ok := m.registry.Get("Agent").(*subagent.AgentTool); ok {
 			at.Client = client
+			at.Provider = &updated
+			at.Protocol = updated.Protocol
 		}
 	}
 	mcp.DecideAndApply(m.registry, updated.BaseURL, updated.Protocol, config.GetContextWindow(&updated), m.MCPLoading)

@@ -389,7 +389,7 @@ func parseOriginPort(text string) (int, bool) {
 	return value, true
 }
 func (s *Server) listenAddress() (string, error) {
-	host, port, err := ParseRemoteAddress(s.addr, 18888, false)
+	host, port, err := ParseRemoteAddress(s.addr, 18888, true)
 	if err != nil {
 		return "", err
 	}

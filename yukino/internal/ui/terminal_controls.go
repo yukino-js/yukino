@@ -191,7 +191,7 @@ func (m Model) submitInput(text string) (tea.Model, tea.Cmd) {
 		m.clearDraft()
 		return m, nil
 	}
-	if m.foregroundBusy() && goalControl.FindStringSubmatch(text) == nil {
+	if m.foregroundBusy() && !(m.streaming && goalControl.FindStringSubmatch(text) != nil) {
 		m.pendingMessages = append(m.pendingMessages, queuedMessage{text: text})
 		m.queuePaused = false
 		m.clearDraft()
@@ -199,8 +199,8 @@ func (m Model) submitInput(text string) (tea.Model, tea.Cmd) {
 	}
 	var updated tea.Model
 	var cmd tea.Cmd
-	if match := goalControl.FindStringSubmatch(text); m.foregroundBusy() && match != nil {
-		updated, cmd = m.runGoalCommand(match[1])
+	if match := goalControl.FindStringSubmatch(text); m.streaming && match != nil {
+		updated, cmd = m.executeCommand(strings.TrimSpace(text), nil)
 	} else {
 		updated, cmd = m.dispatchInput(text, nil)
 	}
@@ -219,10 +219,11 @@ func (m Model) submitInput(text string) (tea.Model, tea.Cmd) {
 
 func (m Model) dispatchInput(text string, input *history.InputEntry) (tea.Model, tea.Cmd) {
 	m.activityError = ""
+	m.refreshSkillsIfNeeded()
 	if strings.HasPrefix(text, "/") {
-		name, args, ok := commands.Parse(text)
+		_, _, ok := commands.Parse(text)
 		if ok {
-			return m.executeCommand(name, args)
+			return m.executeCommand(text, input)
 		}
 	}
 	if m.ag == nil {

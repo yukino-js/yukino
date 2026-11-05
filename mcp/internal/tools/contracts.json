@@ -21,11 +21,7 @@
             "type": "string"
           },
           "additionalProperties": {
-            "type": [
-              "string",
-              "number",
-              "boolean"
-            ]
+            "type": ["string", "number", "boolean"]
           }
         },
         "settings": {
@@ -36,11 +32,7 @@
             "type": "string"
           },
           "additionalProperties": {
-            "type": [
-              "string",
-              "number",
-              "boolean"
-            ]
+            "type": ["string", "number", "boolean"]
           }
         },
         "database": {
@@ -99,9 +91,7 @@
           "maximum": 9007199254740991
         }
       },
-      "required": [
-        "sql"
-      ],
+      "required": ["sql"],
       "$schema": "http://json-schema.org/draft-07/schema#"
     },
     "annotations": {
@@ -129,9 +119,7 @@
           "maxLength": 120
         }
       },
-      "required": [
-        "html"
-      ],
+      "required": ["html"],
       "$schema": "http://json-schema.org/draft-07/schema#"
     },
     "annotations": {
@@ -177,9 +165,7 @@
           "maximum": 10
         }
       },
-      "required": [
-        "query"
-      ],
+      "required": ["query"],
       "$schema": "http://json-schema.org/draft-07/schema#"
     },
     "annotations": {
@@ -208,12 +194,7 @@
           "default": "POST",
           "description": "HTTP method. The v3 gateway uses POST for nearly all calls.",
           "type": "string",
-          "enum": [
-            "GET",
-            "POST",
-            "PUT",
-            "DELETE"
-          ]
+          "enum": ["GET", "POST", "PUT", "DELETE"]
         },
         "body": {
           "default": {},
@@ -324,15 +305,10 @@
           "default": "text",
           "description": "Encoding of stdout; base64 preserves binary API downloads.",
           "type": "string",
-          "enum": [
-            "text",
-            "base64"
-          ]
+          "enum": ["text", "base64"]
         }
       },
-      "required": [
-        "args"
-      ],
+      "required": ["args"],
       "$schema": "http://json-schema.org/draft-07/schema#"
     },
     "annotations": {
@@ -360,15 +336,7 @@
         "method": {
           "default": "GET",
           "type": "string",
-          "enum": [
-            "GET",
-            "POST",
-            "PUT",
-            "PATCH",
-            "DELETE",
-            "HEAD",
-            "OPTIONS"
-          ]
+          "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
         },
         "params": {
           "default": {},
@@ -380,20 +348,12 @@
           "additionalProperties": {
             "anyOf": [
               {
-                "type": [
-                  "string",
-                  "number",
-                  "boolean"
-                ]
+                "type": ["string", "number", "boolean"]
               },
               {
                 "type": "array",
                 "items": {
-                  "type": [
-                    "string",
-                    "number",
-                    "boolean"
-                  ]
+                  "type": ["string", "number", "boolean"]
                 }
               }
             ]
@@ -526,16 +486,10 @@
             "type": "object",
             "properties": {
               "key": {
-                "type": [
-                  "string",
-                  "null"
-                ]
+                "type": ["string", "null"]
               },
               "value": {
-                "type": [
-                  "string",
-                  "null"
-                ]
+                "type": ["string", "null"]
               },
               "partition": {
                 "type": "integer",
@@ -557,9 +511,7 @@
                 }
               }
             },
-            "required": [
-              "value"
-            ]
+            "required": ["value"]
           }
         },
         "assignments": {
@@ -583,10 +535,7 @@
                 "maximum": 9007199254740991
               }
             },
-            "required": [
-              "topic",
-              "partition"
-            ]
+            "required": ["topic", "partition"]
           }
         },
         "partitions": {
@@ -610,9 +559,7 @@
                 "maximum": 9007199254740991
               }
             },
-            "required": [
-              "partition"
-            ]
+            "required": ["partition"]
           }
         },
         "group_id": {
@@ -663,10 +610,7 @@
           "default": "utf8",
           "description": "Encoding for message keys/values.",
           "type": "string",
-          "enum": [
-            "utf8",
-            "base64"
-          ]
+          "enum": ["utf8", "base64"]
         },
         "timeout_ms": {
           "default": 15000,
@@ -676,9 +620,7 @@
           "maximum": 9007199254740991
         }
       },
-      "required": [
-        "operation"
-      ],
+      "required": ["operation"],
       "$schema": "http://json-schema.org/draft-07/schema#"
     },
     "annotations": {
@@ -707,12 +649,7 @@
           "default": "POST",
           "description": "HTTP method. Milvus v2 uses POST for most operations.",
           "type": "string",
-          "enum": [
-            "GET",
-            "POST",
-            "PUT",
-            "DELETE"
-          ]
+          "enum": ["GET", "POST", "PUT", "DELETE"]
         },
         "body": {
           "default": {},
@@ -813,14 +750,7 @@
         "method": {
           "default": "GET",
           "type": "string",
-          "enum": [
-            "GET",
-            "PUT",
-            "POST",
-            "DELETE",
-            "HEAD",
-            "PATCH"
-          ]
+          "enum": ["GET", "PUT", "POST", "DELETE", "HEAD", "PATCH"]
         },
         "bucket": {
           "description": "Target bucket. Omit for the service-level ListBuckets call.",
@@ -851,10 +781,7 @@
               {
                 "type": "array",
                 "items": {
-                  "type": [
-                    "string",
-                    "number"
-                  ]
+                  "type": ["string", "number"]
                 }
               }
             ]
@@ -893,12 +820,7 @@
           "default": "auto",
           "description": "How to return the response body. auto returns text for XML/JSON and base64 otherwise.",
           "type": "string",
-          "enum": [
-            "auto",
-            "text",
-            "base64",
-            "none"
-          ]
+          "enum": ["auto", "text", "base64", "none"]
         },
         "max_bytes": {
           "default": 1000000,
@@ -954,9 +876,7 @@
           "description": "Raw MongoDB command document, accepting Extended JSON for BSON types. There is no operation allowlist."
         }
       },
-      "required": [
-        "command"
-      ],
+      "required": ["command"],
       "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
         "__schema0": {
@@ -1017,9 +937,7 @@
           }
         }
       },
-      "required": [
-        "sql"
-      ],
+      "required": ["sql"],
       "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
         "__schema0": {
@@ -1085,9 +1003,7 @@
           }
         }
       },
-      "required": [
-        "sql"
-      ],
+      "required": ["sql"],
       "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
         "__schema0": {
@@ -1148,15 +1064,7 @@
         "method": {
           "default": "GET",
           "type": "string",
-          "enum": [
-            "GET",
-            "POST",
-            "PUT",
-            "PATCH",
-            "DELETE",
-            "HEAD",
-            "OPTIONS"
-          ]
+          "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
         },
         "params": {
           "default": {},
@@ -1168,20 +1076,12 @@
           "additionalProperties": {
             "anyOf": [
               {
-                "type": [
-                  "string",
-                  "number",
-                  "boolean"
-                ]
+                "type": ["string", "number", "boolean"]
               },
               {
                 "type": "array",
                 "items": {
-                  "type": [
-                    "string",
-                    "number",
-                    "boolean"
-                  ]
+                  "type": ["string", "number", "boolean"]
                 }
               }
             ]
@@ -1278,9 +1178,7 @@
           "description": "Redis commands as argument arrays. Arguments are sent verbatim, without shell parsing or command filtering."
         }
       },
-      "required": [
-        "commands"
-      ],
+      "required": ["commands"],
       "$schema": "http://json-schema.org/draft-07/schema#"
     },
     "annotations": {

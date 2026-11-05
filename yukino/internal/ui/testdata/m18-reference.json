@@ -2192,14 +2192,8 @@
     },
     {
       "rows": [
-        [
-          "a",
-          "b"
-        ],
-        [
-          "中文",
-          "long words"
-        ]
+        ["a", "b"],
+        ["中文", "long words"]
       ],
       "width": 1,
       "columns": 2,
@@ -2207,14 +2201,8 @@
     },
     {
       "rows": [
-        [
-          "a",
-          "b"
-        ],
-        [
-          "中文",
-          "long words"
-        ]
+        ["a", "b"],
+        ["中文", "long words"]
       ],
       "width": 5,
       "columns": 2,
@@ -2222,138 +2210,72 @@
     },
     {
       "rows": [
-        [
-          "a",
-          "b"
-        ],
-        [
-          "中文",
-          "long words"
-        ]
+        ["a", "b"],
+        ["中文", "long words"]
       ],
       "width": 10,
       "columns": 2,
       "fitted": {
-        "columnWidths": [
-          4,
-          3
-        ],
+        "columnWidths": [4, 3],
         "rows": [
-          [
-            "a",
-            "b"
-          ],
-          [
-            "中\n文",
-            "l\no\nn\ng\nw\no\nr\nd\ns"
-          ]
+          ["a", "b"],
+          ["中\n文", "l\no\nn\ng\nw\no\nr\nd\ns"]
         ]
       },
       "expected": "┌────┬───┐\n│ a  │ b │\n├────┼───┤\n│ 中 │ l │\n│ 文 │ o │\n│    │ n │\n│    │ g │\n│    │ w │\n│    │ o │\n│    │ r │\n│    │ d │\n│    │ s │\n└────┴───┘"
     },
     {
       "rows": [
-        [
-          "a",
-          "b"
-        ],
-        [
-          "中文",
-          "long words"
-        ]
+        ["a", "b"],
+        ["中文", "long words"]
       ],
       "width": 16,
       "columns": 2,
       "fitted": {
-        "columnWidths": [
-          6,
-          7
-        ],
+        "columnWidths": [6, 7],
         "rows": [
-          [
-            "a",
-            "b"
-          ],
-          [
-            "中文",
-            "long\nwords"
-          ]
+          ["a", "b"],
+          ["中文", "long\nwords"]
         ]
       },
       "expected": "┌──────┬───────┐\n│ a    │ b     │\n├──────┼───────┤\n│ 中文 │ long  │\n│      │ words │\n└──────┴───────┘"
     },
     {
       "rows": [
-        [
-          "a",
-          "b"
-        ],
-        [
-          "中文",
-          "long words"
-        ]
+        ["a", "b"],
+        ["中文", "long words"]
       ],
       "width": 40,
       "columns": 2,
       "fitted": {
-        "columnWidths": [
-          6,
-          12
-        ],
+        "columnWidths": [6, 12],
         "rows": [
-          [
-            "a",
-            "b"
-          ],
-          [
-            "中文",
-            "long words"
-          ]
+          ["a", "b"],
+          ["中文", "long words"]
         ]
       },
       "expected": "┌──────┬────────────┐\n│ a    │ b          │\n├──────┼────────────┤\n│ 中文 │ long words │\n└──────┴────────────┘"
     },
     {
       "rows": [
-        [
-          "a",
-          "b"
-        ],
-        [
-          "中文",
-          "long words"
-        ]
+        ["a", "b"],
+        ["中文", "long words"]
       ],
       "width": 80,
       "columns": 2,
       "fitted": {
-        "columnWidths": [
-          6,
-          12
-        ],
+        "columnWidths": [6, 12],
         "rows": [
-          [
-            "a",
-            "b"
-          ],
-          [
-            "中文",
-            "long words"
-          ]
+          ["a", "b"],
+          ["中文", "long words"]
         ]
       },
       "expected": "┌──────┬────────────┐\n│ a    │ b          │\n├──────┼────────────┤\n│ 中文 │ long words │\n└──────┴────────────┘"
     },
     {
       "rows": [
-        [
-          "👩‍💻",
-          "x"
-        ],
-        [
-          "value",
-          "tab\tstop"
-        ]
+        ["👩‍💻", "x"],
+        ["value", "tab\tstop"]
       ],
       "width": 1,
       "columns": 2,
@@ -2361,14 +2283,8 @@
     },
     {
       "rows": [
-        [
-          "👩‍💻",
-          "x"
-        ],
-        [
-          "value",
-          "tab\tstop"
-        ]
+        ["👩‍💻", "x"],
+        ["value", "tab\tstop"]
       ],
       "width": 5,
       "columns": 2,
@@ -2376,268 +2292,124 @@
     },
     {
       "rows": [
-        [
-          "👩‍💻",
-          "x"
-        ],
-        [
-          "value",
-          "tab\tstop"
-        ]
+        ["👩‍💻", "x"],
+        ["value", "tab\tstop"]
       ],
       "width": 10,
       "columns": 2,
       "fitted": {
-        "columnWidths": [
-          4,
-          3
-        ],
+        "columnWidths": [4, 3],
         "rows": [
-          [
-            "👩‍💻",
-            "x"
-          ],
-          [
-            "va\nlu\ne",
-            "t\na\nb\ns\nt\no\np"
-          ]
+          ["👩‍💻", "x"],
+          ["va\nlu\ne", "t\na\nb\ns\nt\no\np"]
         ]
       },
       "expected": "┌────┬───┐\n│ 👩‍💻 │ x │\n├────┼───┤\n│ va │ t │\n│ lu │ a │\n│ e  │ b │\n│    │ s │\n│    │ t │\n│    │ o │\n│    │ p │\n└────┴───┘"
     },
     {
       "rows": [
-        [
-          "👩‍💻",
-          "x"
-        ],
-        [
-          "value",
-          "tab\tstop"
-        ]
+        ["👩‍💻", "x"],
+        ["value", "tab\tstop"]
       ],
       "width": 16,
       "columns": 2,
       "fitted": {
-        "columnWidths": [
-          6,
-          7
-        ],
+        "columnWidths": [6, 7],
         "rows": [
-          [
-            "👩‍💻",
-            "x"
-          ],
-          [
-            "valu\ne",
-            "tab\nstop"
-          ]
+          ["👩‍💻", "x"],
+          ["valu\ne", "tab\nstop"]
         ]
       },
       "expected": "┌──────┬───────┐\n│ 👩‍💻   │ x     │\n├──────┼───────┤\n│ valu │ tab   │\n│ e    │ stop  │\n└──────┴───────┘"
     },
     {
       "rows": [
-        [
-          "👩‍💻",
-          "x"
-        ],
-        [
-          "value",
-          "tab\tstop"
-        ]
+        ["👩‍💻", "x"],
+        ["value", "tab\tstop"]
       ],
       "width": 40,
       "columns": 2,
       "fitted": {
-        "columnWidths": [
-          7,
-          10
-        ],
+        "columnWidths": [7, 10],
         "rows": [
-          [
-            "👩‍💻",
-            "x"
-          ],
-          [
-            "value",
-            "tab stop"
-          ]
+          ["👩‍💻", "x"],
+          ["value", "tab stop"]
         ]
       },
       "expected": "┌───────┬──────────┐\n│ 👩‍💻    │ x        │\n├───────┼──────────┤\n│ value │ tab stop │\n└───────┴──────────┘"
     },
     {
       "rows": [
-        [
-          "👩‍💻",
-          "x"
-        ],
-        [
-          "value",
-          "tab\tstop"
-        ]
+        ["👩‍💻", "x"],
+        ["value", "tab\tstop"]
       ],
       "width": 80,
       "columns": 2,
       "fitted": {
-        "columnWidths": [
-          7,
-          10
-        ],
+        "columnWidths": [7, 10],
         "rows": [
-          [
-            "👩‍💻",
-            "x"
-          ],
-          [
-            "value",
-            "tab stop"
-          ]
+          ["👩‍💻", "x"],
+          ["value", "tab stop"]
         ]
       },
       "expected": "┌───────┬──────────┐\n│ 👩‍💻    │ x        │\n├───────┼──────────┤\n│ value │ tab stop │\n└───────┴──────────┘"
     },
     {
-      "rows": [
-        [
-          "heading"
-        ],
-        [
-          "very long value"
-        ]
-      ],
+      "rows": [["heading"], ["very long value"]],
       "width": 1,
       "columns": 1,
       "expected": null
     },
     {
-      "rows": [
-        [
-          "heading"
-        ],
-        [
-          "very long value"
-        ]
-      ],
+      "rows": [["heading"], ["very long value"]],
       "width": 5,
       "columns": 1,
       "fitted": {
-        "columnWidths": [
-          3
-        ],
+        "columnWidths": [3],
         "rows": [
-          [
-            "h\ne\na\nd\ni\nn\ng"
-          ],
-          [
-            "v\ne\nr\ny\nl\no\nn\ng\nv\na\nl\nu\ne"
-          ]
+          ["h\ne\na\nd\ni\nn\ng"],
+          ["v\ne\nr\ny\nl\no\nn\ng\nv\na\nl\nu\ne"]
         ]
       },
       "expected": "┌───┐\n│ h │\n│ e │\n│ a │\n│ d │\n│ i │\n│ n │\n│ g │\n├───┤\n│ v │\n│ e │\n│ r │\n│ y │\n│ l │\n│ o │\n│ n │\n│ g │\n│ v │\n│ a │\n│ l │\n│ u │\n│ e │\n└───┘"
     },
     {
-      "rows": [
-        [
-          "heading"
-        ],
-        [
-          "very long value"
-        ]
-      ],
+      "rows": [["heading"], ["very long value"]],
       "width": 10,
       "columns": 1,
       "fitted": {
-        "columnWidths": [
-          8
-        ],
-        "rows": [
-          [
-            "headin\ng"
-          ],
-          [
-            "very\nlong\nvalue"
-          ]
-        ]
+        "columnWidths": [8],
+        "rows": [["headin\ng"], ["very\nlong\nvalue"]]
       },
       "expected": "┌────────┐\n│ headin │\n│ g      │\n├────────┤\n│ very   │\n│ long   │\n│ value  │\n└────────┘"
     },
     {
-      "rows": [
-        [
-          "heading"
-        ],
-        [
-          "very long value"
-        ]
-      ],
+      "rows": [["heading"], ["very long value"]],
       "width": 16,
       "columns": 1,
       "fitted": {
-        "columnWidths": [
-          14
-        ],
-        "rows": [
-          [
-            "heading"
-          ],
-          [
-            "very long\nvalue"
-          ]
-        ]
+        "columnWidths": [14],
+        "rows": [["heading"], ["very long\nvalue"]]
       },
       "expected": "┌──────────────┐\n│ heading      │\n├──────────────┤\n│ very long    │\n│ value        │\n└──────────────┘"
     },
     {
-      "rows": [
-        [
-          "heading"
-        ],
-        [
-          "very long value"
-        ]
-      ],
+      "rows": [["heading"], ["very long value"]],
       "width": 40,
       "columns": 1,
       "fitted": {
-        "columnWidths": [
-          17
-        ],
-        "rows": [
-          [
-            "heading"
-          ],
-          [
-            "very long value"
-          ]
-        ]
+        "columnWidths": [17],
+        "rows": [["heading"], ["very long value"]]
       },
       "expected": "┌─────────────────┐\n│ heading         │\n├─────────────────┤\n│ very long value │\n└─────────────────┘"
     },
     {
-      "rows": [
-        [
-          "heading"
-        ],
-        [
-          "very long value"
-        ]
-      ],
+      "rows": [["heading"], ["very long value"]],
       "width": 80,
       "columns": 1,
       "fitted": {
-        "columnWidths": [
-          17
-        ],
-        "rows": [
-          [
-            "heading"
-          ],
-          [
-            "very long value"
-          ]
-        ]
+        "columnWidths": [17],
+        "rows": [["heading"], ["very long value"]]
       },
       "expected": "┌─────────────────┐\n│ heading         │\n├─────────────────┤\n│ very long value │\n└─────────────────┘"
     }
@@ -2687,212 +2459,86 @@
     {
       "text": "one two three four",
       "width": 2,
-      "hard": [
-        "on",
-        "e ",
-        "tw",
-        "o ",
-        "th",
-        "re",
-        "e ",
-        "fo",
-        "ur"
-      ],
-      "words": [
-        "on",
-        "e",
-        "tw",
-        "o",
-        "th",
-        "re",
-        "e",
-        "fo",
-        "ur"
-      ]
+      "hard": ["on", "e ", "tw", "o ", "th", "re", "e ", "fo", "ur"],
+      "words": ["on", "e", "tw", "o", "th", "re", "e", "fo", "ur"]
     },
     {
       "text": "one two three four",
       "width": 5,
-      "hard": [
-        "one t",
-        "wo th",
-        "ree f",
-        "our"
-      ],
-      "words": [
-        "one",
-        "two",
-        "three",
-        "four"
-      ]
+      "hard": ["one t", "wo th", "ree f", "our"],
+      "words": ["one", "two", "three", "four"]
     },
     {
       "text": "one two three four",
       "width": 8,
-      "hard": [
-        "one two ",
-        "three fo",
-        "ur"
-      ],
-      "words": [
-        "one two",
-        "three",
-        "four"
-      ]
+      "hard": ["one two ", "three fo", "ur"],
+      "words": ["one two", "three", "four"]
     },
     {
       "text": "one two three four",
       "width": 20,
-      "hard": [
-        "one two three four"
-      ],
-      "words": [
-        "one two three four"
-      ]
+      "hard": ["one two three four"],
+      "words": ["one two three four"]
     },
     {
       "text": "中文abc👩‍💻def",
       "width": 1,
-      "hard": [
-        "中",
-        "文",
-        "a",
-        "b",
-        "c",
-        "👩‍💻",
-        "d",
-        "e",
-        "f"
-      ],
-      "words": [
-        "中",
-        "文",
-        "a",
-        "b",
-        "c",
-        "👩‍💻",
-        "d",
-        "e",
-        "f"
-      ]
+      "hard": ["中", "文", "a", "b", "c", "👩‍💻", "d", "e", "f"],
+      "words": ["中", "文", "a", "b", "c", "👩‍💻", "d", "e", "f"]
     },
     {
       "text": "中文abc👩‍💻def",
       "width": 2,
-      "hard": [
-        "中",
-        "文",
-        "ab",
-        "c",
-        "👩‍💻",
-        "de",
-        "f"
-      ],
-      "words": [
-        "中",
-        "文",
-        "ab",
-        "c",
-        "👩‍💻",
-        "de",
-        "f"
-      ]
+      "hard": ["中", "文", "ab", "c", "👩‍💻", "de", "f"],
+      "words": ["中", "文", "ab", "c", "👩‍💻", "de", "f"]
     },
     {
       "text": "中文abc👩‍💻def",
       "width": 5,
-      "hard": [
-        "中文a",
-        "bc👩‍💻d",
-        "ef"
-      ],
-      "words": [
-        "中文a",
-        "bc👩‍💻d",
-        "ef"
-      ]
+      "hard": ["中文a", "bc👩‍💻d", "ef"],
+      "words": ["中文a", "bc👩‍💻d", "ef"]
     },
     {
       "text": "中文abc👩‍💻def",
       "width": 8,
-      "hard": [
-        "中文abc",
-        "👩‍💻def"
-      ],
-      "words": [
-        "中文abc",
-        "👩‍💻def"
-      ]
+      "hard": ["中文abc", "👩‍💻def"],
+      "words": ["中文abc", "👩‍💻def"]
     },
     {
       "text": "中文abc👩‍💻def",
       "width": 20,
-      "hard": [
-        "中文abc👩‍💻def"
-      ],
-      "words": [
-        "中文abc👩‍💻def"
-      ]
+      "hard": ["中文abc👩‍💻def"],
+      "words": ["中文abc👩‍💻def"]
     },
     {
       "text": "a\tb\tc",
       "width": 1,
-      "hard": [
-        "a",
-        " ",
-        "b",
-        " ",
-        "c"
-      ],
-      "words": [
-        "a",
-        "b",
-        "c"
-      ]
+      "hard": ["a", " ", "b", " ", "c"],
+      "words": ["a", "b", "c"]
     },
     {
       "text": "a\tb\tc",
       "width": 2,
-      "hard": [
-        "a ",
-        "b ",
-        "c"
-      ],
-      "words": [
-        "a",
-        "b",
-        "c"
-      ]
+      "hard": ["a ", "b ", "c"],
+      "words": ["a", "b", "c"]
     },
     {
       "text": "a\tb\tc",
       "width": 5,
-      "hard": [
-        "a b c"
-      ],
-      "words": [
-        "a b c"
-      ]
+      "hard": ["a b c"],
+      "words": ["a b c"]
     },
     {
       "text": "a\tb\tc",
       "width": 8,
-      "hard": [
-        "a b c"
-      ],
-      "words": [
-        "a b c"
-      ]
+      "hard": ["a b c"],
+      "words": ["a b c"]
     },
     {
       "text": "a\tb\tc",
       "width": 20,
-      "hard": [
-        "a b c"
-      ],
-      "words": [
-        "a b c"
-      ]
+      "hard": ["a b c"],
+      "words": ["a b c"]
     },
     {
       "text": "   leading  and   trailing  ",
@@ -2967,138 +2613,55 @@
         "ng",
         "  "
       ],
-      "words": [
-        "le",
-        "ad",
-        "in",
-        "g",
-        "an",
-        "d",
-        "tr",
-        "ai",
-        "li",
-        "ng"
-      ]
+      "words": ["le", "ad", "in", "g", "an", "d", "tr", "ai", "li", "ng"]
     },
     {
       "text": "   leading  and   trailing  ",
       "width": 5,
-      "hard": [
-        "   le",
-        "ading",
-        "  and",
-        "   tr",
-        "ailin",
-        "g  "
-      ],
-      "words": [
-        "leadi",
-        "ng",
-        "and",
-        "trail",
-        "ing"
-      ]
+      "hard": ["   le", "ading", "  and", "   tr", "ailin", "g  "],
+      "words": ["leadi", "ng", "and", "trail", "ing"]
     },
     {
       "text": "   leading  and   trailing  ",
       "width": 8,
-      "hard": [
-        "   leadi",
-        "ng  and ",
-        "  traili",
-        "ng  "
-      ],
-      "words": [
-        "leading",
-        "and",
-        "trailing"
-      ]
+      "hard": ["   leadi", "ng  and ", "  traili", "ng  "],
+      "words": ["leading", "and", "trailing"]
     },
     {
       "text": "   leading  and   trailing  ",
       "width": 20,
-      "hard": [
-        "   leading  and   tr",
-        "ailing  "
-      ],
-      "words": [
-        "leading  and",
-        "trailing"
-      ]
+      "hard": ["   leading  and   tr", "ailing  "],
+      "words": ["leading  and", "trailing"]
     },
     {
       "text": "aa\n\nbb",
       "width": 1,
-      "hard": [
-        "a",
-        "a",
-        "",
-        "b",
-        "b"
-      ],
-      "words": [
-        "a",
-        "a",
-        "",
-        "b",
-        "b"
-      ]
+      "hard": ["a", "a", "", "b", "b"],
+      "words": ["a", "a", "", "b", "b"]
     },
     {
       "text": "aa\n\nbb",
       "width": 2,
-      "hard": [
-        "aa",
-        "",
-        "bb"
-      ],
-      "words": [
-        "aa",
-        "",
-        "bb"
-      ]
+      "hard": ["aa", "", "bb"],
+      "words": ["aa", "", "bb"]
     },
     {
       "text": "aa\n\nbb",
       "width": 5,
-      "hard": [
-        "aa",
-        "",
-        "bb"
-      ],
-      "words": [
-        "aa",
-        "",
-        "bb"
-      ]
+      "hard": ["aa", "", "bb"],
+      "words": ["aa", "", "bb"]
     },
     {
       "text": "aa\n\nbb",
       "width": 8,
-      "hard": [
-        "aa",
-        "",
-        "bb"
-      ],
-      "words": [
-        "aa",
-        "",
-        "bb"
-      ]
+      "hard": ["aa", "", "bb"],
+      "words": ["aa", "", "bb"]
     },
     {
       "text": "aa\n\nbb",
       "width": 20,
-      "hard": [
-        "aa",
-        "",
-        "bb"
-      ],
-      "words": [
-        "aa",
-        "",
-        "bb"
-      ]
+      "hard": ["aa", "", "bb"],
+      "words": ["aa", "", "bb"]
     },
     {
       "text": "xxxxxxxxxxxxxxxxxxxx",
@@ -3151,70 +2714,26 @@
     {
       "text": "xxxxxxxxxxxxxxxxxxxx",
       "width": 2,
-      "hard": [
-        "xx",
-        "xx",
-        "xx",
-        "xx",
-        "xx",
-        "xx",
-        "xx",
-        "xx",
-        "xx",
-        "xx"
-      ],
-      "words": [
-        "xx",
-        "xx",
-        "xx",
-        "xx",
-        "xx",
-        "xx",
-        "xx",
-        "xx",
-        "xx",
-        "xx"
-      ]
+      "hard": ["xx", "xx", "xx", "xx", "xx", "xx", "xx", "xx", "xx", "xx"],
+      "words": ["xx", "xx", "xx", "xx", "xx", "xx", "xx", "xx", "xx", "xx"]
     },
     {
       "text": "xxxxxxxxxxxxxxxxxxxx",
       "width": 5,
-      "hard": [
-        "xxxxx",
-        "xxxxx",
-        "xxxxx",
-        "xxxxx"
-      ],
-      "words": [
-        "xxxxx",
-        "xxxxx",
-        "xxxxx",
-        "xxxxx"
-      ]
+      "hard": ["xxxxx", "xxxxx", "xxxxx", "xxxxx"],
+      "words": ["xxxxx", "xxxxx", "xxxxx", "xxxxx"]
     },
     {
       "text": "xxxxxxxxxxxxxxxxxxxx",
       "width": 8,
-      "hard": [
-        "xxxxxxxx",
-        "xxxxxxxx",
-        "xxxx"
-      ],
-      "words": [
-        "xxxxxxxx",
-        "xxxxxxxx",
-        "xxxx"
-      ]
+      "hard": ["xxxxxxxx", "xxxxxxxx", "xxxx"],
+      "words": ["xxxxxxxx", "xxxxxxxx", "xxxx"]
     },
     {
       "text": "xxxxxxxxxxxxxxxxxxxx",
       "width": 20,
-      "hard": [
-        "xxxxxxxxxxxxxxxxxxxx"
-      ],
-      "words": [
-        "xxxxxxxxxxxxxxxxxxxx"
-      ]
+      "hard": ["xxxxxxxxxxxxxxxxxxxx"],
+      "words": ["xxxxxxxxxxxxxxxxxxxx"]
     }
   ],
   "stable": [

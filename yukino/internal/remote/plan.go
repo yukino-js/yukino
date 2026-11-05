@@ -5,7 +5,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/yukino-js/yukino/yukino/internal/permissions"
 	"github.com/yukino-js/yukino/yukino/internal/plan_file"
 	"github.com/yukino-js/yukino/yukino/internal/prompt"
@@ -25,9 +24,9 @@ func (s *Server) requestPlanApproval() {
 	if s.planApprovalTimer != nil {
 		s.planApprovalTimer.Stop()
 	}
-	id := "plan-" + uuid.NewString()
+	id := s.nextRequestID("plan")
 	s.planApprovalID = id
-	s.planApprovalTimer = time.AfterFunc(10*time.Minute, func() {
+	s.planApprovalTimer = time.AfterFunc(PendingRequestTimeoutMS*time.Millisecond, func() {
 		s.planMu.Lock()
 		if s.planApprovalID != id {
 			s.planMu.Unlock()
@@ -79,6 +78,7 @@ func (s *Server) handlePlanApprovalResponse(id, choice, feedback string) {
 	s.planMu.Unlock()
 	checker.ExitPlanMode(mode)
 	s.conv.AddSystemReminder(prompt.BuildPlanModeExitReminder(path, content != ""))
+	s.broadcastStatus()
 	s.send(wsMessage{Type: "system", Data: map[string]string{"message": message}})
 	if content != "" {
 		s.queuePlanExecution("Execute this plan:\n\n" + content)
@@ -86,7 +86,7 @@ func (s *Server) handlePlanApprovalResponse(id, choice, feedback string) {
 }
 func (s *Server) queuePlanExecution(text string) {
 	s.runMu.Lock()
-	if s.streaming {
+	if s.streaming || s.stopping {
 		s.pendingPlanExecution = text
 		s.runMu.Unlock()
 		return
@@ -96,32 +96,59 @@ func (s *Server) queuePlanExecution(text string) {
 }
 func (s *Server) beginRun() (context.Context, bool) {
 	s.runMu.Lock()
-	if s.streaming {
+	if s.streaming || s.stopping {
 		s.runMu.Unlock()
 		return nil, false
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s.streaming = true
+	s.runCanceled = false
 	s.cancelStream = cancel
 	s.runMu.Unlock()
+	s.closePlanApproval()
 	s.send(wsMessage{Type: "run_state", Data: map[string]any{"streaming": true}})
 	return ctx, true
 }
 func (s *Server) finishRun() {
 	s.runMu.Lock()
 	wasStreaming := s.streaming
+	cancel := s.cancelStream
+	canceled := s.runCanceled
 	s.streaming = false
 	s.cancelStream = nil
 	s.agentCh = nil
 	pending := s.pendingPlanExecution
 	s.pendingPlanExecution = ""
 	s.runMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 	if wasStreaming {
 		s.send(wsMessage{Type: "run_state", Data: map[string]any{"streaming": false}})
 	}
 	if pending != "" {
 		s.handleUserMessage(pending, nil)
 	}
-	s.replaySteeringLeftovers()
+	if canceled {
+		if s.ag != nil {
+			s.ag.DrainSteering()
+		}
+	} else {
+		s.replaySteeringLeftovers()
+	}
 	s.drainFollowUps()
+}
+
+func (s *Server) closePlanApproval() {
+	s.planMu.Lock()
+	id := s.planApprovalID
+	s.planApprovalID = ""
+	if s.planApprovalTimer != nil {
+		s.planApprovalTimer.Stop()
+		s.planApprovalTimer = nil
+	}
+	s.planMu.Unlock()
+	if id != "" {
+		s.send(wsMessage{Type: "plan_approval_closed", Data: map[string]string{"id": id}})
+	}
 }

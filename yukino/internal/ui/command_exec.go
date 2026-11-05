@@ -4,25 +4,25 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
 	"strconv"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/yukino-js/yukino/yukino/internal/bootstrap"
 	"github.com/yukino-js/yukino/yukino/internal/commands"
 	"github.com/yukino-js/yukino/yukino/internal/compact"
 	"github.com/yukino-js/yukino/yukino/internal/config"
 	"github.com/yukino-js/yukino/yukino/internal/file_history"
+	"github.com/yukino-js/yukino/yukino/internal/history"
 	"github.com/yukino-js/yukino/yukino/internal/llm"
+	"github.com/yukino-js/yukino/yukino/internal/mcp"
 	"github.com/yukino-js/yukino/yukino/internal/memory"
 	"github.com/yukino-js/yukino/yukino/internal/permissions"
 	"github.com/yukino-js/yukino/yukino/internal/sandbox"
 	"github.com/yukino-js/yukino/yukino/internal/session"
-	"github.com/yukino-js/yukino/yukino/internal/skills"
-	"github.com/yukino-js/yukino/yukino/internal/teams"
 	"github.com/yukino-js/yukino/yukino/internal/todo"
 	"github.com/yukino-js/yukino/yukino/internal/tools"
 	"github.com/yukino-js/yukino/yukino/internal/workflow"
@@ -103,12 +103,34 @@ func newUICommandRegistry() *commands.Registry {
 	return registry
 }
 
-func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
+func (m Model) executeCommand(text string, existingInput *history.InputEntry) (tea.Model, tea.Cmd) {
+	name, args, parsed := commands.Parse(text)
+	if !parsed {
+		return m, nil
+	}
 	cmd := m.cmdRegistry.Find(name)
+	var input history.InputEntry
+	if existingInput != nil {
+		input = *existingInput
+	} else {
+		var commandName *string
+		if cmd != nil {
+			commandName = &cmd.Name
+		}
+		var err error
+		input, err = history.RecordInput(history.InputOptions{Text: text, Cwd: m.getWorkDir(), SessionID: &m.sessionID, Source: "cli", CommandName: commandName})
+		if err != nil {
+			return m.inputError(err)
+		}
+		m.historyEntries, err = history.LoadInputTexts()
+		if err != nil {
+			return m.inputError(err)
+		}
+	}
 	if cmd == nil {
 		m.chatMessages = append(m.chatMessages, chatMessage{
-			role:    "error",
-			content: fmt.Sprintf("Unknown command: /%s — type /help to see available commands", name),
+			role:    "system",
+			content: fmt.Sprintf("Unknown command: /%s", name),
 		})
 		return m, nil
 	}
@@ -143,12 +165,7 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 		m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: m.buildMemoryStatus(args)})
 		return m, nil
 	case "mcp":
-		info := m.mcpServerInfo
-		if info == "" {
-			info = "No MCP servers connected"
-		}
-		m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: info})
-		return m, nil
+		return m.runMcpCommand(args)
 	case "skills":
 		if m.skillCatalog == nil {
 			m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: "Skills: no catalog loaded."})
@@ -174,7 +191,7 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 		m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: sb.String()})
 		return m, nil
 	case "goal":
-		return m.runGoalCommand(args)
+		return m.runGoalCommand(args, input)
 	}
 
 	switch cmd.Type {
@@ -197,8 +214,20 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 			m.committedUpTo = 0
 			m.conversation.Reset()
 			if m.ag != nil {
-				m.ag.ClearActiveSkills()
-				m.ag.SetToolFilter(teams.CoordinatorToolFilter(m.EnableCoordinatorMode))
+				m.ag.FileStateCache.Clear()
+				m.ag.Checker.SetPlanFilePath("")
+				m.ag.RecoveryState = compact.NewRecoveryState()
+				m.ag.ResetRecall()
+			}
+			clear(m.announcedSkills)
+			instructions := memory.LoadInstructions(m.getWorkDir())
+			reminder := ""
+			if m.memoryMgr != nil {
+				reminder = m.memoryMgr.BuildSystemReminder()
+			}
+			m.conversation.InjectLongTermMemory(instructions, reminder, "")
+			if m.mcpMgr != nil {
+				mcp.SyncMcpInstructions(m.conversation, m.mcpAnnounced, m.mcpMgr)
 			}
 			m.sessionID = session.NewID()
 			if m.taskMgr != nil {
@@ -257,7 +286,7 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 			var schemas []map[string]any
 			if m.ag != nil {
 				recovery = m.ag.RecoveryState
-				schemas = m.ag.Registry.GetAllSchemas(m.ag.Protocol)
+				schemas = m.ag.Registry.FilteredSchemas(m.ag.Protocol, m.ag.ToolNameFilter)
 			}
 			compactWD, _ := os.Getwd()
 			compactSessionID := m.sessionID
@@ -275,7 +304,7 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(func() tea.Msg {
 				result, err := compact.ForceCompact(compactCtx, conv, client, recovery, names, schemas, sessionFilePath, customInstructions)
 				if err == nil && result.Boundary != nil {
-					_ = session.SaveCompactBoundary(compactWD, compactSessionID, result.Boundary.Summary, result.Boundary.Keep)
+					err = session.SaveCompactBoundary(compactWD, compactSessionID, result.Boundary.Summary, result.Boundary.Keep)
 				}
 				message := ""
 				if err == nil {
@@ -305,53 +334,27 @@ func (m Model) executeCommand(name, args string) (tea.Model, tea.Cmd) {
 		case "login":
 			return m.openLoginDialog()
 		case "worktree":
-			m.chatMessages = append(m.chatMessages, chatMessage{
-				role:    "system",
-				content: fmt.Sprintf("/%s is not yet supported in this build.", name),
-			})
+			command := exec.Command("git", "worktree", "list")
+			command.Dir = m.getWorkDir()
+			message := "Not a git repository or git worktree not available."
+			if output, err := command.Output(); err == nil {
+				message = "Worktree list:\n" + string(output)
+			}
+			m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: message})
 			return m, nil
 		}
 
 	case commands.TypePrompt:
 		if cmd.Handler != nil {
 			prompt := cmd.Handler(ctx)
-			displayText := "/" + name
-			if args != "" {
-				displayText += " " + args
+			if m.client == nil || m.ag == nil || (cmd.Agent == "" && strings.TrimSpace(prompt) == "") {
+				return m, nil
 			}
-			newModel, teaCmd := m.sendPromptCommand(displayText, prompt, cmd.Agent)
-			if strings.HasSuffix(cmd.Description, "[skill]") {
-				loadedLine := lipgloss.NewStyle().Foreground(dimText).PaddingLeft(2).Render(
-					fmt.Sprintf("skill(%s)\nSuccessfully loaded skill", name))
-				return newModel, tea.Batch(tea.Println(loadedLine), teaCmd)
-			}
-			return newModel, teaCmd
+			return m.sendPromptCommand(text, prompt, cmd.Agent, input)
 		}
 
 	case commands.TypeSkillFork:
-		displayText := "/" + name
-		if args != "" {
-			displayText += " " + args
-		}
-		m.chatMessages = append(m.chatMessages, chatMessage{role: "user", content: displayText})
-		userLine := promptStyle.Render("❯ ") + lipgloss.NewStyle().Foreground(brightText).Bold(true).Render(displayText)
-		forkNotice := fmt.Sprintf("Forking skill %s in isolated sub-agent…", name)
-		m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: forkNotice})
-		m.committedUpTo = len(m.chatMessages)
-		skillName := name
-		skillArgs := args
-		commitText := userLine + "\n" + lipgloss.NewStyle().Foreground(dimText).Render(forkNotice)
-		return m, tea.Batch(
-			tea.Println(commitText),
-			func() tea.Msg {
-				skill := m.skillCatalog.Get(skillName)
-				if skill == nil {
-					return forkSkillDoneMsg{name: skillName, err: fmt.Errorf("unknown skill: %s", skillName)}
-				}
-				result, runErr := skills.RunFork(context.Background(), skill, skillArgs, m)
-				return forkSkillDoneMsg{name: skillName, result: result, err: runErr}
-			},
-		)
+		return m.startSkillFork(name, args)
 
 	case commands.TypeLocal:
 		if cmd.Handler != nil {

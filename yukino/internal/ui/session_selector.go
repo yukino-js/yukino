@@ -9,7 +9,10 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/yukino-js/yukino/yukino/internal/compact"
 	"github.com/yukino-js/yukino/yukino/internal/file_history"
+	"github.com/yukino-js/yukino/yukino/internal/mcp"
+	"github.com/yukino-js/yukino/yukino/internal/memory"
 	"github.com/yukino-js/yukino/yukino/internal/session"
 	"github.com/yukino-js/yukino/yukino/internal/todo"
 )
@@ -256,6 +259,9 @@ func (m Model) doResumeSession(wd, targetID string, saved []session.Message) (te
 		}
 	}
 	if m.ag != nil {
+		m.ag.FileStateCache.Clear()
+		m.ag.RecoveryState = compact.NewRecoveryState()
+		m.ag.ResetRecall()
 		m.ag.SetSessionID(m.sessionID)
 		m.ag.FileHistory = m.fileHistory
 		m.ag.GoalManager = m.currentGoal()
@@ -265,12 +271,26 @@ func (m Model) doResumeSession(wd, targetID string, saved []session.Message) (te
 	}
 
 	replay := session.RebuildFromSession(saved, false)
+	clear(m.announcedSkills)
+	instructions := memory.LoadInstructions(wd)
+	reminder := ""
+	if m.memoryEnabled {
+		reminder = memory.NewManager(wd, nil).BuildSystemReminder()
+	}
+	m.conversation.InjectLongTermMemory(instructions, reminder, "")
 
 	// Render the rebuilt transcript the same way the reference does
 	// (transcriptFromRestored): user-Bash cards, tool turn_summary cards, and
 	// text messages — not just text.
-	m.chatMessages = append(m.chatMessages, transcriptFromRestored(replay)...)
+	m.chatMessages = append(m.chatMessages, transcriptFromRestored(session.RebuildFromSession(saved, true))...)
 	m.conversation.AppendMessages(replay)
+	clear(m.mcpAnnounced)
+	if m.mcpMgr != nil {
+		mcp.SyncMcpInstructions(m.conversation, m.mcpAnnounced, m.mcpMgr)
+	}
+	m.resumeDialog = false
+	m.resumeSessions = nil
+	m.updateDismissed = true
 
 	m.chatMessages = append(m.chatMessages, chatMessage{
 		role:    "system",

@@ -11,6 +11,9 @@ func (m *Model) Dispose() error {
 	if m.lifeCancel != nil {
 		m.lifeCancel()
 	}
+	if m.modelDiscoveryCancel != nil {
+		m.modelDiscoveryCancel()
+	}
 	m.denyAllInteractions()
 	if run := m.userBash; run != nil {
 		run.cancel()

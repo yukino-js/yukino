@@ -1,7 +1,8 @@
-- 本项目全面对齐 ~/github/yukino-code/apps/yukino
-- MUST 1 比 1 对齐, 可以容忍 TS/Golang 语言差异导致的功能取舍与实现差异
-- 逐文件 1 比 1 对齐，禁止抽查、禁止猜测
+This project is fully aligned with ~/github/yukino-code/apps/yukino.
 
+- MUST be aligned 1:1; functional trade-offs and implementation differences caused by TypeScript/Go language differences are acceptable.
+- Align file by file, 1:1 — no spot-checking and no guessing.
+- Project scripts may use JS/TS only.
 - ZERO backward compatibility. Breaking changes are expected, acceptable, and preferred over legacy support.
 - NEVER maintain conditional logic for older versions, dead code, deprecated APIs, or shim layers. Remove them aggressively.
 - If fixing a bug or updating/implementing a valuable feature causes old tests to fail, follow ZERO backward compatibility: implement the correct behavior, update or remove obsolete tests, and update all outdated comments. NEVER preserve defective behavior or add compatibility logic merely to satisfy old tests.

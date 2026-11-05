@@ -164,12 +164,13 @@ type Model struct {
 	instructionsContent string
 	memoryContent       string
 
-	mcpConfigs    []config.MCPServerConfig
-	mcpMgr        *mcp.Manager
-	mcpConnecting bool
-	mcpAnnounced  map[string]bool
-	mcpServerInfo string
-	hookConfigs   []config.HookConfig
+	mcpConfigs     []config.MCPServerConfig
+	mcpMgr         *mcp.Manager
+	mcpConnecting  bool
+	mcpModeDecided bool
+	mcpAnnounced   map[string]bool
+	mcpServerInfo  string
+	hookConfigs    []config.HookConfig
 
 	historyEntries []string
 	historyIndex   int
@@ -239,9 +240,11 @@ type Model struct {
 	// auto-memory pipeline (injection, recall, extraction, consolidation).
 	memoryEnabled bool
 
-	modelDialog bool
-	modelState  modelPickerState
-	modelQuery  string
+	modelDialog              bool
+	modelDiscoveryCancel     context.CancelFunc
+	modelDiscoveryGeneration int
+	modelState               modelPickerState
+	modelQuery               string
 	// modelFocusedID tracks focus by model id (the entry identity), matching
 	// the reference focusedId; modelFocusOther marks the free-text row.
 	modelFocusedID  string
@@ -338,6 +341,7 @@ func New(providers []config.ProviderConfig, mcpConfigs []config.MCPServerConfig,
 		teamMgr:            teamMgr,
 		mcpConfigs:         mcpConfigs,
 		mcpAnnounced:       map[string]bool{},
+		announcedSkills:    map[string]bool{},
 		hookConfigs:        hookConfigs,
 		sandboxCfg:         sCfg,
 		sandboxEnabled:     sCfg.SandboxEnabled(),
@@ -535,24 +539,17 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.activateInitialProvider(p)
 
 	case forkSkillDoneMsg:
-		var commit string
+		m.streaming = false
+		if m.cancelStream != nil {
+			m.cancelStream()
+			m.cancelStream = nil
+		}
 		if msg.err != nil {
-			line := fmt.Sprintf("Skill %s (fork) failed: %v", msg.name, msg.err)
-			m.chatMessages = append(m.chatMessages, chatMessage{role: "error", content: line})
-			commit = errorStyle.Render("✖ " + line)
+			m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: "Skill fork error: " + msg.err.Error()})
 		} else {
-			result := strings.TrimSpace(msg.result)
-			if result == "" {
-				result = fmt.Sprintf("(Skill %s returned no output)", msg.name)
-			}
-			m.chatMessages = append(m.chatMessages, chatMessage{role: "assistant", content: result})
-			commit = m.renderMessagesRange(len(m.chatMessages)-1, len(m.chatMessages))
+			m.chatMessages = append(m.chatMessages, chatMessage{role: "assistant", content: msg.result})
 		}
-		m.committedUpTo = len(m.chatMessages)
-		if commit != "" {
-			return m, tea.Println(commit)
-		}
-		return m, nil
+		return m, m.commitStaticOutput()
 
 	case compactDoneMsg:
 		m.compacting = false
@@ -571,6 +568,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case modelDiscoveryDoneMsg:
+		if msg.generation != m.modelDiscoveryGeneration || !m.modelDialog {
+			return m, nil
+		}
 		if msg.err != nil {
 			m.modelState = modelPickerState{status: ModelPickerError}
 		} else if len(msg.models) == 0 {
@@ -586,27 +586,28 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for _, connected := range msg.result.Tools {
 			m.registry.Register(connected.Tool)
 		}
-		var mcpPrintLines []string
-		for _, connectError := range msg.result.Errors {
-			m.chatMessages = append(m.chatMessages, chatMessage{
-				role:    "error",
-				content: connectError.ServerName + ": " + connectError.Error,
-			})
-			mcpPrintLines = append(mcpPrintLines, errorStyle.Render("✖ "+connectError.ServerName+": "+connectError.Error))
+		if len(msg.result.Errors) > 0 {
+			failures := make([]string, 0, len(msg.result.Errors))
+			for _, failure := range msg.result.Errors {
+				failures = append(failures, failure.ServerName+": "+failure.Error)
+			}
+			m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: "MCP errors: " + strings.Join(failures, "; ")})
 		}
-		if p := m.selectedProvider; p != nil {
-			mcp.DecideAndApply(m.registry, p.BaseURL, p.Protocol, config.GetContextWindow(p), m.MCPLoading)
-		}
-		registered := len(msg.result.Tools)
-		if registered > 0 {
-			m.mcpServerInfo = fmt.Sprintf("Connected to %d MCP server(s), %d tools registered", len(msg.result.Servers), registered)
+		if len(msg.result.Tools) > 0 {
+			if m.mcpModeDecided {
+				mcp.ApplyMode(m.registry, m.registry.McpLoadingMode)
+			} else if p := m.selectedProvider; p != nil {
+				mcp.DecideAndApply(m.registry, p.BaseURL, p.Protocol, config.GetContextWindow(p), m.MCPLoading)
+				m.mcpModeDecided = true
+			}
 		}
 		mcp.SyncMcpInstructions(m.conversation, m.mcpAnnounced, m.mcpMgr)
-		m.committedUpTo = len(m.chatMessages)
-		if len(mcpPrintLines) > 0 {
-			return m, tea.Println(strings.Join(mcpPrintLines, "\n"))
+		if msg.reloaded {
+			m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: fmt.Sprintf("MCP reloaded: %d server(s) connected, %d tool(s)", len(m.mcpMgr.ConnectedServers()), bootstrap.CountMcpTools(m.registry))})
+		} else if msg.showStatus {
+			m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: m.mcpStatus()})
 		}
-		return m, nil
+		return m, m.commitStaticOutput()
 
 	case outputFlushMsg:
 		if msg.generation != m.outputGeneration {

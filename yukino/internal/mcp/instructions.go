@@ -38,7 +38,6 @@ type ReminderHistory interface {
 // and what is connected now. It reports whether a reminder was appended.
 func SyncMcpInstructions(history ReminderHistory, announced map[string]bool, source McpInstructionSource) bool {
 	if !history.HasReminderContaining(MCPInstructionsMarker) {
-		announced = map[string]bool{}
 		clear(announced)
 	}
 

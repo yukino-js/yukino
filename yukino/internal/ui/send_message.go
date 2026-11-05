@@ -69,14 +69,8 @@ func (m Model) sendMessage(text string, existingInput *history.InputEntry) (tea.
 	return m, tea.Batch(tea.Println(userLine), startAgentCmd, m.spinner.Tick)
 }
 
-func (m Model) sendPromptCommand(displayText, prompt, agentRole string) (tea.Model, tea.Cmd) {
+func (m Model) sendPromptCommand(displayText, prompt, agentRole string, input history.InputEntry) (tea.Model, tea.Cmd) {
 	wd, _ := os.Getwd()
-	name, _, _ := commands.Parse(displayText)
-	input, err := history.RecordInput(history.InputOptions{Cwd: wd, SessionID: &m.sessionID, Source: "cli", Text: displayText, CommandName: &name})
-	if err != nil {
-		return m.inputError(err)
-	}
-	m.historyEntries = append(m.historyEntries, displayText)
 	m.historyIndex = 0
 	m.historyDraft = nil
 
@@ -85,7 +79,11 @@ func (m Model) sendPromptCommand(displayText, prompt, agentRole string) (tea.Mod
 	m.atMenuOpen = false
 	m.atMatches = nil
 
-	m.chatMessages = append(m.chatMessages, chatMessage{role: "user", content: displayText})
+	visibleText := displayText
+	if agentRole == "" {
+		visibleText = prompt
+	}
+	m.chatMessages = append(m.chatMessages, chatMessage{role: "user", content: visibleText})
 	userLine := m.renderMessage(m.chatMessages[len(m.chatMessages)-1])
 	m.committedUpTo = len(m.chatMessages)
 	if agentRole == "" {

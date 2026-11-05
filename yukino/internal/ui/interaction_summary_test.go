@@ -49,7 +49,7 @@ func TestInteractionStatsMeasureConcurrentToolsOnce(t *testing.T) {
 	if summary.SuccessfulToolCalls != 1 || summary.FailedToolCalls != 1 || summary.ToolTimeMs < 1000 || summary.ToolTimeMs > 1500 {
 		t.Fatalf("stats %+v", summary)
 	}
-	next, _ := m.executeCommand("clear", "")
+	next, _ := m.executeCommand("/clear", nil)
 	m = asModel(t, next)
 	if summary := m.InteractionSummary(); summary.SuccessfulToolCalls != 0 || summary.ToolTimeMs != 0 {
 		t.Fatalf("clear retained stats %+v", summary)

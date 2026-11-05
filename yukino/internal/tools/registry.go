@@ -237,8 +237,12 @@ func (r *Registry) visibleTools(protocol string, filter func(string) bool) []Too
 	return out
 }
 func (r *Registry) GetAllSchemas(protocol string) []map[string]any {
+	return r.FilteredSchemas(protocol, nil)
+}
+
+func (r *Registry) FilteredSchemas(protocol string, filter func(string) bool) []map[string]any {
 	schemas := make([]map[string]any, 0)
-	for _, tool := range r.visibleTools(protocol, nil) {
+	for _, tool := range r.visibleTools(protocol, filter) {
 		schemas = append(schemas, providerSchema(tool.Schema(), protocol, isDeferred(tool) && !r.IsDiscovered(tool.Name())))
 	}
 	return schemas

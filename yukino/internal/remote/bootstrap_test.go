@@ -567,7 +567,7 @@ func TestThinkingFormBroadcast(t *testing.T) {
 	s.sessionID = "sess-thinking"
 	client := dialClient(t, s)
 
-	s.handleSlashCommand("/thinking")
+	s.runSlashCommand(context.Background(), "/thinking", history.InputEntry{})
 
 	msg := readJSON(t, client)
 	if msg["type"] != "thinking_form" {
@@ -613,7 +613,7 @@ func TestSkillsCommandNoCatalog(t *testing.T) {
 	s.cmdRegistry = commands.CreateDefaultRegistry()
 	s.sessionID = "sess"
 	client := dialClient(t, s)
-	s.handleSlashCommand("/skills")
+	s.runSlashCommand(context.Background(), "/skills", history.InputEntry{})
 	msg := readJSON(t, client)
 	if msg["type"] != "system" || msg["data"].(map[string]any)["message"] != "No skills loaded." {
 		t.Fatalf("msg = %#v", msg)
@@ -626,7 +626,7 @@ func TestSandboxCommandStatus(t *testing.T) {
 	s.cmdRegistry = commands.CreateDefaultRegistry()
 	s.sessionID = "sess"
 	client := dialClient(t, s)
-	s.handleSlashCommand("/sandbox")
+	s.runSlashCommand(context.Background(), "/sandbox", history.InputEntry{})
 	msg := readJSON(t, client)
 	if msg["type"] != "system" {
 		t.Fatalf("type = %v", msg["type"])
@@ -642,7 +642,7 @@ func TestLoginCommandBroadcastsProviderList(t *testing.T) {
 	s, client := newProviderServer(t)
 	s.cmdRegistry = commands.CreateDefaultRegistry()
 	s.sessionID = "sess"
-	s.handleSlashCommand("/login")
+	s.runSlashCommand(context.Background(), "/login", history.InputEntry{})
 	msg := readJSON(t, client)
 	if msg["type"] != "provider_list" {
 		t.Fatalf("type = %v", msg["type"])

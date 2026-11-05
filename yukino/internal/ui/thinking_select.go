@@ -41,7 +41,7 @@ func (m Model) handleThinkingDialog(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// The reference dialog closes and replays the selection through
 			// handleSlashCommand(`/thinking ${level}`).
 			m.thinkingDialog = false
-			return m.executeCommand("thinking", level)
+			return m.executeCommand("/thinking "+level, nil)
 		}
 	}
 	return m, nil

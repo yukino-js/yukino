@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -20,7 +21,12 @@ func TestPrepareSubagentTurnKeepsRunningBackgroundOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	block := make(chan struct{})
-	defer close(block)
+	defer func() {
+		close(block)
+		if err := taskMgr.StopAll(context.Background()); err != nil {
+			t.Error(err)
+		}
+	}()
 	runningID, err := taskMgr.Create("running", func(string) (string, error) { <-block; return "", nil }, func() {}, tools.TaskOptions{})
 	if err != nil {
 		t.Fatal(err)

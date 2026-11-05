@@ -14,6 +14,8 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/config"
 	"github.com/yukino-js/yukino/yukino/internal/llm"
 	"github.com/yukino-js/yukino/yukino/internal/mcp"
+	"github.com/yukino-js/yukino/yukino/internal/prompt"
+	"github.com/yukino-js/yukino/yukino/internal/subagent"
 )
 
 // Port of src/ui/provider-login.tsx.
@@ -378,7 +380,9 @@ func (m Model) submitLogin() (tea.Model, tea.Cmd) {
 	// Construct the client before saving so invalid configuration leaves the
 	// form editable.
 	wd := m.getWorkDir()
-	client, err := llm.NewClient(&provider, m.loadSkillsAndBuildPrompt(wd))
+	environment := prompt.DetectEnvironment(wd)
+	environment.Model = provider.Model
+	client, err := llm.NewClient(&provider, prompt.BuildSystemPrompt(environment))
 	if err != nil {
 		m.loginFormError = err.Error()
 		return m, nil
@@ -413,11 +417,18 @@ func (m Model) submitLogin() (tea.Model, tea.Cmd) {
 		return m, m.activateInitialProvider(selected)
 	}
 
+	m.stopMemoryTasks()
 	m.client = client
 	if m.ag != nil {
 		m.ag.Client = client
+		m.ag.Protocol = selected.Protocol
 		m.ag.ContextWindow = config.GetContextWindow(selected)
 		m.ag.MaxOutputTokens = config.GetMaxOutputTokens(selected)
+	}
+	if at, ok := m.registry.Get("Agent").(*subagent.AgentTool); ok {
+		at.Client = client
+		at.Provider = selected
+		at.Protocol = selected.Protocol
 	}
 	mcp.DecideAndApply(m.registry, selected.BaseURL, selected.Protocol, config.GetContextWindow(selected), m.MCPLoading)
 	verb := "Saved to"

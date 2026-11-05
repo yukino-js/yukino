@@ -38,7 +38,7 @@ func TestGoalBinderLazyPerSession(t *testing.T) {
 
 func TestGoalCommandStatusNoGoal(t *testing.T) {
 	m := newGoalTestModel(t)
-	updated, _ := m.executeCommand("goal", "status")
+	updated, _ := m.executeCommand("/goal status", nil)
 	m = updated.(Model)
 	if len(m.chatMessages) == 0 {
 		t.Fatalf("expected a system message")
@@ -51,7 +51,7 @@ func TestGoalCommandStatusNoGoal(t *testing.T) {
 
 func TestGoalCommandSetRecordsGoal(t *testing.T) {
 	m := newGoalTestModel(t)
-	updated, _ := m.executeCommand("goal", "make it so")
+	updated, _ := m.executeCommand("/goal make it so", nil)
 	m = updated.(Model)
 	g := m.currentGoal()
 	if g.Get() == nil || g.Get().Objective != "make it so" {
@@ -65,9 +65,9 @@ func TestGoalCommandSetRecordsGoal(t *testing.T) {
 
 func TestGoalCommandClearThenStatus(t *testing.T) {
 	m := newGoalTestModel(t)
-	updated, _ := m.executeCommand("goal", "make it so")
+	updated, _ := m.executeCommand("/goal make it so", nil)
 	m = updated.(Model)
-	updated, _ = m.executeCommand("goal", "clear")
+	updated, _ = m.executeCommand("/goal clear", nil)
 	m = updated.(Model)
 	if g := m.currentGoal().Get(); g != nil {
 		t.Fatalf("expected goal cleared, got %+v", g)
@@ -78,7 +78,7 @@ func TestSessionClearRebindsGoal(t *testing.T) {
 	m := newGoalTestModel(t)
 	_ = m.currentGoal()
 	oldSession := m.sessionID
-	updated, _ := m.executeCommand("clear", "")
+	updated, _ := m.executeCommand("/clear", nil)
 	m = updated.(Model)
 	if m.sessionID == oldSession {
 		t.Fatalf("expected the session to change after /clear")

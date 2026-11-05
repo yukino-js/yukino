@@ -15,6 +15,7 @@ sync-browser-dist:
 		cp -R "$$task_browser_stage/." "$(BROWSER_DIST_TARGET)/"
 
 GO ?= go
+NODE ?= node
 BUILD_DIR ?= dist
 BUILD_FLAGS ?= -trimpath
 LDFLAGS ?= -s -w
@@ -69,3 +70,18 @@ fmt-check:
 	fi
 
 check: fmt-check vet test-race
+
+.PHONY: inventory inventory-write check-terminal check-scripts
+inventory:
+	$(NODE) scripts/alignment-inventory.mjs
+
+inventory-write:
+	$(NODE) scripts/alignment-inventory.mjs --write
+
+check-terminal: build
+	$(NODE) scripts/check-terminal.mjs "$(BUILD_DIR)/yukino$(BINARY_SUFFIX)"
+
+check-scripts:
+	$(NODE) --check scripts/alignment-inventory.mjs
+	$(NODE) --check scripts/check-terminal.mjs
+	$(NODE) --check scripts/generate-host-reference.mjs

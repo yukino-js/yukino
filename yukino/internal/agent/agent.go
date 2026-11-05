@@ -212,6 +212,13 @@ func (a *Agent) RecallHints() ([]string, map[string]struct{}) {
 	return tools, surfaced
 }
 
+func (a *Agent) ResetRecall() {
+	a.recallMu.Lock()
+	defer a.recallMu.Unlock()
+	a.recentToolNames = nil
+	a.surfacedMemPaths = nil
+}
+
 func (a *Agent) MarkMemoriesSurfaced(paths []string) {
 	if len(paths) == 0 {
 		return

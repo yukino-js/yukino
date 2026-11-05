@@ -66,7 +66,7 @@ func (m *Model) presentNextAsk() {
 		req := m.askQueue[0]
 		if req.Context != nil && req.Context.Err() != nil {
 			m.askQueue = m.askQueue[1:]
-			replyAskDeclined(req.ResponseCh)
+			replyAskCanceled(req.ResponseCh)
 			continue
 		}
 		m.askUserDialog = true
@@ -113,6 +113,14 @@ func replyAskDeclined(ch chan tools.QuestionResponse) {
 		}
 	}
 }
+func replyAskCanceled(ch chan tools.QuestionResponse) {
+	if ch != nil {
+		select {
+		case ch <- tools.QuestionResponse{Answers: map[string]string{}}:
+		default:
+		}
+	}
+}
 func (m *Model) denyAllInteractions() {
 	replyDenied(m.permRespCh)
 	m.closePermDialog()
@@ -120,10 +128,10 @@ func (m *Model) denyAllInteractions() {
 		replyDenied(request.ResponseCh)
 	}
 	m.permissionQueue = nil
-	replyAskDeclined(m.askUserRespCh)
+	replyAskCanceled(m.askUserRespCh)
 	for _, request := range m.askQueue {
 		if request.ResponseCh != m.askUserRespCh {
-			replyAskDeclined(request.ResponseCh)
+			replyAskCanceled(request.ResponseCh)
 		}
 	}
 	m.askQueue = nil
@@ -137,6 +145,12 @@ func (m *Model) pruneInteractions() {
 		m.presentNextPermission()
 	}
 	if len(m.askQueue) > 0 && m.askQueue[0].Context != nil && m.askQueue[0].Context.Err() != nil {
-		m.answerAsk(tools.QuestionResponse{Answers: map[string]string{"_declined": "true"}})
+		m.answerAsk(tools.QuestionResponse{Answers: map[string]string{}})
+	}
+	for i := len(m.askQueue) - 1; i > 0; i-- {
+		if request := m.askQueue[i]; request.Context != nil && request.Context.Err() != nil {
+			replyAskCanceled(request.ResponseCh)
+			m.askQueue = append(m.askQueue[:i], m.askQueue[i+1:]...)
+		}
 	}
 }

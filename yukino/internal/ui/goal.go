@@ -55,17 +55,8 @@ func (m *Model) invalidateGoal() {
 // record the input, apply the goal command, show the status, and—when the
 // command set a goal—run the agent with the goal-set prompt (which is added to
 // the conversation but not echoed, matching the reference).
-func (m Model) runGoalCommand(args string) (tea.Model, tea.Cmd) {
+func (m Model) runGoalCommand(args string, input history.InputEntry) (tea.Model, tea.Cmd) {
 	wd, _ := os.Getwd()
-	text := "/goal"
-	if args != "" {
-		text += " " + args
-	}
-	cmdName := "goal"
-	input, err := history.RecordInput(history.InputOptions{Cwd: wd, SessionID: &m.sessionID, Source: "cli", Text: text, CommandName: &cmdName})
-	if err != nil {
-		return m.inputError(err)
-	}
 	result := goal.HandleGoalCommand(m.currentGoal(), args)
 	m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: result.Message})
 	commitText := m.renderMessagesRange(m.committedUpTo, len(m.chatMessages))

@@ -24,7 +24,7 @@ func TestClearResetsSession(t *testing.T) {
 	m.totalOutput = 500
 	oldSessionID := m.sessionID
 
-	updated, _ := m.executeCommand("clear", "")
+	updated, _ := m.executeCommand("/clear", nil)
 	m = updated.(Model)
 
 	if len(m.chatMessages) != 0 {
