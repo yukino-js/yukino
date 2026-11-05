@@ -3,6 +3,8 @@
   "counts": {
     "Corrected": 272,
     "Language-specific difference": 9,
+    "Partially aligned": 0,
+    "Pending review": 0,
     "Reviewed": 38,
     "Shared browser build": 51,
     "Synchronized artifact": 7
