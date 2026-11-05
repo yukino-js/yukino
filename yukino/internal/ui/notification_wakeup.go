@@ -15,7 +15,7 @@ func (m Model) checkUpdate() tea.Cmd {
 	return func() tea.Msg { return updateNoticeMsg{update.CheckForUpdate(ctx)} }
 }
 func (m *Model) wakeNotifications() tea.Cmd {
-	if m.ag == nil || m.foregroundBusy() || m.modalActive() || len(m.pendingMessages) > 0 {
+	if m.ag == nil || m.foregroundBusy() || m.commandBusy || m.modalActive() || len(m.pendingMessages) > 0 {
 		return nil
 	}
 	pending := m.taskMgr != nil && m.taskMgr.HasNotifications()
@@ -42,7 +42,7 @@ func (m *Model) wakeNotifications() tea.Cmd {
 	m.activityError = ""
 	ctx, cancel := context.WithCancel(m.lifeCtx)
 	m.cancelStream = cancel
-	m.agentCh = m.ag.Run(ctx, m.conversation)
-	m.steeringAgent = m.ag
+	m.steeringAgent = m.newRunAgent(ctx)
+	m.agentCh = m.steeringAgent.Run(ctx, m.conversation)
 	return tea.Batch(m.listenForAgentEvents(), m.spinner.Tick)
 }

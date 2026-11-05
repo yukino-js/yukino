@@ -10,7 +10,7 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/mcp"
 )
 
-func (m *Model) mcpStatus() string {
+func (m Model) mcpStatus() string {
 	if m.mcpMgr == nil {
 		return "No MCP servers configured."
 	}
@@ -29,8 +29,13 @@ func (m *Model) mcpStatus() string {
 	return strings.Join(lines, "\n")
 }
 
-func (m Model) runMcpCommand(args string) (tea.Model, tea.Cmd) {
-	reload := strings.EqualFold(strings.TrimSpace(args), "reload")
+func (m Model) runMCPCommand(args string) (tea.Model, tea.Cmd) {
+	if m.mcpConnecting {
+		m.pendingMCPCommands = append(m.pendingMCPCommands, args)
+		m.commandBusy = true
+		return m, nil
+	}
+	reload := strings.ToLower(strings.TrimSpace(args)) == "reload"
 	if reload {
 		cfg, err := config.LoadConfig("", config.LoadOptions{})
 		if err != nil {
@@ -38,40 +43,85 @@ func (m Model) runMcpCommand(args string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.mcpConfigs = config.WithProjectMcpServers(cfg, m.getWorkDir()).MCPServers
-		if len(m.mcpConfigs) == 0 {
-			if m.mcpMgr != nil {
-				m.mcpMgr.DisconnectAll()
-				mcp.SyncMcpInstructions(m.conversation, m.mcpAnnounced, m.mcpMgr)
+		if len(m.mcpConfigs) > 0 {
+			names := []string{}
+			for _, server := range m.mcpConfigs {
+				names = append(names, server.Name)
 			}
-			bootstrap.RemoveMcpTools(m.registry)
-			m.mcpMgr = nil
-			m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: "MCP config reloaded: no MCP servers are configured."})
-			return m, nil
+			m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: "Reloading MCP server(s): " + strings.Join(names, ", ")})
 		}
-		mcp.RetractMcpInstructions(m.conversation, m.mcpAnnounced)
-		names := make([]string, 0, len(m.mcpConfigs))
-		for _, server := range m.mcpConfigs {
-			names = append(names, server.Name)
-		}
-		m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: "Reloading MCP server(s): " + strings.Join(names, ", ")})
 		bootstrap.RemoveMcpTools(m.registry)
-	} else if m.mcpMgr == nil {
-		m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: "No MCP servers configured."})
-		return m, nil
-	} else if missing := m.mcpMgr.MissingServers(m.mcpConfigs); len(missing) == 0 {
+		mcp.RetractMcpInstructions(m.conversation, m.mcpAnnounced)
+	} else if m.mcpMgr == nil || len(m.mcpMgr.MissingServers(m.mcpConfigs)) == 0 {
 		m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: m.mcpStatus()})
 		return m, nil
 	} else {
-		m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: "Connecting MCP server(s): " + strings.Join(missing, ", ")})
+		m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: "Connecting MCP server(s): " + strings.Join(m.mcpMgr.MissingServers(m.mcpConfigs), ", ")})
 	}
-	if m.mcpMgr == nil {
+	if m.mcpMgr == nil && len(m.mcpConfigs) > 0 {
 		m.mcpMgr = mcp.NewManager(false)
 	}
 	mgr, configs, ctx := m.mcpMgr, m.mcpConfigs, m.lifeCtx
+	m.mcpConnecting, m.commandBusy = true, true
 	return m, func() tea.Msg {
-		if reload {
-			return mcpReadyMsg{mgr: mgr, result: mgr.ReconnectAll(ctx, configs), reloaded: true}
+		if len(configs) == 0 {
+			if mgr != nil {
+				mgr.DisconnectAll()
+			}
+			return mcpReadyMsg{command: true, reload: reload, empty: true}
 		}
-		return mcpReadyMsg{mgr: mgr, result: mgr.ConnectAll(ctx, configs), showStatus: !reload, reloaded: reload}
+		var result mcp.ConnectResult
+		if reload {
+			result = mgr.ReconnectAll(ctx, configs)
+		} else {
+			result = mgr.ConnectAll(ctx, configs)
+		}
+		return mcpReadyMsg{result: result, mgr: mgr, command: true, reload: reload}
 	}
+}
+
+func (m Model) applyMCPResult(msg mcpReadyMsg) (tea.Model, tea.Cmd) {
+	m.mcpConnecting = false
+	m.mcpMgr = msg.mgr
+	if msg.empty {
+		m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: "MCP config reloaded: no MCP servers are configured."})
+	} else {
+		for _, connected := range msg.result.Tools {
+			m.registry.Register(connected.Tool)
+		}
+		if len(msg.result.Errors) > 0 {
+			messages := []string{}
+			for _, failure := range msg.result.Errors {
+				messages = append(messages, failure.ServerName+": "+failure.Error)
+			}
+			m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: "MCP errors: " + strings.Join(messages, "; ")})
+		}
+		if len(msg.result.Tools) > 0 && m.selectedProvider != nil {
+			if m.mcpModeDecided {
+				mcp.ApplyMode(m.registry, m.registry.McpLoadingMode)
+			} else {
+				p := m.selectedProvider
+				mcp.DecideAndApply(m.registry, p.BaseURL, p.Protocol, config.GetContextWindow(p), m.MCPLoading)
+				m.mcpModeDecided = true
+			}
+		}
+		if m.mcpMgr != nil {
+			mcp.SyncMcpInstructions(m.conversation, m.mcpAnnounced, m.mcpMgr)
+		}
+		if msg.command {
+			message := m.mcpStatus()
+			if msg.reload {
+				message = fmt.Sprintf("MCP reloaded: %d server(s) connected, %d tool(s)", len(m.mcpMgr.ConnectedServers()), bootstrap.CountMcpTools(m.registry))
+			}
+			m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: message})
+		}
+	}
+	m.mcpServerInfo = m.mcpStatus()
+	m.commandBusy = false
+	if len(m.pendingMCPCommands) > 0 {
+		args := m.pendingMCPCommands[0]
+		m.pendingMCPCommands = m.pendingMCPCommands[1:]
+		return m.runMCPCommand(args)
+	}
+	return m, m.commitStaticOutput()
 }

@@ -78,17 +78,15 @@ func (m Model) runGoalCommand(args string, input history.InputEntry) (tea.Model,
 	m.streaming = true
 	m.beginInteractionRun()
 
-	prefetchCh := m.prefetchRelevantMemories(result.Prompt)
 	m.prepareOutput()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancelStream = cancel
 
 	conv := m.conversation
-	ag := m.ag
+	ag := m.newRunAgent(ctx)
 	m.steeringAgent = ag
 	ag.GoalManager = m.currentGoal()
-	ag.MemoryRecallCh = prefetchCh
 	m.startingAgent = true
 	startAgentCmd := func() tea.Msg {
 		return agentReadyMsg{ch: ag.Run(ctx, conv)}

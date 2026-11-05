@@ -9,7 +9,10 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/memory/background"
 )
 
-type memoryLoopMsg struct{ conv *conversation.Manager }
+type memoryLoopMsg struct {
+	conv       *conversation.Manager
+	generation int
+}
 type memorySystemMsg string
 
 // wireMemoryTasks mirrors the reference onLoopComplete wiring: the loop
@@ -17,9 +20,10 @@ type memorySystemMsg string
 // are created lazily with the current client.
 func (m *Model) wireMemoryTasks(ag *agent.Agent) {
 	ch, life := m.memoryLoopCh, m.lifeCtx
+	generation := m.memoryGeneration
 	ag.OnLoopComplete = func(loopConv *conversation.Manager) {
 		select {
-		case ch <- memoryLoopMsg{conv: loopConv}:
+		case ch <- memoryLoopMsg{conv: loopConv, generation: generation}:
 		case <-life.Done():
 		}
 	}
@@ -28,6 +32,7 @@ func (m *Model) wireMemoryTasks(ag *agent.Agent) {
 // stopMemoryTasks disposes the lazily created background memory tasks; the
 // next loop completion recreates them with the then-current client.
 func (m *Model) stopMemoryTasks() {
+	m.memoryGeneration++
 	if m.memoryTasks != nil {
 		m.memoryTasks.Dispose()
 		m.memoryTasks = nil
@@ -59,7 +64,7 @@ func (m Model) listenMemorySystem() tea.Cmd {
 }
 
 func (m Model) handleMemoryLoop(msg memoryLoopMsg) (tea.Model, tea.Cmd) {
-	if m.client != nil && m.memoryEnabled {
+	if msg.generation == m.memoryGeneration && m.lifeCtx.Err() == nil && m.client != nil && m.memoryEnabled {
 		if m.memoryTasks == nil {
 			ch, life := m.memorySystemCh, m.lifeCtx
 			m.memoryTasks = background.New(m.client, m.getWorkDir(), background.Callbacks{

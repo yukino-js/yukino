@@ -6,8 +6,6 @@ import (
 
 	"github.com/yukino-js/yukino/yukino/internal/agent"
 	"github.com/yukino-js/yukino/yukino/internal/bootstrap"
-	"github.com/yukino-js/yukino/yukino/internal/memory"
-	"github.com/yukino-js/yukino/yukino/internal/skills"
 	"github.com/yukino-js/yukino/yukino/internal/tools"
 )
 
@@ -39,19 +37,10 @@ func RenderInteractionSummary(summary bootstrap.InteractionSummary, columns int,
 }
 
 func (m *Model) beginInteractionRun() {
+	m.subagentCommand = false
 	m.planApprovalDialog = false
+	m.exitPlanSucceeded = false
 	m.activityError = ""
-	if m.ag != nil {
-		m.ag.Instructions = memory.LoadInstructions(m.getWorkDir())
-		m.ag.MemoryContent = ""
-		if m.memoryMgr != nil {
-			m.ag.MemoryContent = m.memoryMgr.BuildSystemReminder()
-		}
-		m.ag.SkillSection = ""
-		if m.skillCatalog != nil {
-			m.ag.SkillSection = skills.BuildSkillSection(m.skillCatalog)
-		}
-	}
 	// The reference calls prepareSubagentTurn at every run entry; this is the
 	// single Go turn-entry hook shared by all of them.
 	m.prepareSubagentTurn()
@@ -83,6 +72,9 @@ func (m *Model) endInteractionRun() {
 	m.activeToolIDs = nil
 }
 func (m *Model) recordInteractionEvent(event agent.AgentEvent) {
+	if m.subagentCommand {
+		return
+	}
 	switch e := event.(type) {
 	case agent.ToolUseEvent:
 		if len(m.activeToolIDs) == 0 {

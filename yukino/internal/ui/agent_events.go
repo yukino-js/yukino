@@ -30,10 +30,9 @@ type agentReadyMsg struct {
 }
 
 type mcpReadyMsg struct {
-	result     mcp.ConnectResult
-	mgr        *mcp.Manager
-	showStatus bool
-	reloaded   bool
+	result                 mcp.ConnectResult
+	mgr                    *mcp.Manager
+	command, reload, empty bool
 }
 
 type compactDoneMsg struct {
@@ -163,10 +162,19 @@ func (m *Model) recordTurnSummary(block toolBlockInfo) {
 // queued but never delivered is re-queued as follow-ups (and leaves the
 // pending-steering display) once the run ends.
 func (m *Model) drainSteeringLeftovers() {
-	if m.ag == nil {
+	running := m.steeringAgent
+	if running == nil {
 		return
 	}
-	for _, message := range m.ag.DrainSteering() {
+	_, surfaced := running.RecallHints()
+	paths := []string{}
+	for path := range surfaced {
+		paths = append(paths, path)
+	}
+	if m.ag != nil {
+		m.ag.MarkMemoriesSurfaced(paths)
+	}
+	for _, message := range running.DrainSteering() {
 		input := message.Input
 		m.pendingMessages = append(m.pendingMessages, queuedMessage{text: message.Text, input: &input})
 		m.removePendingSteering(input.ID)
@@ -284,6 +292,12 @@ func (m Model) handleAgentEvent(ev agent.AgentEvent) (tea.Model, tea.Cmd) {
 		}
 
 	case agent.ToolResultEvent:
+		if m.ag != nil {
+			m.ag.RecordRecentTool(e.ToolName)
+		}
+		if !e.IsError && (e.ToolName == "EnterPlanMode" || e.ToolName == "ExitPlanMode") {
+			m.exitPlanSucceeded = true
+		}
 		if e.ToolName == "WriteFile" || e.ToolName == "EditFile" {
 			m.fileFactsVersion++
 		}
@@ -395,7 +409,7 @@ func (m Model) handleAgentEvent(ev agent.AgentEvent) (tea.Model, tea.Cmd) {
 		m.drainSteeringLeftovers()
 		commitCmd := m.commitStaticOutput()
 		m.finishStreaming()
-		if e.PlanReady && m.ag != nil && m.ag.Checker != nil && m.ag.Checker.Mode() == permissions.ModePlan {
+		if (m.subagentCommand && e.PlanReady) || (m.ag != nil && m.ag.Checker != nil && m.ag.Checker.Mode() == permissions.ModePlan && m.exitPlanSucceeded) {
 			m.planApprovalDialog = true
 			m.planApprovalCursor = 0
 			m.planApprovalEditor = newInputEditor()

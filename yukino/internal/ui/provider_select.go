@@ -15,7 +15,6 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/llm"
 	"github.com/yukino-js/yukino/yukino/internal/mcp"
 	"github.com/yukino-js/yukino/yukino/internal/permissions"
-	"github.com/yukino-js/yukino/yukino/internal/prompt"
 	"github.com/yukino-js/yukino/yukino/internal/subagent"
 	"github.com/yukino-js/yukino/yukino/internal/teams"
 )
@@ -26,11 +25,15 @@ type initSingleProviderMsg struct{}
 // provider: the remembered default at startup, or the entry saved from the
 // login form when none was configured.
 func (m *Model) activateInitialProvider(p *config.ProviderConfig) tea.Cmd {
+	if err := hooks.Validate(m.hookConfigs); err != nil {
+		m.activityError = "Failed to initialize agent: " + err.Error()
+		return nil
+	}
 	wd, _ := os.Getwd()
 	systemPrompt := m.loadSkillsAndBuildPrompt(wd)
 	client, err := llm.NewClient(p, systemPrompt)
 	if err != nil {
-		m.chatMessages = append(m.chatMessages, chatMessage{role: "error", content: err.Error()})
+		m.activityError = "Failed to initialize agent: " + err.Error()
 		return nil
 	}
 	m.client = client
@@ -50,6 +53,8 @@ func (m *Model) activateInitialProvider(p *config.ProviderConfig) tea.Cmd {
 	ag.SkillSection = m.buildSkillSection(wd)
 	ag.SkillDeltaFn = m.skillDelta
 	ag.FileHistory = m.fileHistory
+	ag.FileStateCache = m.defaultTools.EditFile.FileStateCache
+	ag.TaskManager = m.taskMgr
 	ag.SetSessionID(m.sessionID)
 	ag.GoalManager = m.currentGoal()
 	pathSandbox := permissions.NewPathSandbox(wd, true)
@@ -235,36 +240,21 @@ func (m Model) renderProviderDialog() string {
 func (m Model) switchProvider(provider config.ProviderConfig) (tea.Model, tea.Cmd) {
 	m.providerDialog = false
 	wd := m.getWorkDir()
-	environment := prompt.DetectEnvironment(wd)
-	environment.Model = provider.Model
-	client, err := llm.NewClient(&provider, prompt.BuildSystemPrompt(environment))
+	client, err := llm.NewClient(&provider, providerSystemPrompt(&provider, wd))
 	if err != nil {
-		m.chatMessages = append(m.chatMessages, chatMessage{
-			role:    "error",
-			content: fmt.Sprintf("Failed to switch provider: %s", err),
-		})
+		m.activityError = fmt.Sprintf("Failed to switch provider: %s", err)
 		return m, nil
 	}
 	m.stopMemoryTasks()
-	m.client = client
+	m.selectedProvider = &provider
 	for i := range m.providers {
-		if m.providers[i].BaseURL == provider.BaseURL {
+		if m.providers[i].BaseURL == provider.BaseURL && m.providers[i].Name == provider.Name {
 			m.selectedProvider = &m.providers[i]
 			_ = config.PersistDefaultProvider(i)
 			break
 		}
 	}
-	if m.ag != nil {
-		m.ag.Client = client
-		m.ag.Protocol = provider.Protocol
-		m.ag.ContextWindow = config.GetContextWindow(&provider)
-		m.ag.MaxOutputTokens = config.GetMaxOutputTokens(&provider)
-		if at, ok := m.registry.Get("Agent").(*subagent.AgentTool); ok {
-			at.Client = client
-			at.Provider = &provider
-			at.Protocol = provider.Protocol
-		}
-	}
+	m.bindClient(client, m.selectedProvider)
 	mcp.DecideAndApply(m.registry, provider.BaseURL, provider.Protocol, config.GetContextWindow(&provider), m.MCPLoading)
 	m.chatMessages = append(m.chatMessages, chatMessage{
 		role:    "system",

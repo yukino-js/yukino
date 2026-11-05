@@ -1,8 +1,8 @@
 {
   "reference_commit": "e7c44d941e2d4a72e4f53664ece7ac94701d487e",
   "counts": {
-    "Corrected": 268,
-    "Language-specific difference": 11,
+    "Corrected": 270,
+    "Language-specific difference": 9,
     "Partially aligned": 2,
     "Reviewed": 38,
     "Shared browser build": 51,
@@ -1020,7 +1020,7 @@
     {
       "source": "src/remote/server.ts",
       "source_sha256": "39e665f2543f0c820e25559b4aaaaf1cefdc541db17d1e335bf729ec28dd4852",
-      "counterpart": "`internal/remote/server.go`, `internal/remote/plan.go`, `internal/remote/goal.go`",
+      "counterpart": "`internal/remote/server.go`, `internal/remote/plan.go`, `internal/remote/goal.go`, `internal/remote/protocol.go`, `internal/remote/mcp_control.go`, `internal/remote/skill_fork.go`, `internal/remote/snapshot.go`, `internal/remote/web.go`",
       "status": "Partially aligned"
     },
     {
@@ -1044,7 +1044,7 @@
     {
       "source": "src/sandbox/index.ts",
       "source_sha256": "9feb11d575e53f5eea840ee20220e6f86569e587002f9c97f3442ebcddfe35bd",
-      "counterpart": "`internal/sandbox/sandbox.go`",
+      "counterpart": "`internal/sandbox/sandbox.go`, `internal/sandbox/runtime.go`",
       "status": "Corrected"
     },
     {
@@ -1662,8 +1662,8 @@
     {
       "source": "src/ui/cursor-text.tsx",
       "source_sha256": "b5b7164a60e8d33fb1aa441c685b06a6f1d465b958f1f39967af5fe3e62aaed7",
-      "counterpart": "`internal/ui`",
-      "status": "Language-specific difference"
+      "counterpart": "`internal/ui/cursor.go`, `internal/ui/terminal_output.go`, `internal/ui`",
+      "status": "Corrected"
     },
     {
       "source": "src/ui/diff-render.tsx",
@@ -1699,7 +1699,7 @@
       "source": "src/ui/input.tsx",
       "source_sha256": "869948ffa8b83873f4abf2240e2d4d23bed9919dfbfb8fc72633bf14aed4c1a9",
       "counterpart": "`internal/ui/input.go`, `internal/ui/composer.go`",
-      "status": "Language-specific difference"
+      "status": "Corrected"
     },
     {
       "source": "src/ui/interaction-dock.tsx",

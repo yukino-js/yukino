@@ -294,7 +294,7 @@ func (m *Model) loadCustomInstructions(wd string) string {
 	return memory.LoadInstructions(wd)
 }
 
-func (m *Model) prefetchRelevantMemories(query string) <-chan agent.RecallResult {
+func (m *Model) prefetchRelevantMemories(parent context.Context, query string) <-chan agent.RecallResult {
 	out := make(chan agent.RecallResult, 1)
 	if m.memoryMgr == nil || m.selectedProvider == nil || m.client == nil {
 		out <- agent.RecallResult{}
@@ -303,7 +303,7 @@ func (m *Model) prefetchRelevantMemories(query string) <-chan agent.RecallResult
 	ag := m.ag
 	client := m.client
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		ctx, cancel := context.WithCancel(parent)
 		defer cancel()
 		var recentTools []string
 		var surfaced map[string]struct{}

@@ -57,7 +57,8 @@ type Agent struct {
 	RecoveryState       *compact.RecoveryState
 	eventCh             chan AgentEvent
 	runCtx              context.Context
-	activeSkills        map[string]string
+	skillInitMu         sync.Mutex
+	skills              *skillState
 	announcedDeferred   []string
 	recallMu            sync.Mutex
 	recentToolNames     []string
@@ -234,22 +235,49 @@ func (a *Agent) MarkMemoriesSurfaced(paths []string) {
 }
 
 func (a *Agent) ActivateSkill(name, body string) {
-	if a.activeSkills == nil {
-		a.activeSkills = make(map[string]string)
-	}
-	a.activeSkills[name] = body
+	state := a.skillState()
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	state.values[name] = body
 }
 
 func (a *Agent) ClearActiveSkills() {
-	a.activeSkills = nil
+	state := a.skillState()
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	clear(state.values)
 }
 
 func (a *Agent) GetActiveSkills() map[string]string {
-	out := make(map[string]string, len(a.activeSkills))
-	for k, v := range a.activeSkills {
+	state := a.skillState()
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	out := make(map[string]string, len(state.values))
+	for k, v := range state.values {
 		out[k] = v
 	}
 	return out
+}
+
+type skillState struct {
+	mu     sync.RWMutex
+	values map[string]string
+}
+
+func (a *Agent) skillState() *skillState {
+	a.skillInitMu.Lock()
+	defer a.skillInitMu.Unlock()
+	if a.skills == nil {
+		a.skills = &skillState{values: map[string]string{}}
+	}
+	return a.skills
+}
+
+func (a *Agent) ShareActiveSkills(parent *Agent) {
+	state := parent.skillState()
+	a.skillInitMu.Lock()
+	a.skills = state
+	a.skillInitMu.Unlock()
 }
 
 func (a *Agent) SetToolFilter(allow func(name string) bool) {

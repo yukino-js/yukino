@@ -49,8 +49,6 @@ func (m Model) sendMessage(text string, existingInput *history.InputEntry) (tea.
 	m.committedUpTo = len(m.chatMessages)
 	m.conversation.AppendMessages([]conversation.Message{recorded.ToConversation()})
 
-	prefetchCh := m.prefetchRelevantMemories(expanded)
-
 	m.prepareOutput()
 	m.toolBlocks = nil
 
@@ -58,9 +56,8 @@ func (m Model) sendMessage(text string, existingInput *history.InputEntry) (tea.
 	m.cancelStream = cancel
 
 	conv := m.conversation
-	ag := m.ag
+	ag := m.newRunAgent(ctx)
 	m.steeringAgent = ag
-	ag.MemoryRecallCh = prefetchCh
 	m.startingAgent = true
 	startAgentCmd := func() tea.Msg {
 		return agentReadyMsg{ch: ag.Run(ctx, conv)}
@@ -75,7 +72,15 @@ func (m Model) sendPromptCommand(displayText, prompt, agentRole string, input hi
 	m.historyDraft = nil
 
 	m.streaming = true
-	m.beginInteractionRun()
+	m.subagentCommand = agentRole != ""
+	if !m.subagentCommand {
+		m.beginInteractionRun()
+	} else {
+		m.prepareSubagentTurn()
+		m.planApprovalDialog = false
+		m.exitPlanSucceeded = false
+		m.activityError = ""
+	}
 	m.atMenuOpen = false
 	m.atMatches = nil
 
@@ -94,8 +99,6 @@ func (m Model) sendPromptCommand(displayText, prompt, agentRole string, input hi
 		m.conversation.AppendMessages([]conversation.Message{recorded.ToConversation()})
 	}
 
-	prefetchCh := m.prefetchRelevantMemories(prompt)
-
 	m.prepareOutput()
 	m.toolBlocks = nil
 
@@ -105,9 +108,9 @@ func (m Model) sendPromptCommand(displayText, prompt, agentRole string, input hi
 	conv := m.conversation
 	ag := m.ag
 	if agentRole == "" {
+		ag = m.newRunAgent(ctx)
 		m.steeringAgent = ag
 	}
-	ag.MemoryRecallCh = prefetchCh
 	m.startingAgent = true
 	startAgentCmd := func() tea.Msg {
 		if agentRole != "" {

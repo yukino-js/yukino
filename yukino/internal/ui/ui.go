@@ -2,7 +2,6 @@ package ui
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -21,6 +20,7 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/memory"
 	"github.com/yukino-js/yukino/yukino/internal/memory/background"
 	"github.com/yukino-js/yukino/yukino/internal/permissions"
+	"github.com/yukino-js/yukino/yukino/internal/sandbox"
 	"github.com/yukino-js/yukino/yukino/internal/session"
 	"github.com/yukino-js/yukino/yukino/internal/skills"
 	"github.com/yukino-js/yukino/yukino/internal/subagent"
@@ -83,6 +83,9 @@ type Model struct {
 	registry                               *tools.Registry
 	ag                                     *agent.Agent
 	steeringAgent                          *agent.Agent
+	subagentCommand                        bool
+	exitPlanSucceeded                      bool
+	commandBusy                            bool
 
 	state         appState
 	streaming     bool
@@ -164,13 +167,14 @@ type Model struct {
 	instructionsContent string
 	memoryContent       string
 
-	mcpConfigs     []config.MCPServerConfig
-	mcpMgr         *mcp.Manager
-	mcpConnecting  bool
-	mcpModeDecided bool
-	mcpAnnounced   map[string]bool
-	mcpServerInfo  string
-	hookConfigs    []config.HookConfig
+	mcpConfigs         []config.MCPServerConfig
+	mcpMgr             *mcp.Manager
+	mcpConnecting      bool
+	mcpAnnounced       map[string]bool
+	mcpServerInfo      string
+	mcpModeDecided     bool
+	pendingMCPCommands []string
+	hookConfigs        []config.HookConfig
 
 	historyEntries []string
 	historyIndex   int
@@ -223,6 +227,7 @@ type Model struct {
 	todoList              *todo.TaskList
 	memoryMgr             *memory.Manager
 	memoryTasks           *background.Tasks
+	memoryGeneration      int
 	teamMgr               *teams.TeamManager
 
 	// sandboxEnabled/sandboxAutoAllow are the mutable sandbox mode, initialized
@@ -231,6 +236,7 @@ type Model struct {
 	sandboxEnabled        bool
 	sandboxAutoAllow      bool
 	sandboxCfg            *config.SandboxYamlConfig
+	sandboxRuntime        *sandbox.Runtime
 	EnableCoordinatorMode bool
 	MCPLoading            string
 	// permissionMode is the startup mode from config.yaml (`permission_mode:`);
@@ -342,6 +348,7 @@ func New(providers []config.ProviderConfig, mcpConfigs []config.MCPServerConfig,
 		mcpConfigs:         mcpConfigs,
 		mcpAnnounced:       map[string]bool{},
 		announcedSkills:    map[string]bool{},
+		sandboxRuntime:     &sandbox.Runtime{},
 		hookConfigs:        hookConfigs,
 		sandboxCfg:         sCfg,
 		sandboxEnabled:     sCfg.SandboxEnabled(),
@@ -539,16 +546,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.activateInitialProvider(p)
 
 	case forkSkillDoneMsg:
-		m.streaming = false
-		if m.cancelStream != nil {
-			m.cancelStream()
-			m.cancelStream = nil
-		}
 		if msg.err != nil {
 			m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: "Skill fork error: " + msg.err.Error()})
 		} else {
 			m.chatMessages = append(m.chatMessages, chatMessage{role: "assistant", content: msg.result})
 		}
+		m.finishStreaming()
 		return m, m.commitStaticOutput()
 
 	case compactDoneMsg:
@@ -559,7 +562,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch {
 		case msg.err != nil:
-			m.chatMessages = append(m.chatMessages, chatMessage{role: "error", content: "Compact failed: " + msg.err.Error()})
+			m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: "Compact failed: " + msg.err.Error()})
 		case msg.message == "":
 			m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: "Compact: no changes."})
 		default:
@@ -581,33 +584,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case mcpReadyMsg:
-		m.mcpConnecting = false
-		m.mcpMgr = msg.mgr
-		for _, connected := range msg.result.Tools {
-			m.registry.Register(connected.Tool)
-		}
-		if len(msg.result.Errors) > 0 {
-			failures := make([]string, 0, len(msg.result.Errors))
-			for _, failure := range msg.result.Errors {
-				failures = append(failures, failure.ServerName+": "+failure.Error)
-			}
-			m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: "MCP errors: " + strings.Join(failures, "; ")})
-		}
-		if len(msg.result.Tools) > 0 {
-			if m.mcpModeDecided {
-				mcp.ApplyMode(m.registry, m.registry.McpLoadingMode)
-			} else if p := m.selectedProvider; p != nil {
-				mcp.DecideAndApply(m.registry, p.BaseURL, p.Protocol, config.GetContextWindow(p), m.MCPLoading)
-				m.mcpModeDecided = true
-			}
-		}
-		mcp.SyncMcpInstructions(m.conversation, m.mcpAnnounced, m.mcpMgr)
-		if msg.reloaded {
-			m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: fmt.Sprintf("MCP reloaded: %d server(s) connected, %d tool(s)", len(m.mcpMgr.ConnectedServers()), bootstrap.CountMcpTools(m.registry))})
-		} else if msg.showStatus {
-			m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: m.mcpStatus()})
-		}
-		return m, m.commitStaticOutput()
+		return m.applyMCPResult(msg)
 
 	case outputFlushMsg:
 		if msg.generation != m.outputGeneration {

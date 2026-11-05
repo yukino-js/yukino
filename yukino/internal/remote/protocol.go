@@ -1,8 +1,10 @@
 package remote
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"math"
+	"strings"
 )
 
 type wsField struct {
@@ -92,4 +94,29 @@ func parseClientMessage(raw []byte) (clientMessage, bool) {
 	}
 	msg.Data, _ = json.Marshal(clean)
 	return msg, true
+}
+
+func decodeUploadBase64(value string) []byte {
+	var encoded strings.Builder
+	for index := 0; index < len(value); index++ {
+		char := value[index]
+		if char == '=' {
+			break
+		}
+		switch char {
+		case '-':
+			char = '+'
+		case '_':
+			char = '/'
+		}
+		if char >= 'A' && char <= 'Z' || char >= 'a' && char <= 'z' || char >= '0' && char <= '9' || char == '+' || char == '/' {
+			encoded.WriteByte(char)
+		}
+	}
+	text := encoded.String()
+	if len(text)%4 == 1 {
+		text = text[:len(text)-1]
+	}
+	decoded, _ := base64.RawStdEncoding.DecodeString(text)
+	return decoded
 }

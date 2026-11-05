@@ -8,6 +8,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/yukino-js/yukino/yukino/internal/agent"
@@ -39,6 +40,7 @@ type SubAgentProgress struct {
 const GeneralPurposeAgentType = "general-purpose"
 
 type AgentTool struct {
+	clientMu      sync.RWMutex
 	Client        llm.Client
 	Provider      *config.ProviderConfig
 	MemoryContent string
@@ -50,6 +52,23 @@ type AgentTool struct {
 	Conversation  *conversation.Manager
 	TeamMgr       *teams.TeamManager
 	ParentChecker *permissions.Checker
+}
+
+func (t *AgentTool) SetClient(client llm.Client, provider *config.ProviderConfig) {
+	t.clientMu.Lock()
+	defer t.clientMu.Unlock()
+	t.Client, t.Provider, t.Protocol = client, provider, provider.Protocol
+}
+
+func (t *AgentTool) clientSnapshot() (llm.Client, *config.ProviderConfig, string) {
+	t.clientMu.RLock()
+	defer t.clientMu.RUnlock()
+	var provider *config.ProviderConfig
+	if t.Provider != nil {
+		copy := *t.Provider
+		provider = &copy
+	}
+	return t.Client, provider, t.Protocol
 }
 
 func (t *AgentTool) Name() string                          { return "Agent" }
@@ -90,21 +109,26 @@ func (t *AgentTool) Schema() map[string]any {
 	}}
 }
 func (t *AgentTool) selectClient(spec SubAgentSpec, overrideModel, cwd string) (llm.Client, error) {
+	client, provider, _ := t.clientSnapshot()
+	return selectClientFor(client, provider, spec, overrideModel, cwd)
+}
+
+func selectClientFor(parentClient llm.Client, parentProvider *config.ProviderConfig, spec SubAgentSpec, overrideModel, cwd string) (llm.Client, error) {
 	model := overrideModel
 	if model == "" {
 		model = spec.Model
 	}
 	if model == "" && spec.SystemPromptOverride == "" {
-		return t.Client, nil
+		return parentClient, nil
 	}
-	if t.Provider == nil {
+	if parentProvider == nil {
 		return nil, fmt.Errorf("Agent provider configuration is unavailable.")
 	}
-	provider := *t.Provider
+	provider := *parentProvider
 	if model != "" {
 		provider.Model = model
 	}
-	if control, ok := t.Client.(llm.ThinkingLevelControl); ok {
+	if control, ok := parentClient.(llm.ThinkingLevelControl); ok {
 		provider.Thinking = control.GetThinkingLevel()
 	}
 	system := spec.SystemPromptOverride
@@ -293,17 +317,18 @@ func (t *AgentTool) runDefinition(ctx context.Context, spec SubAgentSpec, descri
 func (t *AgentTool) runChild(ctx context.Context, spec SubAgentSpec, description, prompt, model, cwd string, snapshot *conversation.Manager, background bool, sessionID, transcriptPath string, checker *permissions.Checker) tools.ToolResult {
 	registry := FilterToolsForAgent(t.Registry, spec.Tools, spec.DisallowedTools, background, spec.PermissionMode)
 	defer registry.Dispose()
-	client, err := t.selectClient(spec, model, cwd)
+	parentClient, parentProvider, protocol := t.clientSnapshot()
+	client, err := selectClientFor(parentClient, parentProvider, spec, model, cwd)
 	if err != nil {
 		return tools.ToolResult{Output: "Agent error: " + err.Error(), IsError: true}
 	}
-	child := agent.New(client, registry, t.Protocol)
+	child := agent.New(client, registry, protocol)
 	child.AgentName = spec.Name
 	child.SessionID = sessionID
 	child.TranscriptPath = transcriptPath
 	child.MemoryContent = t.MemoryContent
-	if t.Provider != nil {
-		provider := *t.Provider
+	if parentProvider != nil {
+		provider := *parentProvider
 		if model != "" {
 			provider.Model = model
 		} else if spec.Model != "" {
@@ -500,7 +525,8 @@ func (t *AgentTool) runAsTeammate(ctx context.Context, targetTeam, description, 
 		teammateConversation := conversation.NewManager()
 		backgroundTasks := false
 		runAgent := func(runCtx context.Context, task string, onEvent func(teams.TeammateProgressEvent)) (string, error) {
-			return SpawnSubagent(runCtx, definition, task, t.Client, registry, t.Provider, cwd, nil, func(event SubagentProgressEvent) {
+			client, provider, _ := t.clientSnapshot()
+			return SpawnSubagent(runCtx, definition, task, client, registry, provider, cwd, nil, func(event SubagentProgressEvent) {
 				teammateEvent := teams.TeammateProgressEvent{Type: event.Type, ToolID: event.ToolID, ToolName: event.ToolName, Args: event.Args}
 				if event.Usage != nil {
 					teammateEvent.InputTokens = event.Usage.InputTokens

@@ -9,7 +9,6 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/yukino-js/yukino/yukino/internal/compact"
 	"github.com/yukino-js/yukino/yukino/internal/file_history"
 	"github.com/yukino-js/yukino/yukino/internal/mcp"
 	"github.com/yukino-js/yukino/yukino/internal/memory"
@@ -232,14 +231,14 @@ func (m Model) doResumeSession(wd, targetID string, saved []session.Message) (te
 
 	if m.taskMgr != nil {
 		if err := m.taskMgr.StopAll(context.Background()); err != nil {
-			return m, nil
+			return m.inputError(err)
 		}
-		m.stopMemoryTasks()
 		if err := m.taskMgr.UseSession(targetID); err != nil {
 			m.chatMessages = append(m.chatMessages, chatMessage{role: "error", content: err.Error()})
 			return m, nil
 		}
 	}
+	m.stopMemoryTasks()
 	m.chatMessages = nil
 	m.committedUpTo = 0
 	m.conversation.Reset()
@@ -247,6 +246,10 @@ func (m Model) doResumeSession(wd, targetID string, saved []session.Message) (te
 	m.steeringPending = nil
 	m.queuePaused = false
 	m.sessionID = targetID
+	m.resetSessionContext()
+	m.resumeDialog = false
+	m.resumeSessions = nil
+	m.updateDismissed = true
 	m.subagents = nil
 
 	// Re-key the session-derived stores to the resumed session.
@@ -259,9 +262,6 @@ func (m Model) doResumeSession(wd, targetID string, saved []session.Message) (te
 		}
 	}
 	if m.ag != nil {
-		m.ag.FileStateCache.Clear()
-		m.ag.RecoveryState = compact.NewRecoveryState()
-		m.ag.ResetRecall()
 		m.ag.SetSessionID(m.sessionID)
 		m.ag.FileHistory = m.fileHistory
 		m.ag.GoalManager = m.currentGoal()
@@ -271,7 +271,6 @@ func (m Model) doResumeSession(wd, targetID string, saved []session.Message) (te
 	}
 
 	replay := session.RebuildFromSession(saved, false)
-	clear(m.announcedSkills)
 	instructions := memory.LoadInstructions(wd)
 	reminder := ""
 	if m.memoryEnabled {
@@ -288,10 +287,6 @@ func (m Model) doResumeSession(wd, targetID string, saved []session.Message) (te
 	if m.mcpMgr != nil {
 		mcp.SyncMcpInstructions(m.conversation, m.mcpAnnounced, m.mcpMgr)
 	}
-	m.resumeDialog = false
-	m.resumeSessions = nil
-	m.updateDismissed = true
-
 	m.chatMessages = append(m.chatMessages, chatMessage{
 		role:    "system",
 		content: fmt.Sprintf("⟲ Resumed session %s (%d messages).", targetID, len(replay)),

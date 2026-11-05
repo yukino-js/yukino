@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/charmbracelet/x/term"
 	"github.com/yukino-js/yukino/yukino/internal/crash_log"
@@ -68,24 +69,28 @@ var terminalGoneExit = crash_log.ExitForTerminalGone
 // Ink render pass. It must keep implementing term.File (Fd/Read/Close) so
 // bubbletea still recognizes the output TTY and delivers WindowSizeMsg.
 type terminalOutputWriter struct {
-	out  *os.File
-	sync bool
+	out    *os.File
+	sync   bool
+	mu     sync.Mutex
+	cursor terminalCursor
 }
 
-var _ term.File = terminalOutputWriter{}
+var _ term.File = (*terminalOutputWriter)(nil)
 
-func (w terminalOutputWriter) Fd() uintptr { return w.out.Fd() }
+func (w *terminalOutputWriter) Fd() uintptr { return w.out.Fd() }
 
-func (w terminalOutputWriter) Read(p []byte) (int, error) { return w.out.Read(p) }
+func (w *terminalOutputWriter) Read(p []byte) (int, error) { return w.out.Read(p) }
 
-func (w terminalOutputWriter) Close() error { return w.out.Close() }
+func (w *terminalOutputWriter) Close() error { return w.out.Close() }
 
-func (w terminalOutputWriter) Write(p []byte) (int, error) {
-	buf := p
+func (w *terminalOutputWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	buf := w.cursor.render(p)
 	if w.sync && len(p) > 0 {
-		framed := make([]byte, 0, len(p)+len(bsu)+len(esu))
+		framed := make([]byte, 0, len(buf)+len(bsu)+len(esu))
 		framed = append(framed, bsu...)
-		framed = append(framed, p...)
+		framed = append(framed, buf...)
 		framed = append(framed, esu...)
 		buf = framed
 	}
@@ -108,5 +113,5 @@ func InstallTerminalOutput(out io.Writer) io.Writer {
 	if !ok || !term.IsTerminal(file.Fd()) {
 		return out
 	}
-	return terminalOutputWriter{out: file, sync: isSyncOutputSupported()}
+	return &terminalOutputWriter{out: file, sync: isSyncOutputSupported()}
 }

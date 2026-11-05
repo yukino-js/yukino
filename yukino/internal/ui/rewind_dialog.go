@@ -11,7 +11,6 @@ import (
 
 	"github.com/yukino-js/yukino/yukino/internal/conversation"
 	"github.com/yukino-js/yukino/yukino/internal/file_history"
-	"github.com/yukino-js/yukino/yukino/internal/logger"
 	"github.com/yukino-js/yukino/yukino/internal/session"
 	"github.com/yukino-js/yukino/yukino/internal/subagent"
 	"github.com/yukino-js/yukino/yukino/internal/tool_result"
@@ -234,25 +233,31 @@ func (m Model) handleRewindPhase1(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // unlike in-memory message indexes. Snapshots with no recorded
 // sessionLineCount — or whose session file is gone — fall back to truncating
 // by messageIndex. It returns the visible transcript for the rewound state.
-func (m *Model) rewindConversation(snap file_history.Snapshot) []chatMessage {
+func (m *Model) rewindConversation(snap file_history.Snapshot) ([]chatMessage, error) {
 	wd, _ := os.Getwd()
 	sessionFilePath := session.SessionFilePath(wd, m.sessionID)
 	if snap.SessionLineCount != nil {
 		if _, err := os.Stat(sessionFilePath); err == nil {
-			_ = session.TruncateSessionLines(sessionFilePath, *snap.SessionLineCount)
+			if err := session.TruncateSessionLines(sessionFilePath, *snap.SessionLineCount); err != nil {
+				return nil, err
+			}
 			saved, lerr := session.LoadSession(wd, m.sessionID)
 			if lerr == nil {
 				m.conversation.Reset()
 				m.conversation.AppendMessages(session.RebuildFromSession(saved, false))
-				return transcriptFromRestored(session.RebuildFromSession(saved, true))
+				return transcriptFromRestored(session.RebuildFromSession(saved, true)), nil
 			}
-			// A read failure after truncation falls back to message-index
-			// truncation rather than silently rewinding to an empty transcript.
-			logger.Global().Error(map[string]any{"err": lerr, "sessionId": m.sessionID}, "rewind reload failed; falling back to message-index truncation")
+			return nil, lerr
 		}
 	}
 	m.conversation.TruncateTo(snap.MessageIndex)
-	return transcriptFromRestored(m.conversation.GetMessages())
+	var visible []conversation.Message
+	for _, message := range m.conversation.GetMessages() {
+		if message.Role != "system" && !strings.HasPrefix(message.Content, conversation.SystemReminderOpen) {
+			visible = append(visible, message)
+		}
+	}
+	return transcriptFromRestored(visible), nil
 }
 
 // transcriptFromConversation maps the truncated conversation back onto visible
@@ -330,7 +335,10 @@ func (m Model) executeRewindOption() (tea.Model, tea.Cmd) {
 		if err != nil {
 			return m.finishRewindError(err)
 		}
-		transcript = m.rewindConversation(snap)
+		transcript, err = m.rewindConversation(snap)
+		if err != nil {
+			return m.finishRewindError(err)
+		}
 		m.stopMemoryTasks()
 		summary = fmt.Sprintf("⟲ Rewound to checkpoint. Restored %d file(s) and conversation.", len(changed))
 		for _, f := range changed {
@@ -339,7 +347,11 @@ func (m Model) executeRewindOption() (tea.Model, tea.Cmd) {
 		rebuilt = true
 
 	case 1:
-		transcript = m.rewindConversation(snap)
+		var err error
+		transcript, err = m.rewindConversation(snap)
+		if err != nil {
+			return m.finishRewindError(err)
+		}
 		m.stopMemoryTasks()
 		summary = "⟲ Rewound conversation. Files unchanged."
 		rebuilt = true
@@ -359,10 +371,6 @@ func (m Model) executeRewindOption() (tea.Model, tea.Cmd) {
 		m.rewindPhase = 0
 		return m, nil
 	}
-	if m.ag != nil {
-		m.ag.FileStateCache.Clear()
-	}
-
 	if rebuilt {
 		m.pendingMessages = nil
 		m.steeringPending = nil
@@ -372,9 +380,10 @@ func (m Model) executeRewindOption() (tea.Model, tea.Cmd) {
 		// The reference drops the goal manager on a conversation rewind so goal
 		// state reloads from the rewound session; rebind the stable agent.
 		m.invalidateGoal()
-		if m.ag != nil {
-			m.ag.GoalManager = m.currentGoal()
-		}
+	}
+	if m.ag != nil {
+		m.ag.FileStateCache.Clear()
+		m.ag.GoalManager = m.currentGoal()
 	}
 	m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: summary})
 	m.rewindDialog = false

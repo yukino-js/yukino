@@ -98,9 +98,7 @@ func TestRemoteRunOwnershipAndCanceledSteering(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	s := newPendingServer()
 	s.ag = &agent.Agent{}
-	if _, err := s.ag.Steer("late input", nil); err != nil {
-		t.Fatal(err)
-	}
+	s.steeringLeftovers = []agent.SteeringMessage{{Text: "late input"}}
 	ctx, claimed := s.beginRun()
 	if !claimed {
 		t.Fatal("first run did not acquire the slot")
@@ -114,8 +112,8 @@ func TestRemoteRunOwnershipAndCanceledSteering(t *testing.T) {
 		t.Fatal("cancel retained active work or approval")
 	}
 	s.finishRun()
-	if pending := s.ag.DrainSteering(); len(pending) != 0 {
-		t.Fatal("canceled steering was replayed", pending)
+	if len(s.steeringLeftovers) != 0 {
+		t.Fatal("canceled steering was retained", s.steeringLeftovers)
 	}
 	s.stopping = true
 	if _, claimed := s.beginRun(); claimed {

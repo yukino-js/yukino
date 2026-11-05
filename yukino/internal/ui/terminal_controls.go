@@ -138,7 +138,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		next.ctrlCDeadline = time.Time{}
 		next.ctrlCGeneration++
 	}
-	if !next.foregroundBusy() && !next.modalActive() && next.state == stateChat && next.ag != nil && len(next.pendingMessages) > 0 && !next.queuePaused {
+	if !next.foregroundBusy() && !next.commandBusy && !next.modalActive() && next.state == stateChat && next.ag != nil && len(next.pendingMessages) > 0 && !next.queuePaused {
 		message := next.pendingMessages[0]
 		next.pendingMessages = next.pendingMessages[1:]
 		dispatched, dispatchCmd := next.dispatchInput(message.text, message.input)
@@ -191,7 +191,7 @@ func (m Model) submitInput(text string) (tea.Model, tea.Cmd) {
 		m.clearDraft()
 		return m, nil
 	}
-	if m.foregroundBusy() && !(m.streaming && goalControl.FindStringSubmatch(text) != nil) {
+	if (m.foregroundBusy() || m.commandBusy || m.modalActive() || m.ag == nil) && !(m.streaming && goalControl.FindStringSubmatch(text) != nil) {
 		m.pendingMessages = append(m.pendingMessages, queuedMessage{text: text})
 		m.queuePaused = false
 		m.clearDraft()
@@ -245,10 +245,10 @@ func (m Model) syncFollowUps() {
 
 func (m *Model) recallQueued() (string, bool) {
 	if len(m.pendingMessages) == 0 {
-		if len(m.steeringPending) > 0 && m.ag != nil {
+		if len(m.steeringPending) > 0 && m.steeringAgent != nil {
 			last := len(m.steeringPending) - 1
 			input := m.steeringPending[last]
-			if m.ag.RemoveSteering(input.ID) {
+			if m.steeringAgent.RemoveSteering(input.ID) {
 				m.steeringPending = m.steeringPending[:last]
 				return input.Text, true
 			}

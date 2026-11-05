@@ -3,6 +3,7 @@ package conversation
 import (
 	"encoding/json"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/yukino-js/yukino/yukino/internal/utils"
@@ -87,6 +88,7 @@ func (m Message) ContentText() string {
 }
 
 type Manager struct {
+	mu             sync.RWMutex
 	history        []Message
 	ltmInjected    bool
 	baselineTokens int
@@ -99,6 +101,8 @@ func NewManager() *Manager {
 }
 
 func (m *Manager) AddUserMessage(content string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.history = append(m.history, Message{Role: "user", Content: content})
 }
 
@@ -106,14 +110,20 @@ func (m *Manager) AddUserMessage(content string) {
 // (text plus image blocks), mirroring the reference addUserMessage accepting
 // string | Record<string, unknown>[].
 func (m *Manager) AddUserMessageBlocks(blocks []map[string]any) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.history = append(m.history, Message{Role: "user", ContentBlocks: blocks})
 }
 
 func (m *Manager) AddAssistantMessage(content string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.history = append(m.history, Message{Role: "assistant", Content: content})
 }
 
 func (m *Manager) AddToolUseMessage(text, toolUseID, toolName string, arguments map[string]any) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.history = append(m.history, Message{
 		Role:    "assistant",
 		Content: text,
@@ -126,6 +136,8 @@ func (m *Manager) AddToolUseMessage(text, toolUseID, toolName string, arguments 
 }
 
 func (m *Manager) AddAssistantMessageWithTools(text string, toolUses []ToolUseBlock) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.history = append(m.history, Message{
 		Role:     "assistant",
 		Content:  text,
@@ -134,6 +146,8 @@ func (m *Manager) AddAssistantMessageWithTools(text string, toolUses []ToolUseBl
 }
 
 func (m *Manager) AddAssistantFull(text string, thinking []ThinkingBlock, toolUses []ToolUseBlock) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.history = append(m.history, Message{
 		Role:           "assistant",
 		Content:        text,
@@ -143,6 +157,8 @@ func (m *Manager) AddAssistantFull(text string, thinking []ThinkingBlock, toolUs
 }
 
 func (m *Manager) AddToolResultMessage(toolUseID, content string, isError bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.history = append(m.history, Message{
 		Role: "user",
 		ToolResults: []ToolResultBlock{{
@@ -154,6 +170,8 @@ func (m *Manager) AddToolResultMessage(toolUseID, content string, isError bool) 
 }
 
 func (m *Manager) AddToolResultsMessage(results []ToolResultBlock) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.history = append(m.history, Message{
 		Role:        "user",
 		ToolResults: results,
@@ -161,6 +179,12 @@ func (m *Manager) AddToolResultsMessage(results []ToolResultBlock) {
 }
 
 func (m *Manager) AddSystemReminder(content string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.addSystemReminder(content)
+}
+
+func (m *Manager) addSystemReminder(content string) {
 	m.history = append(m.history, Message{
 		Role:    "user",
 		Content: WrapSystemReminder(content),
@@ -168,6 +192,8 @@ func (m *Manager) AddSystemReminder(content string) {
 }
 
 func (m *Manager) HasReminderContaining(marker string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	for _, msg := range m.history {
 		content := any(msg.Content)
 		if len(msg.ContentBlocks) > 0 {
@@ -181,6 +207,8 @@ func (m *Manager) HasReminderContaining(marker string) bool {
 }
 
 func (m *Manager) InjectLongTermMemory(instructions, memories, skills string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.ltmInjected {
 		return
 	}
@@ -194,14 +222,20 @@ func (m *Manager) InjectLongTermMemory(instructions, memories, skills string) {
 }
 
 func (m *Manager) AppendMessages(messages []Message) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.history = append(m.history, messages...)
 }
 
 func (m *Manager) Len() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return len(m.history)
 }
 
 func (m *Manager) TruncateTo(index int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if index < 0 {
 		index = 0
 	}
@@ -209,19 +243,23 @@ func (m *Manager) TruncateTo(index int) {
 		return
 	}
 	m.history = m.history[:index]
-	m.ClearUsageAnchor()
+	m.clearUsageAnchor()
 	if index == 0 {
 		m.ltmInjected = false
 	}
 }
 
 func (m *Manager) GetMessages() []Message {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	result := make([]Message, len(m.history))
 	copy(result, m.history)
 	return result
 }
 
 func (m *Manager) ReplaceToolResults(msgIndex int, newResults []ToolResultBlock) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if msgIndex < 0 || msgIndex >= len(m.history) {
 		return
 	}
@@ -229,6 +267,8 @@ func (m *Manager) ReplaceToolResults(msgIndex int, newResults []ToolResultBlock)
 }
 
 func (m *Manager) RecordUsageAnchor(input, output, cacheRead, cacheCreation int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	baseline := input + cacheRead + cacheCreation + output
 	if baseline <= 0 {
 		return
@@ -239,43 +279,69 @@ func (m *Manager) RecordUsageAnchor(input, output, cacheRead, cacheCreation int)
 }
 
 func (m *Manager) ClearUsageAnchor() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.clearUsageAnchor()
+}
+
+func (m *Manager) clearUsageAnchor() {
 	m.baselineTokens = 0
 	m.anchorCount = 0
 	m.hasUsage = false
 }
 
 func (m *Manager) UsageAnchorState() (baselineTokens, anchorCount int, hasUsage bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return m.baselineTokens, m.anchorCount, m.hasUsage
 }
 
 func (m *Manager) Fork() *Manager {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	data, err := json.Marshal(m.history)
 	if err != nil {
 		panic(err)
 	}
-	fork := *m
-	fork.history = nil
+	fork := Manager{ltmInjected: m.ltmInjected, baselineTokens: m.baselineTokens, anchorCount: m.anchorCount, hasUsage: m.hasUsage}
 	if err := json.Unmarshal(data, &fork.history); err != nil {
 		panic(err)
 	}
 	return &fork
 }
-func (m *Manager) Reset() { m.history = nil; m.ltmInjected = false; m.ClearUsageAnchor() }
+func (m *Manager) Reset() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.history = nil
+	m.ltmInjected = false
+	m.clearUsageAnchor()
+}
 func (m *Manager) ReplaceWithCompacted(summary string, keep []Message) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.history = append([]Message{{Role: "user", Content: summary}}, keep...)
 	m.ltmInjected = false
-	m.ClearUsageAnchor()
+	m.clearUsageAnchor()
 }
 func (m *Manager) AddSystemReminderIfChanged(marker, content string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	prefix := SystemReminderOpen + "\n" + marker
 	for i := len(m.history) - 1; i >= 0; i-- {
 		msg := m.history[i]
 		if msg.Role == "user" && strings.HasPrefix(msg.Content, prefix) {
 			if msg.Content != WrapSystemReminder(content) {
-				m.AddSystemReminder(content)
+				m.addSystemReminder(content)
 			}
 			return
 		}
 	}
-	m.AddSystemReminder(content)
+	m.addSystemReminder(content)
+}
+
+func (m *Manager) UsageSnapshot() (messages []Message, baselineTokens, anchorCount int, hasUsage bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	messages = append([]Message(nil), m.history...)
+	return messages, m.baselineTokens, m.anchorCount, m.hasUsage
 }

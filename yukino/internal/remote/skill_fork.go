@@ -29,8 +29,9 @@ func (h skillForkHost) SnapshotParentMessages(count int) string {
 
 func (h skillForkHost) RunSubagent(ctx context.Context, prompt string) (string, error) {
 	definition := &subagent.AgentDefinition{AgentType: h.meta.Name, WhenToUse: h.meta.Description, Model: h.meta.Model}
-	execution := tools.ExecutionContext{WorkDir: mustGetwd(), SessionID: h.sessionID, RequestPermission: h.requestPermissionViaWS}
-	return subagent.SpawnSubagent(tools.WithExecutionContext(ctx, execution), definition, prompt, h.client, h.registry, h.activeProvider(), mustGetwd(), nil, nil, "", h.ag.Checker, subagent.SubagentRunOptions{})
+	wd := h.ag.CurrentCwd()
+	execution := tools.ExecutionContext{WorkDir: wd, SessionID: h.sessionID, RequestPermission: h.requestPermissionViaWS}
+	return subagent.SpawnSubagent(tools.WithExecutionContext(ctx, execution), definition, prompt, h.client, h.registry, h.activeProvider(), wd, nil, nil, "", h.ag.Checker.ForCwd(wd), subagent.SubagentRunOptions{Background: false})
 }
 
 func (s *Server) runSkillFork(ctx context.Context, name, args string) {

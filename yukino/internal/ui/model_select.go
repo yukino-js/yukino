@@ -11,8 +11,6 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/config"
 	"github.com/yukino-js/yukino/yukino/internal/llm"
 	"github.com/yukino-js/yukino/yukino/internal/mcp"
-	"github.com/yukino-js/yukino/yukino/internal/prompt"
-	"github.com/yukino-js/yukino/yukino/internal/subagent"
 )
 
 // Port of src/ui/model-select.tsx.
@@ -89,12 +87,12 @@ func (m Model) openModelDialog() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) closeModelDialog() (tea.Model, tea.Cmd) {
+	m.modelDialog = false
 	if m.modelDiscoveryCancel != nil {
 		m.modelDiscoveryCancel()
 		m.modelDiscoveryCancel = nil
 	}
 	m.modelDiscoveryGeneration++
-	m.modelDialog = false
 	return m, nil
 }
 
@@ -234,6 +232,11 @@ func (m Model) handleModelTextField(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) applyModelSelection(modelID string) (tea.Model, tea.Cmd) {
+	if m.modelDiscoveryCancel != nil {
+		m.modelDiscoveryCancel()
+		m.modelDiscoveryCancel = nil
+	}
+	m.modelDiscoveryGeneration++
 	nextModel := strings.TrimSpace(modelID)
 	if nextModel == "" || m.client == nil || m.selectedProvider == nil {
 		return m, nil
@@ -249,19 +252,14 @@ func (m Model) applyModelSelection(modelID string) (tea.Model, tea.Cmd) {
 	updated := *m.selectedProvider
 	updated.Model = nextModel
 	wd := m.getWorkDir()
-	environment := prompt.DetectEnvironment(wd)
-	environment.Model = updated.Model
-	client, err := llm.NewClient(&updated, prompt.BuildSystemPrompt(environment))
+	client, err := llm.NewClient(&updated, providerSystemPrompt(&updated, wd))
 	if err != nil {
+		m.activityError = fmt.Sprintf("Failed to switch model: %s", err)
 		m.modelDialog = false
-		m.chatMessages = append(m.chatMessages, chatMessage{
-			role:    "error",
-			content: fmt.Sprintf("Failed to switch model: %s", err),
-		})
 		return m, nil
 	}
 	m.stopMemoryTasks()
-	m.client = client
+	m.selectedProvider = &updated
 	for i := range m.providers {
 		if m.providers[i].BaseURL == updated.BaseURL {
 			m.providers[i].Model = updated.Model
@@ -269,28 +267,15 @@ func (m Model) applyModelSelection(modelID string) (tea.Model, tea.Cmd) {
 			break
 		}
 	}
-	if m.ag != nil {
-		m.ag.Client = client
-		m.ag.Protocol = updated.Protocol
-		m.ag.ContextWindow = config.GetContextWindow(&updated)
-		m.ag.MaxOutputTokens = config.GetMaxOutputTokens(&updated)
-		if at, ok := m.registry.Get("Agent").(*subagent.AgentTool); ok {
-			at.Client = client
-			at.Provider = &updated
-			at.Protocol = updated.Protocol
-		}
-	}
+	m.bindClient(client, m.selectedProvider)
 	mcp.DecideAndApply(m.registry, updated.BaseURL, updated.Protocol, config.GetContextWindow(&updated), m.MCPLoading)
 	m.modelDialog = false
 
 	// A save failure must not undo the runtime switch.
 	saved := true
 	if err := config.PersistModel(updated.BaseURL, updated.Model); err != nil {
+		m.activityError = fmt.Sprintf("Model switched but saving failed: %s", err)
 		saved = false
-		m.chatMessages = append(m.chatMessages, chatMessage{
-			role:    "error",
-			content: fmt.Sprintf("Model switched but saving failed: %s", err),
-		})
 	}
 	note := fmt.Sprintf("Model set to %s and saved.", updated.Model)
 	if !saved {
@@ -315,7 +300,7 @@ func renderDialogTextField(prompt, value string, cursor, width int) string {
 	style := lipgloss.NewStyle().Foreground(normalText)
 	return selectorHintStyle().Render(prompt) +
 		style.Render(before) +
-		style.Reverse(true).Render(window.current) +
+		cursorMarker + style.Render(window.current) +
 		style.Render(after)
 }
 

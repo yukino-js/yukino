@@ -24,7 +24,7 @@ func (m Model) runSandboxCommand(arg string) (tea.Model, tea.Cmd) {
 		m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: "Sandbox: OFF"})
 		return m, nil
 	}
-	sb := sandbox.New()
+	sb := m.sandboxRuntime.Get()
 	available := sb != nil && sb.Available()
 	// The reference reads sandbox.availabilityError, which no platform
 	// implementation sets, so the fallback reason is always used.
@@ -77,6 +77,9 @@ func (m *Model) disposeSandbox() {
 		bashTool.Sandbox = nil
 		bashTool.SandboxRequired = false
 	}
+	if m.sandboxRuntime != nil {
+		m.sandboxRuntime.Reset()
+	}
 }
 
 // configureBashSandbox mirrors the reference configureBashSandbox: apply the
@@ -90,7 +93,7 @@ func (m Model) configureBashSandbox(bashTool *tools.BashTool) bool {
 		bashTool.SandboxRequired = false
 		return false
 	}
-	sb := sandbox.New()
+	sb := m.sandboxRuntime.Get()
 	bashTool.Sandbox = sb
 	bashTool.SandboxRequired = true
 	bashTool.SandboxConfig = sandbox.Config{

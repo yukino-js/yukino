@@ -254,11 +254,10 @@ func backUpPastToolUse(messages []conversation.Message, keepStart int) int {
 // anchor exists and only character-estimates the messages appended after it;
 // on a cold start it estimates the entire transcript.
 func CurrentContextTokens(conv *conversation.Manager) int {
-	baseline, anchorCount, hasUsage := conv.UsageAnchorState()
+	messages, baseline, anchorCount, hasUsage := conv.UsageSnapshot()
 	if !hasUsage {
-		return EstimateTokens(conv)
+		return EstimateMessages(messages)
 	}
-	messages := conv.GetMessages()
 	start := min(anchorCount, len(messages))
 	return baseline + EstimateMessages(messages[start:])
 }

@@ -60,6 +60,7 @@ func (m *Model) Dispose() error {
 		m.teamMgr.CloseAll()
 	}
 	m.stopMemoryTasks()
+	m.disposeSandbox()
 	if m.registry != nil {
 		if err := m.registry.Dispose(); err != nil {
 			failures = append(failures, err)

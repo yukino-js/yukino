@@ -42,13 +42,14 @@ func (a *Agent) restoreContext(conv *conversation.Manager) {
 	if a.SkillSection != "" {
 		sections = append(sections, a.SkillSection)
 	}
-	names := make([]string, 0, len(a.activeSkills))
-	for name := range a.activeSkills {
+	activeSkills := a.GetActiveSkills()
+	names := make([]string, 0, len(activeSkills))
+	for name := range activeSkills {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		sections = append(sections, "## Active skill: "+name+"\n"+a.activeSkills[name])
+		sections = append(sections, "## Active skill: "+name+"\n"+activeSkills[name])
 	}
 	instructions, memory := a.Instructions, a.MemoryContent
 	if a.InstructionsFn != nil {

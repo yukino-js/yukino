@@ -163,7 +163,7 @@ func (m Model) renderComposer(available int) string {
 		for j, cell := range row.cells {
 			style := lipgloss.NewStyle().Foreground(normalText)
 			if i == cursor.row && j == cursor.cell {
-				style = style.Reverse(true)
+				line.WriteString(cursorMarker)
 			}
 			line.WriteString(style.Render(cell.text))
 		}

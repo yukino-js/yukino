@@ -3,6 +3,7 @@ package remote
 import (
 	"bytes"
 	"embed"
+	"encoding/json"
 	"net/http"
 	"path"
 	"strings"
@@ -21,6 +22,14 @@ var browserMIMETypes = map[string]string{
 	".ico":   "image/x-icon",
 	".json":  "application/json; charset=utf-8",
 	".woff2": "font/woff2",
+}
+
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	clients := len(s.conns)
+	s.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "remote": true, "clients": clients})
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {

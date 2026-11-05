@@ -24,13 +24,14 @@ func (m Model) View() string {
 		return ""
 	}
 
+	var view string
 	switch m.state {
 	case stateProviderSelect:
-		return m.renderProviderSelectView()
+		view = m.renderProviderSelectView()
 	case stateChat:
-		return m.renderChatView()
+		view = m.renderChatView()
 	}
-	return ""
+	return cursorFrame(view, m.width, m.height)
 }
 
 // renderActiveDialog mirrors the InteractionDock priority in
@@ -262,6 +263,9 @@ func (m Model) renderChatContent() string {
 	}
 	if m.userBashTool != nil {
 		sb.WriteString(m.renderToolBlock(*m.userBashTool))
+	}
+	if m.activityError != "" {
+		sb.WriteString(m.renderMessage(chatMessage{role: "error", content: m.activityError}))
 	}
 	return sb.String()
 }

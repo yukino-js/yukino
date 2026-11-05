@@ -76,12 +76,14 @@ function shellQuote(value) {
   return "'" + value.replaceAll("'", "'\\''") + "'";
 }
 
-async function checkTerminal(binary, mode, report, accent) {
+async function checkTerminal(binary, mode, report, accent, withProvider = false) {
   const taskHome = mkdtempSync(join(tmpdir(), "yukino-terminal-"));
   mkdirSync(join(taskHome, ".yukino"));
   writeFileSync(
     join(taskHome, ".yukino/config.yaml"),
-    "providers: []\ntheme: auto\nenable_memory: false\n",
+    (withProvider
+      ? "providers:\n  - name: terminal-test\n    protocol: anthropic\n    base_url: http://127.0.0.1:1\n    model: terminal-test\n    api_key: test\n"
+      : "providers: []\n") + "theme: auto\nenable_memory: false\n",
   );
   const env = {
     ...process.env,
@@ -98,13 +100,23 @@ async function checkTerminal(binary, mode, report, accent) {
     process.platform === "darwin"
       ? ["-q", "/dev/null", ...command]
       : ["-qefc", command.map(shellQuote).join(" "), "/dev/null"];
-  const child = spawn("script", args, { cwd: taskHome, env, stdio: "pipe" });
+  // macOS script rejects Node's socket-backed stdin; cat supplies a pipe.
+  const child =
+    process.platform === "darwin"
+      ? spawn("sh", ["-c", 'cat | exec "$@"', "terminal-check", "script", ...args], {
+          cwd: taskHome,
+          env,
+          stdio: "pipe",
+        })
+      : spawn("script", args, { cwd: taskHome, env, stdio: "pipe" });
   let output = "";
   let failure;
   let finished = false;
   child.stdout.on("data", (data) => {
     const text = data.toString();
     output += text;
+    if (/YUKINO_TERMINAL_CHECK:\{[^\r\n]*"exit_code"/u.test(output))
+      child.stdin.end();
     if (text.includes("\x1b[6n")) {
       const background = mode === "light" ? "ffff/ffff/ffff" : "1e1e/1e1e/2e2e";
       child.stdin.write(`\x1b]11;rgb:${background}\x1b\\\x1b[1;1R`);
@@ -157,6 +169,11 @@ async function checkTerminal(binary, mode, report, accent) {
       palette_seen: output.includes("38;2;" + accent),
       ...reports().find((entry) => "exit_code" in entry),
       summary_seen: output.includes("Session") && output.includes("--resume"),
+      native_bar_seen: output.split("\x1b[6 q").length - 1 >= 3,
+      cursor_shape_restored:
+        output.lastIndexOf("\x1b[0 q") > output.lastIndexOf("\x1b[6 q"),
+      cursor_markers_leaked:
+        output.includes("yukino-cursor;") || output.includes("yukino-caret"),
     };
   } finally {
     if (!finished) {
@@ -203,11 +220,20 @@ try {
         )
         .join(";");
     const results = [];
-    for (const [mode, report] of [
+    for (const [mode, report, withProvider = false] of [
       ["light", "\x1b[?997;2n"],
       ["dark", "\x1b]11;rgb:1e1e/1e1e/2e2e\x1b\\"],
+      ["composer-dark", "\x1b]11;rgb:1e1e/1e1e/2e2e\x1b\\", true],
     ]) {
-      results.push(await checkTerminal(binary, mode, report, accent(mode)));
+      results.push(
+        await checkTerminal(
+          binary,
+          mode,
+          report,
+          accent(mode === "composer-dark" ? "dark" : mode),
+          withProvider,
+        ),
+      );
     }
     console.log(JSON.stringify(results));
     assert.ok(
@@ -217,7 +243,10 @@ try {
           r.palette_seen &&
           r.exit_code === 0 &&
           r.raw_mode_restored &&
-          r.summary_seen,
+          r.summary_seen &&
+          r.native_bar_seen &&
+          r.cursor_shape_restored &&
+          !r.cursor_markers_leaked,
       ),
     );
   }

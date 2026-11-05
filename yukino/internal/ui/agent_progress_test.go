@@ -23,7 +23,9 @@ func TestPrepareSubagentTurnKeepsRunningBackgroundOnly(t *testing.T) {
 	block := make(chan struct{})
 	defer func() {
 		close(block)
-		if err := taskMgr.StopAll(context.Background()); err != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if err := taskMgr.WaitAll(ctx, nil); err != nil {
 			t.Error(err)
 		}
 	}()

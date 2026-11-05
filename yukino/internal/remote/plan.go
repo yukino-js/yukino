@@ -11,9 +11,11 @@ import (
 )
 
 func (s *Server) planApprovalMessage(id string) wsMessage {
+	s.snapshotMu.RLock()
+	defer s.snapshotMu.RUnlock()
 	path, content := "", ""
 	if s.ag != nil && s.ag.Checker != nil {
-		path = s.ag.Checker.CurrentPlanPath()
+		path, _ = plan_file.GetOrCreatePlanPath(s.ag.Checker)
 		content, _ = plan_file.LoadPlan(s.ag.Checker)
 	}
 	return wsMessage{Type: "plan_approval_request", Data: map[string]string{"id": id, "planPath": path, "planContent": content}}
@@ -61,12 +63,12 @@ func (s *Server) handlePlanApprovalResponse(id, choice, feedback string) {
 	s.send(wsMessage{Type: "plan_approval_closed", Data: map[string]string{"id": id}})
 	if choice == "feedback" {
 		if text := strings.TrimSpace(feedback); text != "" {
-			s.queuePlanExecution(text)
+			s.handleUserMessage(text, nil)
 		}
 		return
 	}
 	checker := s.ag.Checker
-	path := checker.CurrentPlanPath()
+	path, _ := plan_file.GetOrCreatePlanPath(checker)
 	content, _ := plan_file.LoadPlan(checker)
 	mode, message := permissions.ModeDefault, "Plan approved. Each edit requires confirmation."
 	if choice == "yolo" {
@@ -92,7 +94,7 @@ func (s *Server) queuePlanExecution(text string) {
 		return
 	}
 	s.runMu.Unlock()
-	go s.handleUserMessage(text, nil)
+	s.handleUserMessage(text, nil)
 }
 func (s *Server) beginRun() (context.Context, bool) {
 	s.runMu.Lock()
@@ -103,6 +105,7 @@ func (s *Server) beginRun() (context.Context, bool) {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.streaming = true
 	s.runCanceled = false
+	s.exitPlanSucceeded = false
 	s.turnCount = 0
 	s.cancelStream = cancel
 	s.runMu.Unlock()
@@ -112,9 +115,11 @@ func (s *Server) beginRun() (context.Context, bool) {
 }
 func (s *Server) finishRun() {
 	s.runMu.Lock()
+	leftovers := s.steeringLeftovers
+	s.steeringLeftovers = nil
+	canceled := s.runCanceled
 	wasStreaming := s.streaming
 	cancel := s.cancelStream
-	canceled := s.runCanceled
 	s.streaming = false
 	s.cancelStream = nil
 	s.agentCh = nil
@@ -130,12 +135,8 @@ func (s *Server) finishRun() {
 	if pending != "" {
 		s.handleUserMessage(pending, nil)
 	}
-	if canceled {
-		if s.ag != nil {
-			s.ag.DrainSteering()
-		}
-	} else {
-		s.replaySteeringLeftovers()
+	if !canceled {
+		s.replaySteeringLeftovers(leftovers)
 	}
 	s.drainFollowUps()
 }

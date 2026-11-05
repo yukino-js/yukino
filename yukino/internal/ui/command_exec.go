@@ -18,10 +18,8 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/file_history"
 	"github.com/yukino-js/yukino/yukino/internal/history"
 	"github.com/yukino-js/yukino/yukino/internal/llm"
-	"github.com/yukino-js/yukino/yukino/internal/mcp"
 	"github.com/yukino-js/yukino/yukino/internal/memory"
 	"github.com/yukino-js/yukino/yukino/internal/permissions"
-	"github.com/yukino-js/yukino/yukino/internal/sandbox"
 	"github.com/yukino-js/yukino/yukino/internal/session"
 	"github.com/yukino-js/yukino/yukino/internal/todo"
 	"github.com/yukino-js/yukino/yukino/internal/tools"
@@ -65,13 +63,19 @@ func (m Model) buildCommandContext(args string) *commands.Context {
 			if control, ok := m.client.(llm.ThinkingLevelControl); ok {
 				return control.GetThinkingLevel()
 			}
-			return ""
+			if m.selectedProvider != nil && m.selectedProvider.Thinking != "" {
+				return m.selectedProvider.Thinking
+			}
+			return config.DefaultThinkingLevel
 		},
 		AvailableThinkingLevels: func() []string {
 			if control, ok := m.client.(llm.ThinkingLevelControl); ok {
 				return control.GetSupportedThinkingLevels()
 			}
-			return nil
+			if m.selectedProvider != nil {
+				return config.GetSupportedThinkingLevels(m.selectedProvider)
+			}
+			return config.ThinkingLevels
 		},
 		PersistThinkingLevel: func(level string) error {
 			if m.selectedProvider == nil {
@@ -85,6 +89,11 @@ func (m Model) buildCommandContext(args string) *commands.Context {
 			control.SetThinkingLevel(level)
 			if m.selectedProvider != nil {
 				m.selectedProvider.Thinking = control.GetThinkingLevel()
+				for index := range m.providers {
+					if m.providers[index].BaseURL == m.selectedProvider.BaseURL {
+						m.providers[index].Thinking = m.selectedProvider.Thinking
+					}
+				}
 			}
 		}
 	}
@@ -103,12 +112,19 @@ func newUICommandRegistry() *commands.Registry {
 	return registry
 }
 
-func (m Model) executeCommand(text string, existingInput *history.InputEntry) (tea.Model, tea.Cmd) {
-	name, args, parsed := commands.Parse(text)
-	if !parsed {
+func (m Model) executeCommand(text string, existingInput *history.InputEntry) (updated tea.Model, command tea.Cmd) {
+	defer func() {
+		if failure := recover(); failure != nil {
+			m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: fmt.Sprintf("Error: %v", failure)})
+			updated = m
+			command = nil
+		}
+	}()
+	parsed := commands.Resolve(text, m.cmdRegistry)
+	if parsed == nil {
 		return m, nil
 	}
-	cmd := m.cmdRegistry.Find(name)
+	name, args, cmd := parsed.Name, parsed.Args, parsed.Command
 	var input history.InputEntry
 	if existingInput != nil {
 		input = *existingInput
@@ -165,7 +181,7 @@ func (m Model) executeCommand(text string, existingInput *history.InputEntry) (t
 		m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: m.buildMemoryStatus(args)})
 		return m, nil
 	case "mcp":
-		return m.runMcpCommand(args)
+		return m.runMCPCommand(args)
 	case "skills":
 		if m.skillCatalog == nil {
 			m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: "Skills: no catalog loaded."})
@@ -203,7 +219,7 @@ func (m Model) executeCommand(text string, existingInput *history.InputEntry) (t
 			m.queuePaused = false
 			if m.taskMgr != nil {
 				if err := m.taskMgr.StopAll(context.Background()); err != nil {
-					return m, nil
+					return m.inputError(err)
 				}
 			}
 			if m.teamMgr != nil {
@@ -213,23 +229,12 @@ func (m Model) executeCommand(text string, existingInput *history.InputEntry) (t
 			m.chatMessages = nil
 			m.committedUpTo = 0
 			m.conversation.Reset()
-			if m.ag != nil {
-				m.ag.FileStateCache.Clear()
-				m.ag.Checker.SetPlanFilePath("")
-				m.ag.RecoveryState = compact.NewRecoveryState()
-				m.ag.ResetRecall()
-			}
-			clear(m.announcedSkills)
-			instructions := memory.LoadInstructions(m.getWorkDir())
-			reminder := ""
-			if m.memoryMgr != nil {
-				reminder = m.memoryMgr.BuildSystemReminder()
-			}
-			m.conversation.InjectLongTermMemory(instructions, reminder, "")
-			if m.mcpMgr != nil {
-				mcp.SyncMcpInstructions(m.conversation, m.mcpAnnounced, m.mcpMgr)
-			}
 			m.sessionID = session.NewID()
+			m.resetSessionContext()
+			if m.ag != nil {
+				m.ag.Checker.SetPlanFilePath("")
+			}
+			m.injectSessionContext()
 			if m.taskMgr != nil {
 				if err := m.taskMgr.UseSession(m.sessionID); err != nil {
 					m.chatMessages = append(m.chatMessages, chatMessage{role: "error", content: err.Error()})
@@ -277,9 +282,6 @@ func (m Model) executeCommand(text string, existingInput *history.InputEntry) (t
 				})
 				return m, nil
 			}
-			m.chatMessages = append(m.chatMessages, chatMessage{
-				role: "system", content: "Compacting conversation…",
-			})
 			client := m.client
 			conv := m.conversation
 			var recovery *compact.RecoveryState
@@ -366,7 +368,7 @@ func (m Model) executeCommand(text string, existingInput *history.InputEntry) (t
 
 	m.chatMessages = append(m.chatMessages, chatMessage{
 		role:    "system",
-		content: fmt.Sprintf("/%s — not yet implemented", name),
+		content: fmt.Sprintf("Unknown command: /%s", name),
 	})
 	return m, nil
 }
@@ -389,7 +391,7 @@ func (m Model) buildSessionStatus() string {
 	}
 	sbStatus := "OFF"
 	if sandboxEnabled {
-		sb := sandbox.New()
+		sb := m.sandboxRuntime.Get()
 		state := "blocked"
 		if sb != nil && sb.Available() {
 			state = "ready"

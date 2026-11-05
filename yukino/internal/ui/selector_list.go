@@ -198,7 +198,7 @@ func renderSelectorList(p selectorListParams) string {
 		}
 		style := lipgloss.NewStyle().Foreground(color)
 		if p.searchActive {
-			searchCell = style.Render(before) + style.Reverse(true).Render(current) + style.Render(after)
+			searchCell = style.Render(before) + cursorMarker + style.Render(current) + style.Render(after)
 		} else {
 			searchCell = style.Render(before + current + after)
 		}

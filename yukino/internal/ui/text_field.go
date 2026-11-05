@@ -118,7 +118,7 @@ func (m Model) renderTextField(editor inputEditor, indent int, prompt string) (s
 		for j, cell := range rows[i].cells {
 			value := cell.text
 			if i == cursor.row && j == cursor.cell {
-				value = ansiStyle(value, "\x1b[7m", "\x1b[27m")
+				body.WriteString(cursorMarker)
 			}
 			body.WriteString(value)
 		}
