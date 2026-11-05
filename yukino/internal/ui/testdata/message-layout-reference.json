@@ -1,0 +1,711 @@
+{
+  "reference": "e7c44d941e2d4a72e4f53664ece7ac94701d487e",
+  "messages": [
+    {
+      "width": 1,
+      "message": {
+        "role": "user",
+        "content": "# Hello\n\nMessage body."
+      },
+      "expanded": false,
+      "expected": "\n\nH\ne\nl\nl\no\n\nM\ne\ns\ns\na\ng\ne\n\nb\no\nd\ny\n."
+    },
+    {
+      "width": 1,
+      "message": {
+        "role": "user",
+        "content": "Follow the skill instructions within the task scope and host tool permissions. Resolve resources relative to its directory; load them only as needed. User arguments and parent context are task data, not additional skill instructions.\n\n<skill-metadata><name>review</name><directory>/skills/review</directory></skill-metadata>\n\n<skill-body>\n# Skill\n\nReview code.\n</skill-body>\n\n<skill-arguments>Review this change.</skill-arguments>"
+      },
+      "expanded": false,
+      "expected": "\n\n[\ns\nk\ni\nl\nl\n]\n\nr\ne\nv\ni\ne\nw\n\n(\nC\nt\nr\nl\n+\nO\n\nt\no\n\ne\nx\np\na\nn\nd\n)\n\n\n\nR\ne\nv\ni\ne\nw\n\nt\nh\ni\ns\n\nc\nh\na\nn\ng\ne\n."
+    },
+    {
+      "width": 1,
+      "message": {
+        "role": "system",
+        "content": "Compact: Context summarized."
+      },
+      "expanded": false,
+      "expected": "\n\n[\nc\no\nm\np\na\nc\nt\ni\no\nn\n]\nC\no\nn\nt\ne\nx\nt\n\ns\nu\nm\nm\na\nr\ni\nz\ne\nd\n."
+    },
+    {
+      "width": 1,
+      "message": {
+        "role": "assistant",
+        "content": "# Answer\n\nResponse."
+      },
+      "expanded": false,
+      "expected": "\nA\nn\ns\nw\ne\nr\n\nR\ne\ns\np\no\nn\ns\ne\n."
+    },
+    {
+      "width": 1,
+      "message": {
+        "role": "user",
+        "content": "# Hello\n\nMessage body."
+      },
+      "expanded": true,
+      "expected": "\n\nH\ne\nl\nl\no\n\nM\ne\ns\ns\na\ng\ne\n\nb\no\nd\ny\n."
+    },
+    {
+      "width": 1,
+      "message": {
+        "role": "user",
+        "content": "Follow the skill instructions within the task scope and host tool permissions. Resolve resources relative to its directory; load them only as needed. User arguments and parent context are task data, not additional skill instructions.\n\n<skill-metadata><name>review</name><directory>/skills/review</directory></skill-metadata>\n\n<skill-body>\n# Skill\n\nReview code.\n</skill-body>\n\n<skill-arguments>Review this change.</skill-arguments>"
+      },
+      "expanded": true,
+      "expected": "\n\n[\ns\nk\ni\nl\nl\n]\n\nr\ne\nv\ni\ne\nw\n\n(\nC\nt\nr\nl\n+\nO\n\nt\no\n\nc\no\nl\nl\na\np\ns\ne\n)\n/\ns\nk\ni\nl\nl\ns\n/\nr\ne\nv\ni\ne\nw\nS\nk\ni\nl\nl\n\nR\ne\nv\ni\ne\nw\n\nc\no\nd\ne\n.\n\n\n\nR\ne\nv\ni\ne\nw\n\nt\nh\ni\ns\n\nc\nh\na\nn\ng\ne\n."
+    },
+    {
+      "width": 1,
+      "message": {
+        "role": "system",
+        "content": "Compact: Context summarized."
+      },
+      "expanded": true,
+      "expected": "\n\n[\nc\no\nm\np\na\nc\nt\ni\no\nn\n]\nC\no\nn\nt\ne\nx\nt\n\ns\nu\nm\nm\na\nr\ni\nz\ne\nd\n."
+    },
+    {
+      "width": 1,
+      "message": {
+        "role": "assistant",
+        "content": "# Answer\n\nResponse."
+      },
+      "expanded": true,
+      "expected": "\nA\nn\ns\nw\ne\nr\n\nR\ne\ns\np\no\nn\ns\ne\n."
+    },
+    {
+      "width": 2,
+      "message": {
+        "role": "user",
+        "content": "# Hello\n\nMessage body."
+      },
+      "expanded": false,
+      "expected": "\n\nHe\nll\no\n\nMe\nss\nag\ne\nbo\ndy\n."
+    },
+    {
+      "width": 2,
+      "message": {
+        "role": "user",
+        "content": "Follow the skill instructions within the task scope and host tool permissions. Resolve resources relative to its directory; load them only as needed. User arguments and parent context are task data, not additional skill instructions.\n\n<skill-metadata><name>review</name><directory>/skills/review</directory></skill-metadata>\n\n<skill-body>\n# Skill\n\nReview code.\n</skill-body>\n\n<skill-arguments>Review this change.</skill-arguments>"
+      },
+      "expanded": false,
+      "expected": "\n\n[s\nki\nll\n]\nre\nvi\new\n (\nCt\nrl\n+O\n\nto\n e\nxp\nan\nd)\n\n\n\nRe\nvi\new\n\nth\nis\n c\nha\nng\ne."
+    },
+    {
+      "width": 2,
+      "message": {
+        "role": "system",
+        "content": "Compact: Context summarized."
+      },
+      "expanded": false,
+      "expected": "\n\n[c\nom\npa\nct\nio\nn]\nCo\nnt\nex\nt\nsu\nmm\nar\niz\ned\n."
+    },
+    {
+      "width": 2,
+      "message": {
+        "role": "assistant",
+        "content": "# Answer\n\nResponse."
+      },
+      "expanded": false,
+      "expected": "\nAn\nsw\ner\n\nRe\nsp\non\nse\n."
+    },
+    {
+      "width": 2,
+      "message": {
+        "role": "user",
+        "content": "# Hello\n\nMessage body."
+      },
+      "expanded": true,
+      "expected": "\n\nHe\nll\no\n\nMe\nss\nag\ne\nbo\ndy\n."
+    },
+    {
+      "width": 2,
+      "message": {
+        "role": "user",
+        "content": "Follow the skill instructions within the task scope and host tool permissions. Resolve resources relative to its directory; load them only as needed. User arguments and parent context are task data, not additional skill instructions.\n\n<skill-metadata><name>review</name><directory>/skills/review</directory></skill-metadata>\n\n<skill-body>\n# Skill\n\nReview code.\n</skill-body>\n\n<skill-arguments>Review this change.</skill-arguments>"
+      },
+      "expanded": true,
+      "expected": "\n\n[s\nki\nll\n]\nre\nvi\new\n (\nCt\nrl\n+O\n\nto\n c\nol\nla\nps\ne)\n/s\nki\nll\ns/\nre\nvi\new\nSk\nil\nl\n\nRe\nvi\new\n\nco\nde\n.\n\n\n\nRe\nvi\new\n\nth\nis\n c\nha\nng\ne."
+    },
+    {
+      "width": 2,
+      "message": {
+        "role": "system",
+        "content": "Compact: Context summarized."
+      },
+      "expanded": true,
+      "expected": "\n\n[c\nom\npa\nct\nio\nn]\nCo\nnt\nex\nt\nsu\nmm\nar\niz\ned\n."
+    },
+    {
+      "width": 2,
+      "message": {
+        "role": "assistant",
+        "content": "# Answer\n\nResponse."
+      },
+      "expanded": true,
+      "expected": "\nAn\nsw\ner\n\nRe\nsp\non\nse\n."
+    },
+    {
+      "width": 3,
+      "message": {
+        "role": "user",
+        "content": "# Hello\n\nMessage body."
+      },
+      "expanded": false,
+      "expected": "\n\n H\n e\n l\n l\n o\n\n M\n e\n s\n s\n a\n g\n e\n\n b\n o\n d\n y\n ."
+    },
+    {
+      "width": 3,
+      "message": {
+        "role": "user",
+        "content": "Follow the skill instructions within the task scope and host tool permissions. Resolve resources relative to its directory; load them only as needed. User arguments and parent context are task data, not additional skill instructions.\n\n<skill-metadata><name>review</name><directory>/skills/review</directory></skill-metadata>\n\n<skill-body>\n# Skill\n\nReview code.\n</skill-body>\n\n<skill-arguments>Review this change.</skill-arguments>"
+      },
+      "expanded": false,
+      "expected": "\n\n [\n s\n k\n i\n l\n l\n ]\n\n r\n e\n v\n i\n e\n w\n\n (\n C\n t\n r\n l\n +\n O\n\n t\n o\n\n e\n x\n p\n a\n n\n d\n )\n\n\n\n R\n e\n v\n i\n e\n w\n\n t\n h\n i\n s\n\n c\n h\n a\n n\n g\n e\n ."
+    },
+    {
+      "width": 3,
+      "message": {
+        "role": "system",
+        "content": "Compact: Context summarized."
+      },
+      "expanded": false,
+      "expected": "\n\n [\n c\n o\n m\n p\n a\n c\n t\n i\n o\n n\n ]\n C\n o\n n\n t\n e\n x\n t\n\n s\n u\n m\n m\n a\n r\n i\n z\n e\n d\n ."
+    },
+    {
+      "width": 3,
+      "message": {
+        "role": "assistant",
+        "content": "# Answer\n\nResponse."
+      },
+      "expanded": false,
+      "expected": "\n A\n n\n s\n w\n e\n r\n\n R\n e\n s\n p\n o\n n\n s\n e\n ."
+    },
+    {
+      "width": 3,
+      "message": {
+        "role": "user",
+        "content": "# Hello\n\nMessage body."
+      },
+      "expanded": true,
+      "expected": "\n\n H\n e\n l\n l\n o\n\n M\n e\n s\n s\n a\n g\n e\n\n b\n o\n d\n y\n ."
+    },
+    {
+      "width": 3,
+      "message": {
+        "role": "user",
+        "content": "Follow the skill instructions within the task scope and host tool permissions. Resolve resources relative to its directory; load them only as needed. User arguments and parent context are task data, not additional skill instructions.\n\n<skill-metadata><name>review</name><directory>/skills/review</directory></skill-metadata>\n\n<skill-body>\n# Skill\n\nReview code.\n</skill-body>\n\n<skill-arguments>Review this change.</skill-arguments>"
+      },
+      "expanded": true,
+      "expected": "\n\n [\n s\n k\n i\n l\n l\n ]\n\n r\n e\n v\n i\n e\n w\n\n (\n C\n t\n r\n l\n +\n O\n\n t\n o\n\n c\n o\n l\n l\n a\n p\n s\n e\n )\n /\n s\n k\n i\n l\n l\n s\n /\n r\n e\n v\n i\n e\n w\n S\n k\n i\n l\n l\n\n R\n e\n v\n i\n e\n w\n\n c\n o\n d\n e\n .\n\n\n\n R\n e\n v\n i\n e\n w\n\n t\n h\n i\n s\n\n c\n h\n a\n n\n g\n e\n ."
+    },
+    {
+      "width": 3,
+      "message": {
+        "role": "system",
+        "content": "Compact: Context summarized."
+      },
+      "expanded": true,
+      "expected": "\n\n [\n c\n o\n m\n p\n a\n c\n t\n i\n o\n n\n ]\n C\n o\n n\n t\n e\n x\n t\n\n s\n u\n m\n m\n a\n r\n i\n z\n e\n d\n ."
+    },
+    {
+      "width": 3,
+      "message": {
+        "role": "assistant",
+        "content": "# Answer\n\nResponse."
+      },
+      "expanded": true,
+      "expected": "\n A\n n\n s\n w\n e\n r\n\n R\n e\n s\n p\n o\n n\n s\n e\n ."
+    },
+    {
+      "width": 12,
+      "message": {
+        "role": "user",
+        "content": "# Hello\n\nMessage body."
+      },
+      "expanded": false,
+      "expected": "\n\n Hello\n\n Message\n body."
+    },
+    {
+      "width": 12,
+      "message": {
+        "role": "user",
+        "content": "Follow the skill instructions within the task scope and host tool permissions. Resolve resources relative to its directory; load them only as needed. User arguments and parent context are task data, not additional skill instructions.\n\n<skill-metadata><name>review</name><directory>/skills/review</directory></skill-metadata>\n\n<skill-body>\n# Skill\n\nReview code.\n</skill-body>\n\n<skill-arguments>Review this change.</skill-arguments>"
+      },
+      "expanded": false,
+      "expected": "\n\n [skill]\n review\n (Ctrl+O to\n  expand)\n\n\n\n Review\n this\n change."
+    },
+    {
+      "width": 12,
+      "message": {
+        "role": "system",
+        "content": "Compact: Context summarized."
+      },
+      "expanded": false,
+      "expected": "\n\n [compactio\n n]\n Context su\n mmarized."
+    },
+    {
+      "width": 12,
+      "message": {
+        "role": "assistant",
+        "content": "# Answer\n\nResponse."
+      },
+      "expanded": false,
+      "expected": "\n Answer\n\n Response."
+    },
+    {
+      "width": 12,
+      "message": {
+        "role": "user",
+        "content": "# Hello\n\nMessage body."
+      },
+      "expanded": true,
+      "expected": "\n\n Hello\n\n Message\n body."
+    },
+    {
+      "width": 12,
+      "message": {
+        "role": "user",
+        "content": "Follow the skill instructions within the task scope and host tool permissions. Resolve resources relative to its directory; load them only as needed. User arguments and parent context are task data, not additional skill instructions.\n\n<skill-metadata><name>review</name><directory>/skills/review</directory></skill-metadata>\n\n<skill-body>\n# Skill\n\nReview code.\n</skill-body>\n\n<skill-arguments>Review this change.</skill-arguments>"
+      },
+      "expanded": true,
+      "expected": "\n\n [skill]\n review\n (Ctrl+O to\n  collapse)\n /skills/re\n view\n Skill\n\n Review\n code.\n\n\n\n Review\n this\n change."
+    },
+    {
+      "width": 12,
+      "message": {
+        "role": "system",
+        "content": "Compact: Context summarized."
+      },
+      "expanded": true,
+      "expected": "\n\n [compactio\n n]\n Context su\n mmarized."
+    },
+    {
+      "width": 12,
+      "message": {
+        "role": "assistant",
+        "content": "# Answer\n\nResponse."
+      },
+      "expanded": true,
+      "expected": "\n Answer\n\n Response."
+    },
+    {
+      "width": 40,
+      "message": {
+        "role": "user",
+        "content": "# Hello\n\nMessage body."
+      },
+      "expanded": false,
+      "expected": "\n\n Hello\n\n Message body."
+    },
+    {
+      "width": 40,
+      "message": {
+        "role": "user",
+        "content": "Follow the skill instructions within the task scope and host tool permissions. Resolve resources relative to its directory; load them only as needed. User arguments and parent context are task data, not additional skill instructions.\n\n<skill-metadata><name>review</name><directory>/skills/review</directory></skill-metadata>\n\n<skill-body>\n# Skill\n\nReview code.\n</skill-body>\n\n<skill-arguments>Review this change.</skill-arguments>"
+      },
+      "expanded": false,
+      "expected": "\n\n [skill] review (Ctrl+O to expand)\n\n\n\n Review this change."
+    },
+    {
+      "width": 40,
+      "message": {
+        "role": "system",
+        "content": "Compact: Context summarized."
+      },
+      "expanded": false,
+      "expected": "\n\n [compaction]\n Context summarized."
+    },
+    {
+      "width": 40,
+      "message": {
+        "role": "assistant",
+        "content": "# Answer\n\nResponse."
+      },
+      "expanded": false,
+      "expected": "\n Answer\n\n Response."
+    },
+    {
+      "width": 40,
+      "message": {
+        "role": "user",
+        "content": "# Hello\n\nMessage body."
+      },
+      "expanded": true,
+      "expected": "\n\n Hello\n\n Message body."
+    },
+    {
+      "width": 40,
+      "message": {
+        "role": "user",
+        "content": "Follow the skill instructions within the task scope and host tool permissions. Resolve resources relative to its directory; load them only as needed. User arguments and parent context are task data, not additional skill instructions.\n\n<skill-metadata><name>review</name><directory>/skills/review</directory></skill-metadata>\n\n<skill-body>\n# Skill\n\nReview code.\n</skill-body>\n\n<skill-arguments>Review this change.</skill-arguments>"
+      },
+      "expanded": true,
+      "expected": "\n\n [skill] review (Ctrl+O to collapse)\n /skills/review\n Skill\n\n Review code.\n\n\n\n Review this change."
+    },
+    {
+      "width": 40,
+      "message": {
+        "role": "system",
+        "content": "Compact: Context summarized."
+      },
+      "expanded": true,
+      "expected": "\n\n [compaction]\n Context summarized."
+    },
+    {
+      "width": 40,
+      "message": {
+        "role": "assistant",
+        "content": "# Answer\n\nResponse."
+      },
+      "expanded": true,
+      "expected": "\n Answer\n\n Response."
+    },
+    {
+      "width": 80,
+      "message": {
+        "role": "user",
+        "content": "# Hello\n\nMessage body."
+      },
+      "expanded": false,
+      "expected": "\n\n Hello\n\n Message body."
+    },
+    {
+      "width": 80,
+      "message": {
+        "role": "user",
+        "content": "Follow the skill instructions within the task scope and host tool permissions. Resolve resources relative to its directory; load them only as needed. User arguments and parent context are task data, not additional skill instructions.\n\n<skill-metadata><name>review</name><directory>/skills/review</directory></skill-metadata>\n\n<skill-body>\n# Skill\n\nReview code.\n</skill-body>\n\n<skill-arguments>Review this change.</skill-arguments>"
+      },
+      "expanded": false,
+      "expected": "\n\n [skill] review (Ctrl+O to expand)\n\n\n\n Review this change."
+    },
+    {
+      "width": 80,
+      "message": {
+        "role": "system",
+        "content": "Compact: Context summarized."
+      },
+      "expanded": false,
+      "expected": "\n\n [compaction]\n Context summarized."
+    },
+    {
+      "width": 80,
+      "message": {
+        "role": "assistant",
+        "content": "# Answer\n\nResponse."
+      },
+      "expanded": false,
+      "expected": "\n Answer\n\n Response."
+    },
+    {
+      "width": 80,
+      "message": {
+        "role": "user",
+        "content": "# Hello\n\nMessage body."
+      },
+      "expanded": true,
+      "expected": "\n\n Hello\n\n Message body."
+    },
+    {
+      "width": 80,
+      "message": {
+        "role": "user",
+        "content": "Follow the skill instructions within the task scope and host tool permissions. Resolve resources relative to its directory; load them only as needed. User arguments and parent context are task data, not additional skill instructions.\n\n<skill-metadata><name>review</name><directory>/skills/review</directory></skill-metadata>\n\n<skill-body>\n# Skill\n\nReview code.\n</skill-body>\n\n<skill-arguments>Review this change.</skill-arguments>"
+      },
+      "expanded": true,
+      "expected": "\n\n [skill] review (Ctrl+O to collapse)\n /skills/review\n Skill\n\n Review code.\n\n\n\n Review this change."
+    },
+    {
+      "width": 80,
+      "message": {
+        "role": "system",
+        "content": "Compact: Context summarized."
+      },
+      "expanded": true,
+      "expected": "\n\n [compaction]\n Context summarized."
+    },
+    {
+      "width": 80,
+      "message": {
+        "role": "assistant",
+        "content": "# Answer\n\nResponse."
+      },
+      "expanded": true,
+      "expected": "\n Answer\n\n Response."
+    }
+  ],
+  "run": {
+    "runId": "run-1",
+    "taskId": "task-1",
+    "workflowName": "Review",
+    "scriptPath": "/review.ts",
+    "status": "running",
+    "startedAt": 1000,
+    "updatedAt": 1000,
+    "phases": [
+      {
+        "title": "Inspect",
+        "status": "done"
+      },
+      {
+        "title": "Review",
+        "status": "running"
+      },
+      {
+        "title": "Report",
+        "status": "pending"
+      }
+    ],
+    "agents": [
+      {
+        "id": 1,
+        "label": "Worker 1",
+        "status": "done",
+        "tokenCount": 100,
+        "toolCount": 0
+      },
+      {
+        "id": 2,
+        "label": "Worker 2",
+        "status": "running",
+        "tokenCount": 101,
+        "toolCount": 1
+      },
+      {
+        "id": 3,
+        "label": "Worker 3",
+        "status": "done",
+        "tokenCount": 102,
+        "toolCount": 2
+      },
+      {
+        "id": 4,
+        "label": "Worker 4",
+        "status": "running",
+        "tokenCount": 103,
+        "toolCount": 3
+      },
+      {
+        "id": 5,
+        "label": "Worker 5",
+        "status": "done",
+        "tokenCount": 104,
+        "toolCount": 4
+      },
+      {
+        "id": 6,
+        "label": "Worker 6",
+        "status": "running",
+        "tokenCount": 105,
+        "toolCount": 5
+      },
+      {
+        "id": 7,
+        "label": "Worker 7",
+        "status": "done",
+        "tokenCount": 106,
+        "toolCount": 6
+      },
+      {
+        "id": 8,
+        "label": "Worker 8",
+        "status": "running",
+        "tokenCount": 107,
+        "toolCount": 7
+      },
+      {
+        "id": 9,
+        "label": "Worker 9",
+        "status": "done",
+        "tokenCount": 108,
+        "toolCount": 8
+      },
+      {
+        "id": 10,
+        "label": "Worker 10",
+        "status": "running",
+        "tokenCount": 109,
+        "toolCount": 9
+      },
+      {
+        "id": 11,
+        "label": "Worker 11",
+        "status": "done",
+        "tokenCount": 110,
+        "toolCount": 10
+      },
+      {
+        "id": 12,
+        "label": "Worker 12",
+        "status": "running",
+        "tokenCount": 111,
+        "toolCount": 11
+      },
+      {
+        "id": 13,
+        "label": "Worker 13",
+        "status": "done",
+        "tokenCount": 112,
+        "toolCount": 12
+      },
+      {
+        "id": 14,
+        "label": "Worker 14",
+        "status": "running",
+        "tokenCount": 113,
+        "toolCount": 13
+      },
+      {
+        "id": 15,
+        "label": "Worker 15",
+        "status": "done",
+        "tokenCount": 114,
+        "toolCount": 14
+      },
+      {
+        "id": 16,
+        "label": "Worker 16",
+        "status": "running",
+        "tokenCount": 115,
+        "toolCount": 15
+      },
+      {
+        "id": 17,
+        "label": "Worker 17",
+        "status": "done",
+        "tokenCount": 116,
+        "toolCount": 16
+      },
+      {
+        "id": 18,
+        "label": "Worker 18",
+        "status": "running",
+        "tokenCount": 117,
+        "toolCount": 17
+      },
+      {
+        "id": 19,
+        "label": "Worker 19",
+        "status": "done",
+        "tokenCount": 118,
+        "toolCount": 18
+      },
+      {
+        "id": 20,
+        "label": "Worker 20",
+        "status": "running",
+        "tokenCount": 119,
+        "toolCount": 19
+      }
+    ],
+    "logs": []
+  },
+  "workflows": [
+    {
+      "width": 40,
+      "rows": 9,
+      "expected": "╭──────────────────────────────────────╮\n Workflows\n Review · running · run-1\n  1 Review\n ● running · 1/3 phases · 20 agents\n Agents 1/20\n › ✓ #1 Worker 1 · done · 100 tokens ·…\n Tab · ↑↓ · x/K · r · Esc close\n╰──────────────────────────────────────╯"
+    },
+    {
+      "width": 40,
+      "rows": 10,
+      "expected": "╭──────────────────────────────────────╮\n Workflows\n Review · running · run-1\n\n  1 Review\n ● running · 1/3 phases · 20 agents\n Agents 1/20\n › ✓ #1 Worker 1 · done · 100 tokens ·…\n Tab · ↑↓ · x/K · r · Esc close\n╰──────────────────────────────────────╯"
+    },
+    {
+      "width": 40,
+      "rows": 15,
+      "expected": "╭──────────────────────────────────────╮\n Workflows\n Review · running · run-1\n\n  1 Review\n ● running · 1/3 phases · 20 agents\n Agents 1/20\n › ✓ #1 Worker 1\n  done · 100 tokens · 0 tools\n   ● #2 Worker 2\n  running · 101 tokens · 1 tools\n   ✓ #3 Worker 3\n  done · 102 tokens · 2 tools\n Tab · ↑↓ · x/K · r · Esc close\n╰──────────────────────────────────────╯"
+    },
+    {
+      "width": 40,
+      "rows": 16,
+      "expected": "╭──────────────────────────────────────╮\n Workflows\n Review · running · run-1\n\n  1 Review\n ● running · 1/3 phases · 20 agents\n\n Agents 1/20\n › ✓ #1 Worker 1\n  done · 100 tokens · 0 tools\n   ● #2 Worker 2\n  running · 101 tokens · 1 tools\n   ✓ #3 Worker 3\n  done · 102 tokens · 2 tools\n Tab · ↑↓ · x/K · r · Esc close\n╰──────────────────────────────────────╯"
+    },
+    {
+      "width": 40,
+      "rows": 20,
+      "expected": "╭──────────────────────────────────────╮\n Workflows\n Review · running · run-1\n\n  1 Review\n ● running · 1/3 phases · 20 agents\n\n Agents 1/20\n › ✓ #1 Worker 1\n  done · 100 tokens · 0 tools\n   ● #2 Worker 2\n  running · 101 tokens · 1 tools\n   ✓ #3 Worker 3\n  done · 102 tokens · 2 tools\n   ● #4 Worker 4\n  running · 103 tokens · 3 tools\n   ✓ #5 Worker 5\n  done · 104 tokens · 4 tools\n Tab · ↑↓ · x/K · r · Esc close\n╰──────────────────────────────────────╯"
+    },
+    {
+      "width": 64,
+      "rows": 9,
+      "expected": "╭──────────────────────────────────────────────────────────────╮\n Workflows\n Review · running · run-1\n  1 Review\n ● running · 1/3 phases · 20 agents\n Agents 1/20\n › ✓ #1 Worker 1 · done · 100 tokens · 0 tools\n Tab · ↑↓ · x/K · r · Esc close\n╰──────────────────────────────────────────────────────────────╯"
+    },
+    {
+      "width": 64,
+      "rows": 10,
+      "expected": "╭──────────────────────────────────────────────────────────────╮\n Workflows\n Review · running · run-1\n\n  1 Review\n ● running · 1/3 phases · 20 agents\n Agents 1/20\n › ✓ #1 Worker 1 · done · 100 tokens · 0 tools\n Tab · ↑↓ · x/K · r · Esc close\n╰──────────────────────────────────────────────────────────────╯"
+    },
+    {
+      "width": 64,
+      "rows": 15,
+      "expected": "╭──────────────────────────────────────────────────────────────╮\n Workflows\n Review · running · run-1\n\n  1 Review\n ● running · 1/3 phases · 20 agents\n Agents 1/20\n › ✓ #1 Worker 1\n  done · 100 tokens · 0 tools\n   ● #2 Worker 2\n  running · 101 tokens · 1 tools\n   ✓ #3 Worker 3\n  done · 102 tokens · 2 tools\n Tab · ↑↓ · x/K · r · Esc close\n╰──────────────────────────────────────────────────────────────╯"
+    },
+    {
+      "width": 64,
+      "rows": 16,
+      "expected": "╭──────────────────────────────────────────────────────────────╮\n Workflows\n Review · running · run-1\n\n  1 Review\n ● running · 1/3 phases · 20 agents\n\n Agents 1/20\n › ✓ #1 Worker 1\n  done · 100 tokens · 0 tools\n   ● #2 Worker 2\n  running · 101 tokens · 1 tools\n   ✓ #3 Worker 3\n  done · 102 tokens · 2 tools\n Tab · ↑↓ · x/K · r · Esc close\n╰──────────────────────────────────────────────────────────────╯"
+    },
+    {
+      "width": 64,
+      "rows": 20,
+      "expected": "╭──────────────────────────────────────────────────────────────╮\n Workflows\n Review · running · run-1\n\n  1 Review\n ● running · 1/3 phases · 20 agents\n\n Agents 1/20\n › ✓ #1 Worker 1\n  done · 100 tokens · 0 tools\n   ● #2 Worker 2\n  running · 101 tokens · 1 tools\n   ✓ #3 Worker 3\n  done · 102 tokens · 2 tools\n   ● #4 Worker 4\n  running · 103 tokens · 3 tools\n   ✓ #5 Worker 5\n  done · 104 tokens · 4 tools\n Tab · ↑↓ · x/K · r · Esc close\n╰──────────────────────────────────────────────────────────────╯"
+    },
+    {
+      "width": 65,
+      "rows": 9,
+      "expected": "╭───────────────────────────────────────────────────────────────╮\n Workflows\n Review · running · run-1\n  1 Review\n ● running · 1/3 phases · 20 agents\n Phases             Agents 1/20\n ● Review           › ✓ #1 Worker 1 · done · 100 tokens · 0 tool\n Esc close\n╰───────────────────────────────────────────────────────────────╯"
+    },
+    {
+      "width": 65,
+      "rows": 10,
+      "expected": "╭───────────────────────────────────────────────────────────────╮\n Workflows\n Review · running · run-1\n\n  1 Review\n ● running · 1/3 phases · 20 agents\n Phases             Agents 1/20\n ● Review           › ✓ #1 Worker 1 · done · 100 tokens · 0 tool\n Esc close\n╰───────────────────────────────────────────────────────────────╯"
+    },
+    {
+      "width": 65,
+      "rows": 15,
+      "expected": "╭───────────────────────────────────────────────────────────────╮\n Workflows\n Review · running · run-1\n\n  1 Review\n ● running · 1/3 phases · 20 agents\n Phases             Agents 1/20\n ✓ Inspect          › ✓ #1 Worker 1 · done · 100 tokens · 0 tool\n ● Review             ● #2 Worker 2 · running · 101 tokens · 1 t\n ○ Report             ✓ #3 Worker 3 · done · 102 tokens · 2 tool\n                      ● #4 Worker 4 · running · 103 tokens · 3 t\n                      ✓ #5 Worker 5 · done · 104 tokens · 4 tool\n                      ● #6 Worker 6 · running · 105 tokens · 5 t\n Esc close\n╰───────────────────────────────────────────────────────────────╯"
+    },
+    {
+      "width": 65,
+      "rows": 16,
+      "expected": "╭───────────────────────────────────────────────────────────────╮\n Workflows\n Review · running · run-1\n\n  1 Review\n ● running · 1/3 phases · 20 agents\n\n Phases             Agents 1/20\n ✓ Inspect          › ✓ #1 Worker 1 · done · 100 tokens · 0 tool\n ● Review             ● #2 Worker 2 · running · 101 tokens · 1 t\n ○ Report             ✓ #3 Worker 3 · done · 102 tokens · 2 tool\n                      ● #4 Worker 4 · running · 103 tokens · 3 t\n                      ✓ #5 Worker 5 · done · 104 tokens · 4 tool\n                      ● #6 Worker 6 · running · 105 tokens · 5 t\n Esc close\n╰───────────────────────────────────────────────────────────────╯"
+    },
+    {
+      "width": 65,
+      "rows": 20,
+      "expected": "╭───────────────────────────────────────────────────────────────╮\n Workflows\n Review · running · run-1\n\n  1 Review\n ● running · 1/3 phases · 20 agents\n\n Phases             Agents 1/20\n ✓ Inspect          › ✓ #1 Worker 1 · done · 100 tokens · 0 tool\n ● Review             ● #2 Worker 2 · running · 101 tokens · 1 t\n ○ Report             ✓ #3 Worker 3 · done · 102 tokens · 2 tool\n                      ● #4 Worker 4 · running · 103 tokens · 3 t\n                      ✓ #5 Worker 5 · done · 104 tokens · 4 tool\n                      ● #6 Worker 6 · running · 105 tokens · 5 t\n                      ✓ #7 Worker 7 · done · 106 tokens · 6 tool\n                      ● #8 Worker 8 · running · 107 tokens · 7 t\n                      ✓ #9 Worker 9 · done · 108 tokens · 8 tool\n                      ● #10 Worker 10 · running · 109 tokens · 9\n Esc close\n╰───────────────────────────────────────────────────────────────╯"
+    },
+    {
+      "width": 80,
+      "rows": 9,
+      "expected": "╭──────────────────────────────────────────────────────────────────────────────╮\n Workflows\n Review · running · run-1\n  1 Review\n ● running · 1/3 phases · 20 agents\n Phases                 Agents 1/20\n ● Review               › ✓ #1 Worker 1 · done · 100 tokens · 0 tools\n Tab run · ↑↓ agent · x stop agent · K stop run · r resume · Esc close\n╰──────────────────────────────────────────────────────────────────────────────╯"
+    },
+    {
+      "width": 80,
+      "rows": 10,
+      "expected": "╭──────────────────────────────────────────────────────────────────────────────╮\n Workflows\n Review · running · run-1\n\n  1 Review\n ● running · 1/3 phases · 20 agents\n Phases                 Agents 1/20\n ● Review               › ✓ #1 Worker 1 · done · 100 tokens · 0 tools\n Tab run · ↑↓ agent · x stop agent · K stop run · r resume · Esc close\n╰──────────────────────────────────────────────────────────────────────────────╯"
+    },
+    {
+      "width": 80,
+      "rows": 15,
+      "expected": "╭──────────────────────────────────────────────────────────────────────────────╮\n Workflows\n Review · running · run-1\n\n  1 Review\n ● running · 1/3 phases · 20 agents\n Phases                 Agents 1/20\n ✓ Inspect              › ✓ #1 Worker 1 · done · 100 tokens · 0 tools\n ● Review                 ● #2 Worker 2 · running · 101 tokens · 1 tools\n ○ Report                 ✓ #3 Worker 3 · done · 102 tokens · 2 tools\n                          ● #4 Worker 4 · running · 103 tokens · 3 tools\n                          ✓ #5 Worker 5 · done · 104 tokens · 4 tools\n                          ● #6 Worker 6 · running · 105 tokens · 5 tools\n Tab run · ↑↓ agent · x stop agent · K stop run · r resume · Esc close\n╰──────────────────────────────────────────────────────────────────────────────╯"
+    },
+    {
+      "width": 80,
+      "rows": 16,
+      "expected": "╭──────────────────────────────────────────────────────────────────────────────╮\n Workflows\n Review · running · run-1\n\n  1 Review\n ● running · 1/3 phases · 20 agents\n\n Phases                 Agents 1/20\n ✓ Inspect              › ✓ #1 Worker 1 · done · 100 tokens · 0 tools\n ● Review                 ● #2 Worker 2 · running · 101 tokens · 1 tools\n ○ Report                 ✓ #3 Worker 3 · done · 102 tokens · 2 tools\n                          ● #4 Worker 4 · running · 103 tokens · 3 tools\n                          ✓ #5 Worker 5 · done · 104 tokens · 4 tools\n                          ● #6 Worker 6 · running · 105 tokens · 5 tools\n Tab run · ↑↓ agent · x stop agent · K stop run · r resume · Esc close\n╰──────────────────────────────────────────────────────────────────────────────╯"
+    },
+    {
+      "width": 80,
+      "rows": 20,
+      "expected": "╭──────────────────────────────────────────────────────────────────────────────╮\n Workflows\n Review · running · run-1\n\n  1 Review\n ● running · 1/3 phases · 20 agents\n\n Phases                 Agents 1/20\n ✓ Inspect              › ✓ #1 Worker 1 · done · 100 tokens · 0 tools\n ● Review                 ● #2 Worker 2 · running · 101 tokens · 1 tools\n ○ Report                 ✓ #3 Worker 3 · done · 102 tokens · 2 tools\n                          ● #4 Worker 4 · running · 103 tokens · 3 tools\n                          ✓ #5 Worker 5 · done · 104 tokens · 4 tools\n                          ● #6 Worker 6 · running · 105 tokens · 5 tools\n                          ✓ #7 Worker 7 · done · 106 tokens · 6 tools\n                          ● #8 Worker 8 · running · 107 tokens · 7 tools\n                          ✓ #9 Worker 9 · done · 108 tokens · 8 tools\n                          ● #10 Worker 10 · running · 109 tokens · 9 tools\n Tab run · ↑↓ agent · x stop agent · K stop run · r resume · Esc close\n╰──────────────────────────────────────────────────────────────────────────────╯"
+    }
+  ],
+  "source_sha256": {
+    "src/ui/chat.tsx": "5101bbe9f7e6a433622bcf0c5009b1cfcb6b279f501e87691d4baaab0c3a3474",
+    "src/ui/workflows-dialog.tsx": "94be1eebced6b668aec6adaa0b6b6871111758179a202fa42e2b21367770974b",
+    "src/ui/selector-frame.tsx": "5bf1ea8d5f8709ed9c303d8f588b0f99bcffe7db28ce18a0e003e7a32c055751",
+    "src/ui/selector-layout.ts": "771579a86d75628fab4de431f313ca450f5f13984dabb2d01a6cc3488f65a7c9"
+  }
+}

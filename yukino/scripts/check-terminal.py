@@ -91,11 +91,17 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("binary", type=Path)
     args = parser.parse_args()
+    palette_fixture = json.loads((Path(__file__).resolve().parent.parent / "internal/ui/testdata/theme-reference.json").read_text())["palettes"]
+
+    def accent(mode):
+        color = palette_fixture[mode]["accent"]
+        return ";".join(str(int(color[offset:offset+2], 16)) for offset in (1, 3, 5))
+
     results = [
-        check_terminal(args.binary.resolve(), "light", b"\x1b[?997;2n", "23;146;153"),
+        check_terminal(args.binary.resolve(), "light", b"\x1b[?997;2n", accent("light")),
         check_terminal(
             args.binary.resolve(), "dark",
-            b"\x1b]11;rgb:1e1e/1e1e/2e2e\x1b\\", "148;226;213",
+            b"\x1b]11;rgb:1e1e/1e1e/2e2e\x1b\\", accent("dark"),
         ),
     ]
     print(json.dumps(results))

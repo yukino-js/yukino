@@ -1,5 +1,5 @@
 {
-  "reference": "1847a71e03f90d0e5fc60a2a797c60af327b7750",
+  "reference": "e7c44d941e2d4a72e4f53664ece7ac94701d487e",
   "cwd": "/workspace/project",
   "inputCases": [
     {
@@ -1503,6 +1503,7 @@
         "title": false,
         "hint": false,
         "detail": false,
+        "gap": false,
         "height": 0
       }
     },
@@ -1514,6 +1515,7 @@
         "title": false,
         "hint": false,
         "detail": false,
+        "gap": false,
         "height": 0
       }
     },
@@ -1525,6 +1527,7 @@
         "title": false,
         "hint": false,
         "detail": false,
+        "gap": false,
         "height": 0
       }
     },
@@ -1536,6 +1539,7 @@
         "title": false,
         "hint": false,
         "detail": false,
+        "gap": false,
         "height": 0
       }
     },
@@ -1547,6 +1551,7 @@
         "title": true,
         "hint": false,
         "detail": false,
+        "gap": false,
         "height": 1
       }
     },
@@ -1558,6 +1563,7 @@
         "title": true,
         "hint": false,
         "detail": false,
+        "gap": false,
         "height": 1
       }
     },
@@ -1569,6 +1575,7 @@
         "title": true,
         "hint": true,
         "detail": false,
+        "gap": false,
         "height": 2
       }
     },
@@ -1580,6 +1587,7 @@
         "title": true,
         "hint": true,
         "detail": false,
+        "gap": false,
         "height": 2
       }
     },
@@ -1591,6 +1599,7 @@
         "title": true,
         "hint": true,
         "detail": false,
+        "gap": false,
         "height": 2
       }
     },
@@ -1602,6 +1611,7 @@
         "title": true,
         "hint": true,
         "detail": false,
+        "gap": false,
         "height": 2
       }
     },
@@ -1613,6 +1623,7 @@
         "title": true,
         "hint": true,
         "detail": false,
+        "gap": false,
         "height": 2
       }
     },
@@ -1624,6 +1635,7 @@
         "title": true,
         "hint": true,
         "detail": false,
+        "gap": false,
         "height": 2
       }
     },
@@ -1635,6 +1647,7 @@
         "title": true,
         "hint": true,
         "detail": false,
+        "gap": false,
         "height": 4
       }
     },
@@ -1646,6 +1659,7 @@
         "title": true,
         "hint": true,
         "detail": false,
+        "gap": false,
         "height": 4
       }
     },
@@ -1657,6 +1671,7 @@
         "title": true,
         "hint": true,
         "detail": false,
+        "gap": false,
         "height": 4
       }
     },
@@ -1668,6 +1683,7 @@
         "title": true,
         "hint": true,
         "detail": false,
+        "gap": false,
         "height": 4
       }
     },
@@ -1679,6 +1695,7 @@
         "title": true,
         "hint": true,
         "detail": false,
+        "gap": false,
         "height": 4
       }
     },
@@ -1690,6 +1707,7 @@
         "title": true,
         "hint": true,
         "detail": true,
+        "gap": false,
         "height": 5
       }
     },
@@ -1701,6 +1719,7 @@
         "title": true,
         "hint": true,
         "detail": false,
+        "gap": false,
         "height": 4
       }
     },
@@ -1712,6 +1731,7 @@
         "title": true,
         "hint": true,
         "detail": true,
+        "gap": false,
         "height": 5
       }
     },
@@ -1723,7 +1743,8 @@
         "title": true,
         "hint": true,
         "detail": false,
-        "height": 4
+        "gap": true,
+        "height": 5
       }
     },
     {
@@ -1734,7 +1755,8 @@
         "title": true,
         "hint": true,
         "detail": true,
-        "height": 5
+        "gap": true,
+        "height": 6
       }
     },
     {
@@ -1745,7 +1767,8 @@
         "title": true,
         "hint": true,
         "detail": false,
-        "height": 4
+        "gap": true,
+        "height": 5
       }
     },
     {
@@ -1756,7 +1779,8 @@
         "title": true,
         "hint": true,
         "detail": true,
-        "height": 5
+        "gap": true,
+        "height": 6
       }
     },
     {
@@ -1767,7 +1791,8 @@
         "title": true,
         "hint": true,
         "detail": false,
-        "height": 4
+        "gap": true,
+        "height": 5
       }
     },
     {
@@ -1778,7 +1803,8 @@
         "title": true,
         "hint": true,
         "detail": true,
-        "height": 5
+        "gap": true,
+        "height": 6
       }
     },
     {
@@ -1789,7 +1815,8 @@
         "title": true,
         "hint": true,
         "detail": false,
-        "height": 4
+        "gap": true,
+        "height": 5
       }
     },
     {
@@ -1800,7 +1827,8 @@
         "title": true,
         "hint": true,
         "detail": true,
-        "height": 5
+        "gap": true,
+        "height": 6
       }
     },
     {
@@ -1811,7 +1839,8 @@
         "title": true,
         "hint": true,
         "detail": false,
-        "height": 4
+        "gap": true,
+        "height": 5
       }
     },
     {
@@ -1822,7 +1851,8 @@
         "title": true,
         "hint": true,
         "detail": true,
-        "height": 5
+        "gap": true,
+        "height": 6
       }
     },
     {
@@ -1833,7 +1863,8 @@
         "title": true,
         "hint": true,
         "detail": false,
-        "height": 4
+        "gap": true,
+        "height": 5
       }
     },
     {
@@ -1844,7 +1875,8 @@
         "title": true,
         "hint": true,
         "detail": true,
-        "height": 5
+        "gap": true,
+        "height": 6
       }
     }
   ]

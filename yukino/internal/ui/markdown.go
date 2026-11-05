@@ -189,7 +189,7 @@ func (r markdownRenderer) node(n ast.Node) string {
 		default:
 			style = style.Italic(true)
 		}
-		return renderInlineStyle(style, r.children(n)) + "\n"
+		return renderInlineStyle(style, r.children(n)) + "\n\n"
 	case *ast.ThematicBreak:
 		return paint(strings.Repeat("-", r.width), Theme.MdHr) + "\n\n"
 	case *ast.Emphasis:

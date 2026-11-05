@@ -1,5 +1,5 @@
 {
-  "reference_commit": "1847a71e03f90d0e5fc60a2a797c60af327b7750",
+  "reference_commit": "e7c44d941e2d4a72e4f53664ece7ac94701d487e",
   "counts": {
     "Corrected": 268,
     "Language-specific difference": 11,
@@ -652,32 +652,32 @@
       "status": "Synchronized artifact"
     },
     {
+      "source": "src/remote/browser/dist/static/chunk-3HWUJ4KR.js",
+      "source_sha256": "c2e3c23c975ca20ae8028c128e8f0ccd9fbaa8045b7e20a7b333d23dd207edb5",
+      "counterpart": "`internal/remote/browser/dist/static/chunk-3HWUJ4KR.js`",
+      "status": "Synchronized artifact"
+    },
+    {
       "source": "src/remote/browser/dist/static/chunk-OR5FHECQ.js",
       "source_sha256": "4a3a284331530d8c4e91072db469546e5120dbcc5d340f039df858b9524799dc",
       "counterpart": "`internal/remote/browser/dist/static/chunk-OR5FHECQ.js`",
       "status": "Synchronized artifact"
     },
     {
-      "source": "src/remote/browser/dist/static/chunk-RFE6KDWB.js",
-      "source_sha256": "17519df6d48fa8d8915bc0cc9e7fd6fd4d43bb4882ee10669ff7ca0e4001e141",
-      "counterpart": "`internal/remote/browser/dist/static/chunk-RFE6KDWB.js`",
-      "status": "Synchronized artifact"
-    },
-    {
-      "source": "src/remote/browser/dist/static/highlight-Y5QQXU5Q.js",
-      "source_sha256": "5949bb3de23f6bae75b05255160c098e7e24dcf2dabfbf00cf6a7c7a581df022",
-      "counterpart": "`internal/remote/browser/dist/static/highlight-Y5QQXU5Q.js`",
+      "source": "src/remote/browser/dist/static/highlight-KNDEBJWF.js",
+      "source_sha256": "d9404223ed983152e375f4096592243c7cf1e0a672f02d1797ebd7f3113cc0af",
+      "counterpart": "`internal/remote/browser/dist/static/highlight-KNDEBJWF.js`",
       "status": "Synchronized artifact"
     },
     {
       "source": "src/remote/browser/dist/static/index.css",
-      "source_sha256": "4f18da8a5cfb6359baccd6ec5f6bca8165eaec7d071652a145f2e163e99a8ef5",
+      "source_sha256": "8b34f1f0d3433a83a27a3b898b0cd1058eef3f24386bc232fd41b6e6cc3c264e",
       "counterpart": "`internal/remote/browser/dist/static/index.css`",
       "status": "Synchronized artifact"
     },
     {
       "source": "src/remote/browser/dist/static/index.js",
-      "source_sha256": "58a755a9fc25c9790fbe46ce37e7192286cfb21fe9b6bb2c9674f219e0181e1f",
+      "source_sha256": "7c5c1c2e263316d7fe31f3a73700f21f29afc9d6e82209d999cea15ab3b29ed5",
       "counterpart": "`internal/remote/browser/dist/static/index.js`",
       "status": "Synchronized artifact"
     },
@@ -707,49 +707,49 @@
     },
     {
       "source": "src/remote/browser/src/components/activity-panel.tsx",
-      "source_sha256": "ae5ae8eaa7c5e2e4c4a8484cf838c8e09aeeea085bda33b7f550b7ad59f0e8e0",
+      "source_sha256": "3b0a8b08aa59caff584a9f060e5c8a9e1881ffc09dc7231b9ef23ca6c4d801e8",
       "counterpart": "`internal/remote/browser/dist`",
       "status": "Shared browser build"
     },
     {
       "source": "src/remote/browser/src/components/ask-user-dialog.tsx",
-      "source_sha256": "97096a81ab870512ba61cae4d0fc6869f1cd36b25fdc0a796a6e86303ea16321",
+      "source_sha256": "ec2049a847bfc6fcf2d7baf79716169cefe9f51dd2bf58847fcca794552f4062",
       "counterpart": "`internal/remote/browser/dist`",
       "status": "Shared browser build"
     },
     {
       "source": "src/remote/browser/src/components/assistant-message.tsx",
-      "source_sha256": "fa0b6d684c2ab907b06035716f1acff41ae320638a0f63ca1652c35e29a49776",
+      "source_sha256": "ec20aba8c640d5b9a8cbad0732c7fd9a450da7f0c4b189a5d4fd7ab782ecb271",
       "counterpart": "`internal/remote/browser/dist`",
       "status": "Shared browser build"
     },
     {
       "source": "src/remote/browser/src/components/collapsible.tsx",
-      "source_sha256": "80936fcdbc1280856af5044066aae7b0229e9d9fd5bce5ee78b9d77b7c8e60b8",
+      "source_sha256": "1b32ce12977db070827c9ab6e45ad51c1139fe5816581f84aa778a771aad3201",
       "counterpart": "`internal/remote/browser/dist`",
       "status": "Shared browser build"
     },
     {
       "source": "src/remote/browser/src/components/diff-lines.tsx",
-      "source_sha256": "1f4a7b80c141b6c37952d0705dc867f2f40423e4af8dce5852e0839784ee6aa4",
+      "source_sha256": "0d1afdcd8f1a63ff4c6b597b06923f7001075790e481bf37176ec3cf7d4ab7ca",
       "counterpart": "`internal/remote/browser/dist`",
       "status": "Shared browser build"
     },
     {
       "source": "src/remote/browser/src/components/done-indicator.tsx",
-      "source_sha256": "8b3e359d62bc8edb54a77454fe6afacf9e132955764f5f8fbe141b434719451c",
+      "source_sha256": "901ef0bbd8abe09a7b745d0918f363afa9723a84462f7e74c70f3418800ed3ad",
       "counterpart": "`internal/remote/browser/dist`",
       "status": "Shared browser build"
     },
     {
       "source": "src/remote/browser/src/components/error-message.tsx",
-      "source_sha256": "a411ea59d11fe37e10936592f4b22a03f23afd747c052c346e0bd090a6fd7c74",
+      "source_sha256": "87c090dce9bd0911d85bc1bf50e767f3306cb4081ac8439b4d7a71227dfceb49",
       "counterpart": "`internal/remote/browser/dist`",
       "status": "Shared browser build"
     },
     {
       "source": "src/remote/browser/src/components/input-area.tsx",
-      "source_sha256": "b679b23dc147373a9cb4e9eeb1901ff9612b20e12b3537ae8cf744f9cc2cc803",
+      "source_sha256": "4a63d36dd07a097689c5c57f6b23e49ca50992124d0a5b87a05a39ca26d3ceb2",
       "counterpart": "`internal/remote/browser/dist`",
       "status": "Shared browser build"
     },
@@ -761,73 +761,73 @@
     },
     {
       "source": "src/remote/browser/src/components/mcp-app.tsx",
-      "source_sha256": "b65b7a0963afa8931d64ec839837bf15ad3a69dd1efc4da442a9f632ff31abb7",
+      "source_sha256": "82862aa923572dae1d1084970454c9e81d3a431b7baea7e871c5b11f868120ae",
       "counterpart": "`internal/remote/browser/dist`",
       "status": "Shared browser build"
     },
     {
       "source": "src/remote/browser/src/components/message-list.tsx",
-      "source_sha256": "e79d3c92cafbf691fa886c1c7f70777165d57db571a8a9dae0ff78ebff8f2f6e",
+      "source_sha256": "3f0a3ebaf1b541da00ac41ea58e7fc938fc6292635feb411233498049a19bd2a",
       "counterpart": "`internal/remote/browser/dist`",
       "status": "Shared browser build"
     },
     {
       "source": "src/remote/browser/src/components/modal.tsx",
-      "source_sha256": "b6880dc6d2ab34680a7d3b531c3007fc7dea803e0dd66f85766c5b8d13364f6d",
+      "source_sha256": "a2f1e1b2d22f1fa1cb745259f76093bc5d14f4012b4bc39e9ab9e234a70bac3c",
       "counterpart": "`internal/remote/browser/dist`",
       "status": "Shared browser build"
     },
     {
       "source": "src/remote/browser/src/components/model-picker.tsx",
-      "source_sha256": "8ce5558f5851672c5393acb0c14dbb18ecae829619339ce8688ec6d160a4b7b1",
+      "source_sha256": "7045416362ec726a66a036ba11b7c1510dbcf5aea58214a1e51ff4485d3142a0",
       "counterpart": "`internal/remote/browser/dist`",
       "status": "Shared browser build"
     },
     {
       "source": "src/remote/browser/src/components/permission-dialog.tsx",
-      "source_sha256": "19b118e832267f58801c960e0f147572377a4e444efcb14ea74bf33112e7c9bf",
+      "source_sha256": "fc2de11485366a4f2602acf813b2835ba37eeb7c77b426fa453eb990f4826700",
       "counterpart": "`internal/remote/browser/dist`",
       "status": "Shared browser build"
     },
     {
       "source": "src/remote/browser/src/components/picker-list.tsx",
-      "source_sha256": "b7fc842f0a1746ac4bf36b3d314c7d8b3d2d6ab012ed3207a3d24078d8c75987",
+      "source_sha256": "d140cae060d0b54557b923a1ec9bb05f3408bd709bfece56ca554b8611e87e21",
       "counterpart": "`internal/remote/browser/dist`",
       "status": "Shared browser build"
     },
     {
       "source": "src/remote/browser/src/components/plan-approval-dialog.tsx",
-      "source_sha256": "4a7f5c9cbcae7d829e6a028bc7421a095f32f091772d57020ca878925e662061",
+      "source_sha256": "8a9a460de34fd4e95166e7ed65b3128fc7e466fd4f0c77a6e002e1d552cb8914",
       "counterpart": "`internal/remote/browser/dist`",
       "status": "Shared browser build"
     },
     {
       "source": "src/remote/browser/src/components/provider-dialog.tsx",
-      "source_sha256": "bd499bd08cdd58d87b22510223954b042936a6ec49701b6b57bfe05ea79158ce",
+      "source_sha256": "b75c0186a640b48fae478ba27d706fd9d375dc32c41869638a679896d6d086e8",
       "counterpart": "`internal/remote/browser/dist`",
       "status": "Shared browser build"
     },
     {
       "source": "src/remote/browser/src/components/rewind-dialog.tsx",
-      "source_sha256": "de94c0858c29f44a95627140546f94d31a32263f99de6c88aca8a9dbe83d91ad",
+      "source_sha256": "632c74a6cf0eaae98db67b3939ad7b4f6d1d1dd9cd081302536144f591569758",
       "counterpart": "`internal/remote/browser/dist`",
       "status": "Shared browser build"
     },
     {
       "source": "src/remote/browser/src/components/session-picker.tsx",
-      "source_sha256": "1867b681ff30404844f0f933030f8e11629742cd758f258c33699fecf6524bb4",
+      "source_sha256": "99f63636bc16553ae5eaac68e5ab6faa59df16fa303cc6f4b869579dfd1be05a",
       "counterpart": "`internal/remote/browser/dist`",
       "status": "Shared browser build"
     },
     {
       "source": "src/remote/browser/src/components/slash-menu.tsx",
-      "source_sha256": "838b21416e42273caba71c038620c0640ae9b96783e1966a58bd234839f018c3",
+      "source_sha256": "7799b34fbc22316d66aa04b06548a4ce95add0d727302a3bf19a8a417f5c612d",
       "counterpart": "`internal/remote/browser/dist`",
       "status": "Shared browser build"
     },
     {
       "source": "src/remote/browser/src/components/status-bar.tsx",
-      "source_sha256": "f993d90d8b8770e6b841753ceb49b56a5dda5bda6160e0c19b5d78e9427572e0",
+      "source_sha256": "a8426ea6cbd7b1bfd360878b9a3cfda1ed7cec356e2d43e3a0615b4412d48169",
       "counterpart": "`internal/remote/browser/dist`",
       "status": "Shared browser build"
     },
@@ -839,13 +839,13 @@
     },
     {
       "source": "src/remote/browser/src/components/system-message.tsx",
-      "source_sha256": "e36e3f80cf46ac7dfac2e6a6fdf64667d3b9155efa7087ff584c877c477f40e1",
+      "source_sha256": "3238e168590e1c5f8d062be500ed69709cdc54ed936c97fa27b0c6faba402a79",
       "counterpart": "`internal/remote/browser/dist`",
       "status": "Shared browser build"
     },
     {
       "source": "src/remote/browser/src/components/thinking-block.tsx",
-      "source_sha256": "65249ee8e42aaa3966f8be072f3e46c7279297d73e6052ec939b7be8eae60e04",
+      "source_sha256": "afb2dd19b517bafa33d573437ea4a03d386001d77964a64876c2cfc36d6b0931",
       "counterpart": "`internal/remote/browser/dist`",
       "status": "Shared browser build"
     },
@@ -857,31 +857,31 @@
     },
     {
       "source": "src/remote/browser/src/components/todo-progress.tsx",
-      "source_sha256": "885671c6ff37780ccd3a2496166330dffb5bb9aa3795ba111c6d9dd477c20521",
+      "source_sha256": "b82e00be6b22b7f2a37d0cf0bda56a676bea58a1a486fcc748e8a9f6748229a7",
       "counterpart": "`internal/remote/browser/dist`",
       "status": "Shared browser build"
     },
     {
       "source": "src/remote/browser/src/components/tool-block.tsx",
-      "source_sha256": "65d313d09417bb7995f4d160d0272755f5b8cf3006bbf96f97cd012e71ffe3cd",
+      "source_sha256": "d33bc391797c2618af8df7d7dcd16c66c3841ebe159fe403ff40bb1ad8d4d4e2",
       "counterpart": "`internal/remote/browser/dist`",
       "status": "Shared browser build"
     },
     {
       "source": "src/remote/browser/src/components/user-message.tsx",
-      "source_sha256": "706aa796a5f463e6d35d91269a58131f4e427c56b01f42cde2e799d93751d2a2",
+      "source_sha256": "b51682805e443b0ed0def70c68b585c65af565cd86d01e0430bf8b5bb1b1bbc9",
       "counterpart": "`internal/remote/browser/dist`",
       "status": "Shared browser build"
     },
     {
       "source": "src/remote/browser/src/components/welcome.tsx",
-      "source_sha256": "a8ad5998bdc294cc63343256cb7e082837a159f6a1f8a3cbc4a4c3cb707d2045",
+      "source_sha256": "2391672a8229b9940eaddba347b89c6da4a7c30ab0644981e266c4a3297525ab",
       "counterpart": "`internal/remote/browser/dist`",
       "status": "Shared browser build"
     },
     {
       "source": "src/remote/browser/src/constants.ts",
-      "source_sha256": "a874a050d3a0f20610891cfd8d064a6e454e4266c71b76a7a5f34535ba36c65a",
+      "source_sha256": "dfee498c1d088bf15c5e870908a4299bf59e24b0a7674cf9b7ba61cc4a5e2868",
       "counterpart": "`internal/remote/browser/dist`",
       "status": "Shared browser build"
     },
@@ -911,7 +911,7 @@
     },
     {
       "source": "src/remote/browser/src/hooks/use-theme.ts",
-      "source_sha256": "6079fe0665a873d9147ed3d2872d86f27722e516369868e1000cb85e23d971e8",
+      "source_sha256": "0252510880fd05dafbb1bd12b23c2f647fac7a9f40e981faf60429c01761c45b",
       "counterpart": "`internal/remote/browser/dist`",
       "status": "Shared browser build"
     },
@@ -965,7 +965,7 @@
     },
     {
       "source": "src/remote/browser/src/main.css",
-      "source_sha256": "0bd4dbde411a60db10a0692a3bbe78eb9b73bbb78fb8f28e426bdf4865f8ce5e",
+      "source_sha256": "91b76f105c5b267ca258877ab3f04082a0056988d99e77bfec1debd38892fd03",
       "counterpart": "`internal/remote/browser/dist`",
       "status": "Shared browser build"
     },
@@ -1307,7 +1307,7 @@
     },
     {
       "source": "src/theme/constants.ts",
-      "source_sha256": "cf771cff0540d52bdb139cdf8e1f6433a21a55b340773550a1ea2b4f405705f5",
+      "source_sha256": "266273218eae96ada6a0a157797c03857b707ce4cb43d4ff3ba53c8dadefbbe2",
       "counterpart": "`internal/ui/theme.go`",
       "status": "Corrected"
     },
@@ -1319,8 +1319,8 @@
     },
     {
       "source": "src/theme/palettes.js",
-      "source_sha256": "9cbc242ee6ba27b9f637482dd06bb30e2e1023d57fd6613aab3fb12d9409c6e0",
-      "counterpart": "`internal/ui/theme.go`",
+      "source_sha256": "2f338a63a72d10a5c7962b56433db0ad67488080d5fb711b5fa39b85e8a8c17d",
+      "counterpart": "`internal/ui/theme_palettes.go`, `internal/ui/theme.go`",
       "status": "Corrected"
     },
     {
@@ -1649,8 +1649,8 @@
     },
     {
       "source": "src/ui/chat.tsx",
-      "source_sha256": "9d2e18e4626995063cbfe333181530f90cfe20b74422c7eaa9d473d36638a9f7",
-      "counterpart": "`internal/ui`",
+      "source_sha256": "5101bbe9f7e6a433622bcf0c5009b1cfcb6b279f501e87691d4baaab0c3a3474",
+      "counterpart": "`internal/ui/chat.go`",
       "status": "Reviewed"
     },
     {
@@ -1727,7 +1727,7 @@
     },
     {
       "source": "src/ui/markdown.ts",
-      "source_sha256": "f94c88a321f961b575c738bbbeff8830132f1c29a4ad3b826d26cf72b22e845a",
+      "source_sha256": "5f8b8e803f8f46009cec4b5685911d2e150e4ec4f51196e577f21c6c0c34bbd1",
       "counterpart": "`internal/ui/markdown.go`",
       "status": "Language-specific difference"
     },
@@ -1787,13 +1787,13 @@
     },
     {
       "source": "src/ui/selector-frame.tsx",
-      "source_sha256": "a051a49a9ec42300a7d79041ef048d5504b847ef5200b691159aa8240695fccc",
+      "source_sha256": "5bf1ea8d5f8709ed9c303d8f588b0f99bcffe7db28ce18a0e003e7a32c055751",
       "counterpart": "`internal/ui/selector_frame.go`",
       "status": "Corrected"
     },
     {
       "source": "src/ui/selector-layout.ts",
-      "source_sha256": "d6a9a6d55f30c31fc95b88951e93e2ea0ce6f708e7aa4e9f139ae4ec93cfef8c",
+      "source_sha256": "771579a86d75628fab4de431f313ca450f5f13984dabb2d01a6cc3488f65a7c9",
       "counterpart": "`internal/ui/selector_frame.go`",
       "status": "Corrected"
     },
@@ -1901,8 +1901,8 @@
     },
     {
       "source": "src/ui/tool-display.tsx",
-      "source_sha256": "434544c5084ef1e17ddc62bb948bb7cbaa396e6a81ee63fd26b2185a42a7dd68",
-      "counterpart": "`internal/ui`",
+      "source_sha256": "bfa03a61d5b9c241d62615b832a053d36d8236f97eaf80da23f1ffd468d86043",
+      "counterpart": "`internal/ui/tool_display.go`",
       "status": "Reviewed"
     },
     {
@@ -1991,8 +1991,8 @@
     },
     {
       "source": "src/ui/workflows-dialog.tsx",
-      "source_sha256": "e1edf53900c0242b14fb48bd9c5eb8bf2ffbe521e87cf2c30dccf8a520417d40",
-      "counterpart": "`internal/ui`",
+      "source_sha256": "94be1eebced6b668aec6adaa0b6b6871111758179a202fa42e2b21367770974b",
+      "counterpart": "`internal/ui/workflows_dialog.go`",
       "status": "Reviewed"
     },
     {

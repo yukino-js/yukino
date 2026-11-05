@@ -101,7 +101,7 @@ func (m Model) renderToolBlock(tb toolBlockInfo) string {
 	case "failed":
 		background, color, label = Theme.ToolErrorBg, Theme.Error, "✗ failed"
 	case "stopped":
-		background, color, label = Theme.ToolErrorBg, Theme.Warning, "– stopped"
+		background, color, label = Theme.ToolStoppedBg, Theme.Warning, "– stopped"
 	case "completed":
 		label = "✓ completed"
 	}
@@ -157,7 +157,7 @@ func (m Model) renderToolBlock(tb toolBlockInfo) string {
 		}
 		lines = append(lines, strings.Join(wrapTerminalTextOptions(preview, width, true, false), "\n"))
 	}
-	return "\n" + renderPanel(strings.Join(lines, "\n"), columns, padding, background, Theme.ToolOutput)
+	return "\n" + renderPanel("\n"+strings.Join(lines, "\n")+"\n", columns, padding, background, Theme.ToolOutput)
 }
 
 func renderPanel(text string, columns, padding int, background, foreground string) string {

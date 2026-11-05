@@ -14,6 +14,7 @@ type selectorChromeSpec struct {
 	title   bool
 	hint    bool
 	detail  bool
+	gap     bool
 	height  int
 }
 
@@ -26,6 +27,7 @@ func selectorChrome(rows int, subtitle bool) selectorChromeSpec {
 		title:   rows >= 2,
 		hint:    rows >= 3,
 		detail:  subtitle && rows >= 8,
+		gap:     rows >= 10,
 	}
 	if spec.borders {
 		spec.height += 2
@@ -37,6 +39,9 @@ func selectorChrome(rows int, subtitle bool) selectorChromeSpec {
 		spec.height++
 	}
 	if spec.detail {
+		spec.height++
+	}
+	if spec.gap {
 		spec.height++
 	}
 	return spec
@@ -93,7 +98,7 @@ func (m Model) renderSelectorFrame(p selectorFrameParams) string {
 	if p.rows <= 0 {
 		return ""
 	}
-	selectorTitleStyle := lipgloss.NewStyle().Bold(true).Foreground(accentColor)
+	selectorTitleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(Theme.CustomMessageLabel))
 	selectorSubtitleStyle := lipgloss.NewStyle().Foreground(mutedText)
 	selectorBorderStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(Theme.Border))
 	chrome := selectorChrome(p.rows, p.subtitle != "")
@@ -129,6 +134,9 @@ func (m Model) renderSelectorFrame(p selectorFrameParams) string {
 	}
 	if chrome.detail && p.subtitle != "" {
 		sb.WriteString(pad(selectorSubtitleStyle.Render(singleLine(p.subtitle))))
+		sb.WriteString("\n")
+	}
+	if chrome.gap {
 		sb.WriteString("\n")
 	}
 	lines := strings.Split(p.content, "\n")

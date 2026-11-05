@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"sync"
 
@@ -230,12 +231,22 @@ func (m Model) renderWorkflowsDialog() string {
 		agentIndex := min(m.workflowAgentCursor, max(0, len(run.Agents)-1))
 		subtitle = run.WorkflowName + " · " + run.Status + " · " + run.RunID
 		contentRows := max(0, rows-selectorChrome(rows, true).height)
+		roomy := contentRows >= 10
 		notices := boolColumn(run.Error != "") + boolColumn(m.workflowError != "") + boolColumn(m.workflowResuming) + boolColumn(len(run.Logs) > 0)
 		rowHeight := 1
 		if !wide && contentRows-3-notices >= 2 {
 			rowHeight = 2
 		}
-		count := max(1, (contentRows-3-notices)/rowHeight)
+		count := max(1, (contentRows-3-boolColumn(roomy)-notices)/rowHeight)
+		agentWidth := width
+		agentTextWidth := width
+		phaseWidth := 0
+		if wide {
+			phaseWidth = int(math.Round(float64(width) * .3))
+			agentWidth -= phaseWidth
+			// Ink measures fractional text widths upward before clipping to the rounded box.
+			agentTextWidth = int(math.Ceil(float64(width) * .7))
+		}
 		start := getListWindowStart(len(run.Agents), agentIndex, count)
 		phaseRows := count * rowHeight
 		phaseFocus := 0
@@ -268,11 +279,15 @@ func (m Model) renderWorkflowsDialog() string {
 			}
 		}
 		lines = append(lines, paint(workflowStatusIcon(run.Status)+" "+run.Status, workflowStatusColor(run.Status))+paint(fmt.Sprintf(" · %d/%d phases · %d agents", done, len(run.Phases), len(run.Agents)), Theme.Muted))
-		agentHeading := "Agents 0"
-		if len(run.Agents) > 0 {
-			agentHeading = fmt.Sprintf("Agents %d/%d", agentIndex+1, len(run.Agents))
+		if roomy {
+			lines = append(lines, "")
 		}
-		agentLines := []string{paint(agentHeading, Theme.CustomMessageLabel)}
+		agentCount := "0"
+		if len(run.Agents) > 0 {
+			agentCount = fmt.Sprintf("%d/%d", agentIndex+1, len(run.Agents))
+		}
+		agentHeading := paint("Agents ", Theme.CustomMessageLabel) + paint(agentCount, Theme.Dim)
+		agentLines := []string{ansiStyle(agentHeading, "\x1b[1m", "\x1b[22m")}
 		if len(run.Agents) == 0 {
 			agentLines = append(agentLines, paint("No agents yet", Theme.Dim))
 		}
@@ -294,27 +309,40 @@ func (m Model) renderWorkflowsDialog() string {
 				label = "agent"
 			}
 			name := fmt.Sprintf("#%d %s", a.ID, plainTerminalLine(label))
+			nameColor := Theme.Text
 			if i == agentIndex {
 				name = ansiStyle(name, "\x1b[1m", "\x1b[22m")
+				nameColor = Theme.Accent
 			}
-			line := paint(prefix, color) + paint(workflowStatusIcon(status)+" ", workflowStatusColor(status)) + paint(name, color)
+			line := paint(prefix, color) + paint(workflowStatusIcon(status)+" ", workflowStatusColor(status)) + paint(name, nameColor)
 			stats := fmt.Sprintf("%s · %d tokens · %d tools", status, a.TokenCount, a.ToolCount)
 			if rowHeight == 1 {
 				line += paint(" · "+stats, Theme.Muted)
 			}
+			line = truncateToWidth(truncateToWidth(line, agentTextWidth, "…"), agentWidth, "")
+			if i == agentIndex {
+				line = renderPanel(line, agentWidth, 0, Theme.SelectedBg, Theme.Text)
+			}
 			agentLines = append(agentLines, line)
 			if rowHeight == 2 {
-				agentLines = append(agentLines, paint(" "+stats, Theme.Muted))
+				line = paint(truncateToWidth(truncateToWidth(" "+stats, agentTextWidth, "…"), agentWidth, ""), Theme.Muted)
+				if i == agentIndex {
+					line = renderPanel(line, agentWidth, 0, Theme.SelectedBg, Theme.Muted)
+				}
+				agentLines = append(agentLines, line)
 			}
 		}
 		if wide {
-			phaseWidth := int(float64(width) * .3)
-			phaseLines := []string{paint("Phases", Theme.CustomMessageLabel)}
+			phaseLines := []string{ansiStyle(paint("Phases", Theme.CustomMessageLabel), "\x1b[1m", "\x1b[22m")}
 			if len(run.Phases) == 0 {
 				phaseLines = append(phaseLines, paint("No phases yet", Theme.Dim))
 			}
 			for _, phase := range run.Phases[phaseStart:min(len(run.Phases), phaseStart+phaseRows)] {
-				phaseLines = append(phaseLines, paint(workflowStatusIcon(phase.Status)+" ", workflowStatusColor(phase.Status))+paint(plainTerminalLine(phase.Title), Theme.Text))
+				color := Theme.Text
+				if phase.Status == "pending" {
+					color = Theme.Dim
+				}
+				phaseLines = append(phaseLines, paint(workflowStatusIcon(phase.Status)+" ", workflowStatusColor(phase.Status))+paint(plainTerminalLine(phase.Title), color))
 			}
 			for i := 0; i < max(len(agentLines), len(phaseLines)); i++ {
 				left, right := "", ""

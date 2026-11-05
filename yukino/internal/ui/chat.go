@@ -134,6 +134,9 @@ func (m Model) renderMessage(msg chatMessage) string {
 	padding := boolColumn(columns > 2)
 	width := columns - padding*2
 	panel := func(text, background, foreground string) string {
+		if background != "" {
+			text = "\n" + text + "\n"
+		}
 		return "\n" + renderPanel(text, columns, padding, background, foreground)
 	}
 	switch msg.role {
@@ -145,12 +148,14 @@ func (m Model) renderMessage(msg chatMessage) string {
 			}
 			text := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(Theme.CustomMessageLabel)).Render("[skill]") +
 				" " + plainTerminalLine(skill.Name) + " " + paint("(Ctrl+O to "+action+")", Theme.Muted)
+			text = strings.Join(wrapTerminalTextOptions(text, width, true, false), "\n")
 			if m.toolsExpanded {
 				text += "\n" + paint(expandTabs(plainTerminalText(skill.Directory)), Theme.Muted) + "\n" + renderMarkdownText(skill.Body, width, "user", false)
 			}
 			result := panel(text, Theme.CustomMessageBg, Theme.CustomMessageText)
 			if skill.Args != "" {
-				result += panel(expandTabs(plainTerminalText(skill.Args)), Theme.UserMessageBg, Theme.UserMessageText)
+				args := strings.Join(wrapTerminalTextOptions(expandTabs(plainTerminalText(skill.Args)), width, true, false), "\n")
+				result += "\n" + panel(args, Theme.UserMessageBg, Theme.UserMessageText)
 			}
 			return result
 		}

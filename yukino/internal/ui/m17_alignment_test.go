@@ -55,8 +55,8 @@ func TestM17ReferenceFixtures(t *testing.T) {
 			Rows     int
 			Subtitle bool
 			Expected struct {
-				Borders, Title, Hint, Detail bool
-				Height                       int
+				Borders, Title, Hint, Detail, Gap bool
+				Height                            int
 			}
 		}
 	}
@@ -67,7 +67,7 @@ func TestM17ReferenceFixtures(t *testing.T) {
 	if err = json.Unmarshal(data, &fixture); err != nil {
 		t.Fatal(err)
 	}
-	if fixture.Reference != "1847a71e03f90d0e5fc60a2a797c60af327b7750" {
+	if fixture.Reference != "e7c44d941e2d4a72e4f53664ece7ac94701d487e" {
 		t.Fatal("reference baseline changed")
 	}
 	for i, tc := range fixture.InputCases {
@@ -116,7 +116,7 @@ func TestM17ReferenceFixtures(t *testing.T) {
 	for _, tc := range fixture.ChromeCases {
 		got := selectorChrome(tc.Rows, tc.Subtitle)
 		want := tc.Expected
-		if got.borders != want.Borders || got.title != want.Title || got.hint != want.Hint || got.detail != want.Detail || got.height != want.Height {
+		if got.borders != want.Borders || got.title != want.Title || got.hint != want.Hint || got.detail != want.Detail || got.gap != want.Gap || got.height != want.Height {
 			t.Errorf("chrome(%d,%v) = %+v, reference %+v", tc.Rows, tc.Subtitle, got, want)
 		}
 	}

@@ -14,6 +14,7 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/agent"
 	"github.com/yukino-js/yukino/yukino/internal/permissions"
 	"github.com/yukino-js/yukino/yukino/internal/tools"
+	"github.com/yukino-js/yukino/yukino/internal/workflow"
 )
 
 func TestM18ReferenceRenderers(t *testing.T) {
@@ -248,6 +249,56 @@ func TestM18ReferenceComponents(t *testing.T) {
 					t.Errorf("%s height %d\ngot  %q\nwant %q", key, height, got, expected)
 				}
 			}
+		}
+	}
+}
+
+func TestMessageLayoutsMatchReference(t *testing.T) {
+	var fixture struct {
+		Messages []struct {
+			Width    int
+			Expanded bool
+			Message  struct{ Role, Content string }
+			Expected string
+		}
+		Run       workflow.WorkflowRun
+		Workflows []struct {
+			Width, Rows int
+			Expected    string
+		}
+	}
+	data, err := os.ReadFile("testdata/message-layout-reference.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	for i, c := range fixture.Messages {
+		m := newChatModel(t)
+		m.width, m.toolsExpanded = c.Width, c.Expanded
+		got := normalizeComponent(m.renderMessage(chatMessage{role: c.Message.Role, content: c.Message.Content}))
+		if got != c.Expected {
+			t.Errorf("message %d width %d expanded %v\ngot  %q\nwant %q", i, c.Width, c.Expanded, got, c.Expected)
+		}
+	}
+	for _, c := range fixture.Workflows {
+		m := newChatModel(t)
+		m.width = c.Width
+		for height := c.Rows; height <= c.Rows+20; height++ {
+			m.height = height
+			if m.dialogAvailableRows() == c.Rows {
+				break
+			}
+		}
+		if m.dialogAvailableRows() != c.Rows {
+			t.Fatalf("cannot allocate %d dialog rows", c.Rows)
+		}
+		service := workflow.AttachWorkflow(workflow.WorkflowServiceOptions{WorkflowBackendOptions: workflow.WorkflowBackendOptions{Registry: m.registry}})
+		service.Store.Set(&fixture.Run)
+		got := normalizeComponent(m.renderWorkflowsDialog())
+		if got != c.Expected {
+			t.Errorf("workflow width %d rows %d\ngot  %q\nwant %q", c.Width, c.Rows, got, c.Expected)
 		}
 	}
 }

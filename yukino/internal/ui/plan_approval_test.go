@@ -194,10 +194,10 @@ func TestSelectorFrameScrollHysteresis(t *testing.T) {
 		focusHeight: 1,
 		scrollKey:   "test",
 	}
-	// rows=12 → borders+title+hint chrome (4) → limit 8.
+	// rows=12 → borders+title+hint+gap chrome (5) → limit 7.
 	rendered := m.renderSelectorFrame(p)
 	if !strings.Contains(rendered, " l0") || strings.Contains(rendered, " l8") {
-		t.Fatalf("initial window must be l0..l7:\n%s", rendered)
+		t.Fatalf("initial window must be l0..l6:\n%s", rendered)
 	}
 	p.focusRow = 8
 	rendered = m.renderSelectorFrame(p)
