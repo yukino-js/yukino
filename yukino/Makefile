@@ -69,7 +69,7 @@ fmt-check:
 		exit 1; \
 	fi
 
-check: fmt-check vet test-race check-scripts
+check: fmt-check vet test-race check-scripts inventory
 
 .PHONY: inventory inventory-write check-terminal check-scripts
 inventory:

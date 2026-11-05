@@ -1,6 +1,13 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  globSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { parseArgs, isDeepStrictEqual } from "node:util";
@@ -23,26 +30,83 @@ function files(directory) {
   });
 }
 
-function inventory(reference) {
-  const entries = readFileSync(join(project, "ALIGNMENT.md"), "utf8")
+function ledgerRows(markdown) {
+  return markdown
     .split(/\r?\n/u)
     .filter((line) => line.startsWith("| `src/"))
     .map((line) => {
-      const fields = line.split(" | ");
-      const source = fields[0].split("`")[1];
-      const path = join(reference, source);
-      if (!statSync(path).isFile()) {
-        throw new Error(`Missing reference file: ${source}`);
-      }
-      return {
-        source,
-        source_sha256: createHash("sha256")
-          .update(readFileSync(path))
-          .digest("hex"),
-        counterpart: fields[1],
-        status: fields[2],
-      };
+      const cells = line.split("|");
+      if (cells[0].trim() === "") cells.shift();
+      if (cells.length && cells[cells.length - 1].trim() === "") cells.pop();
+      const [sourceCell, counterpart, status] = cells.map((cell) =>
+        cell.trim(),
+      );
+      const source = sourceCell.split("`")[1];
+      if (!source || !counterpart || !status)
+        throw new Error(`Malformed ledger row: ${line}`);
+      return { source, counterpart, status };
     });
+}
+
+function checkCounterparts(entries) {
+  for (const { source, counterpart } of entries) {
+    const paths = [...counterpart.matchAll(/`([^`]+)`/gu)].map(
+      (match) => match[1],
+    );
+    if (paths.length === 0)
+      throw new Error(`Ledger row for ${source} has no counterpart path`);
+    for (const target of paths) {
+      const found = target.includes("*")
+        ? globSync(target, { cwd: project }).length > 0
+        : existsSync(join(project, target));
+      if (!found)
+        throw new Error(`Missing counterpart for ${source}: ${target}`);
+    }
+  }
+}
+
+const STATUSES = [
+  "Corrected",
+  "Language-specific difference",
+  "Partially aligned",
+  "Pending review",
+  "Reviewed",
+  "Shared browser build",
+  "Synchronized artifact",
+];
+
+function inventory(reference) {
+  const dirty = git(reference, "status", "--porcelain", "--", "src").trim();
+  if (dirty)
+    throw new Error(
+      `Reference src tree is dirty; commit or restore it before inventorying:\n${dirty}`,
+    );
+  const referenceCommit = git(
+    reference,
+    "log",
+    "-1",
+    "--format=%H",
+    "--",
+    "src",
+  ).trim();
+  if (!referenceCommit)
+    throw new Error("Reference repository has no commit touching src");
+  const entries = ledgerRows(
+    readFileSync(join(project, "ALIGNMENT.md"), "utf8"),
+  ).map(({ source, counterpart, status }) => {
+    const path = join(reference, source);
+    if (!statSync(path).isFile()) {
+      throw new Error(`Missing reference file: ${source}`);
+    }
+    return {
+      source,
+      source_sha256: createHash("sha256")
+        .update(readFileSync(path))
+        .digest("hex"),
+      counterpart,
+      status,
+    };
+  });
   const tracked = git(reference, "ls-files", "-z", "src")
     .split("\0")
     .filter(Boolean);
@@ -60,6 +124,7 @@ function inventory(reference) {
       `Inventory mismatch: missing=${JSON.stringify(missing)}, extra=${JSON.stringify(extra)}`,
     );
   }
+  checkCounterparts(entries);
   for (const path of built) {
     const local = join(
       project,
@@ -81,10 +146,14 @@ function inventory(reference) {
   if (!isDeepStrictEqual(localArtifacts, referenceArtifacts)) {
     throw new Error("Browser artifact file sets differ");
   }
-  const counts = {};
-  for (const { status } of entries) counts[status] = (counts[status] ?? 0) + 1;
+  const counts = Object.fromEntries(STATUSES.map((status) => [status, 0]));
+  for (const { status } of entries) {
+    if (!(status in counts))
+      throw new Error(`Unknown ledger status: ${status}`);
+    counts[status] += 1;
+  }
   return {
-    reference_commit: git(reference, "rev-parse", "HEAD").trim(),
+    reference_commit: referenceCommit,
     counts: Object.fromEntries(
       Object.entries(counts).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
     ),
@@ -112,7 +181,8 @@ try {
     const recorded = JSON.parse(readFileSync(snapshot, "utf8"));
     if (
       !isDeepStrictEqual(recorded.files, result.files) ||
-      !isDeepStrictEqual(recorded.counts, result.counts)
+      !isDeepStrictEqual(recorded.counts, result.counts) ||
+      recorded.reference_commit !== result.reference_commit
     ) {
       const previous = new Map(
         recorded.files.map((file) => [file.source, file]),
@@ -123,6 +193,10 @@ try {
           (path) => !isDeepStrictEqual(previous.get(path), current.get(path)),
         )
         .sort();
+      if (recorded.reference_commit !== result.reference_commit)
+        changed.push(
+          `reference_commit ${recorded.reference_commit} -> ${result.reference_commit}`,
+        );
       throw new Error(
         `Reference hashes or ledger changed: ${changed.join(", ") || "status counts"}; compare the changed files before refreshing the inventory`,
       );

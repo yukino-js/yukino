@@ -215,7 +215,7 @@ for (const message of messages)
 const result = {
   reference_commit: execFileSync(
     "git",
-    ["-C", reference, "rev-parse", "HEAD"],
+    ["-C", reference, "log", "-1", "--format=%H", "--", "src"],
     { encoding: "utf8" },
   ).trim(),
   source_hashes: Object.fromEntries(
