@@ -1,7 +1,8 @@
 {
   "reference_commit": "e7c44d941e2d4a72e4f53664ece7ac94701d487e",
+  "reference_version": "0.0.20",
   "counts": {
-    "Corrected": 272,
+    "Corrected": 273,
     "Language-specific difference": 9,
     "Partially aligned": 0,
     "Pending review": 0,
@@ -10,6 +11,12 @@
     "Synchronized artifact": 7
   },
   "files": [
+    {
+      "source": "README.md",
+      "source_sha256": "28c4f6e1dc8ae45d9aafdca0d2ea707a8b1264cd574af97d18f5b7d095c24d00",
+      "counterpart": "`README.md`",
+      "status": "Corrected"
+    },
     {
       "source": "src/a2a/card.ts",
       "source_sha256": "0e2f738fd1adb97593d60377311029ed29fb2a4657e125825a30dbf4ff553044",

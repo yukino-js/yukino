@@ -33,7 +33,7 @@ function files(directory) {
 function ledgerRows(markdown) {
   return markdown
     .split(/\r?\n/u)
-    .filter((line) => line.startsWith("| `src/"))
+    .filter((line) => line.startsWith("| `"))
     .map((line) => {
       const cells = line.split("|");
       if (cells[0].trim() === "") cells.shift();
@@ -75,6 +75,26 @@ const STATUSES = [
   "Synchronized artifact",
 ];
 
+function referenceVersion(reference) {
+  const pkg = JSON.parse(readFileSync(join(reference, "package.json"), "utf8"));
+  if (typeof pkg.version !== "string" || pkg.version === "")
+    throw new Error("Reference package.json has no version");
+  return pkg.version;
+}
+
+function localVersion() {
+  const source = readFileSync(
+    join(project, "internal/version/version.go"),
+    "utf8",
+  );
+  const match = /var Version = "([^"]*)"/u.exec(source);
+  if (!match)
+    throw new Error(
+      'internal/version/version.go has no `var Version = "..."` default',
+    );
+  return match[1];
+}
+
 function inventory(reference) {
   const dirty = git(reference, "status", "--porcelain", "--", "src").trim();
   if (dirty)
@@ -91,6 +111,12 @@ function inventory(reference) {
   ).trim();
   if (!referenceCommit)
     throw new Error("Reference repository has no commit touching src");
+  const version = referenceVersion(reference);
+  const goVersion = localVersion();
+  if (version !== goVersion)
+    throw new Error(
+      `Version drift: reference package.json ${version} != internal/version/version.go ${goVersion}; align the Go default with the reference version`,
+    );
   const entries = ledgerRows(
     readFileSync(join(project, "ALIGNMENT.md"), "utf8"),
   ).map(({ source, counterpart, status }) => {
@@ -116,7 +142,7 @@ function inventory(reference) {
   const recorded = new Set(entries.map((entry) => entry.source));
   if (recorded.size !== entries.length)
     throw new Error("Duplicate ledger rows");
-  const expected = new Set([...tracked, ...built]);
+  const expected = new Set([...tracked, ...built, "README.md"]);
   const missing = [...expected].filter((path) => !recorded.has(path)).sort();
   const extra = [...recorded].filter((path) => !expected.has(path)).sort();
   if (missing.length || extra.length) {
@@ -154,6 +180,7 @@ function inventory(reference) {
   }
   return {
     reference_commit: referenceCommit,
+    reference_version: version,
     counts: Object.fromEntries(
       Object.entries(counts).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
     ),
@@ -182,7 +209,8 @@ try {
     if (
       !isDeepStrictEqual(recorded.files, result.files) ||
       !isDeepStrictEqual(recorded.counts, result.counts) ||
-      recorded.reference_commit !== result.reference_commit
+      recorded.reference_commit !== result.reference_commit ||
+      recorded.reference_version !== result.reference_version
     ) {
       const previous = new Map(
         recorded.files.map((file) => [file.source, file]),
@@ -197,6 +225,10 @@ try {
         changed.push(
           `reference_commit ${recorded.reference_commit} -> ${result.reference_commit}`,
         );
+      if (recorded.reference_version !== result.reference_version)
+        changed.push(
+          `reference_version ${recorded.reference_version} -> ${result.reference_version}`,
+        );
       throw new Error(
         `Reference hashes or ledger changed: ${changed.join(", ") || "status counts"}; compare the changed files before refreshing the inventory`,
       );
@@ -207,6 +239,7 @@ try {
       files: result.files.length,
       counts: result.counts,
       reference_commit: result.reference_commit,
+      reference_version: result.reference_version,
     }),
   );
 } catch (error) {

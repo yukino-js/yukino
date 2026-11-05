@@ -26,6 +26,17 @@ test("inventory checks content independently of unrelated commits", (t) => {
     mkdirSync(dir, { recursive: true });
   const source = join(reference, "src/main.ts");
   writeFileSync(source, "export const value = 1;\n");
+  writeFileSync(join(reference, "README.md"), "# Reference\n");
+  writeFileSync(
+    join(reference, "package.json"),
+    JSON.stringify({ version: "1.2.3" }) + "\n",
+  );
+  writeFileSync(join(project, "README.md"), "# Port\n");
+  mkdirSync(join(project, "internal/version"), { recursive: true });
+  writeFileSync(
+    join(project, "internal/version/version.go"),
+    'package version\n\nvar Version = "1.2.3"\n',
+  );
   const browser = "<html>browser</html>\n";
   const chunk = "export const chunk = 1;\n";
   writeFileSync(join(reference, "src/remote/browser/dist/index.html"), browser);
@@ -43,6 +54,7 @@ test("inventory checks content independently of unrelated commits", (t) => {
   );
   writeFileSync(join(project, "cmd/main.go"), "package main\n");
   const ledger = [
+    "| `README.md` | `README.md` | Corrected | ported |",
     "| `src/main.ts` | `cmd/main.go` | Corrected | audited |",
     "| `src/remote/browser/dist/index.html` | `internal/remote/browser/dist/index.html` | Synchronized artifact | delivered |",
     "| `src/remote/browser/dist/static/app.js` | `internal/remote/browser/dist/static/*.js` | Synchronized artifact | delivered |",
@@ -85,6 +97,7 @@ test("inventory checks content independently of unrelated commits", (t) => {
   writeFileSync(
     join(project, "ALIGNMENT.md"),
     [
+      "| `README.md`                                      | `README.md`        | Corrected             | ported |",
       "| `src/main.ts`                                   | `cmd/main.go`      | Corrected             | audited |",
       "| `src/remote/browser/dist/index.html`           | `internal/remote/browser/dist/index.html` | Synchronized artifact | delivered |",
       "| `src/remote/browser/dist/static/app.js`        | `internal/remote/browser/dist/static/*.js` | Synchronized artifact | delivered |",
@@ -93,8 +106,9 @@ test("inventory checks content independently of unrelated commits", (t) => {
   assert.equal(run().status, 0);
   writeFileSync(join(project, "ALIGNMENT.md"), ledger);
 
-  writeFileSync(join(reference, "README.md"), "unrelated commit\n");
-  git("add", "README.md");
+  mkdirSync(join(reference, "docs"), { recursive: true });
+  writeFileSync(join(reference, "docs/notes.md"), "unrelated commit\n");
+  git("add", "docs/notes.md");
   commit();
   assert.equal(run().status, 0);
   assert.equal(run("--write").status, 0);
@@ -102,6 +116,33 @@ test("inventory checks content independently of unrelated commits", (t) => {
     readFileSync(join(project, "alignment-inventory.json"), "utf8"),
     snapshot,
   );
+
+  // A tracked README change fails until the ledger snapshot is refreshed.
+  writeFileSync(join(reference, "README.md"), "# Reference v2\n");
+  git("add", "README.md");
+  commit();
+  let readmeResult = run();
+  assert.equal(readmeResult.status, 1);
+  assert.match(readmeResult.stderr, /README\.md/);
+  assert.equal(run("--write").status, 0);
+  assert.equal(run().status, 0);
+
+  // Version drift between the reference package and the Go default fails.
+  writeFileSync(
+    join(reference, "package.json"),
+    JSON.stringify({ version: "1.2.4" }) + "\n",
+  );
+  git("add", "package.json");
+  commit();
+  let versionResult = run();
+  assert.equal(versionResult.status, 1);
+  assert.match(versionResult.stderr, /Version drift/);
+  writeFileSync(
+    join(project, "internal/version/version.go"),
+    'package version\n\nvar Version = "1.2.4"\n',
+  );
+  assert.equal(run("--write").status, 0);
+  assert.equal(run().status, 0);
 
   writeFileSync(source, "export const value = 2;\n");
   let result = run();
@@ -127,7 +168,10 @@ test("inventory checks content independently of unrelated commits", (t) => {
 
   writeFileSync(
     join(project, "ALIGNMENT.md"),
-    ledger.replace("Corrected", "Partially aligned"),
+    ledger.replace(
+      "| Corrected | audited |",
+      "| Partially aligned | audited |",
+    ),
   );
   result = run();
   assert.equal(result.status, 1);
