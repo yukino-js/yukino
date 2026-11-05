@@ -165,6 +165,7 @@ type Server struct {
 	registry     *tools.Registry
 	defaultTools tools.DefaultTools
 	client       llm.Client
+	provider     *config.ProviderConfig
 	sessionID    string
 	fileHistory  *file_history.History
 	goalManager  *goal.GoalManager
@@ -278,6 +279,9 @@ func NewServer(providers []config.ProviderConfig, mcpConfigs []config.MCPServerC
 }
 
 func (s *Server) activeProvider() *config.ProviderConfig {
+	if s.provider != nil {
+		return s.provider
+	}
 	if len(s.providers) == 0 {
 		return nil
 	}
@@ -375,11 +379,12 @@ func (s *Server) mcpAppHandle() mcpAppHandle {
 func (s *Server) handleMcpAppRequest(parent context.Context, ws *websocket.Conn, request mcp.McpAppRequest) {
 	ctx, cancel := context.WithTimeout(parent, PendingRequestTimeoutMS*time.Millisecond)
 	defer cancel()
-	if s.mcpApps == nil || s.ag == nil {
+	handle := s.mcpAppHandle()
+	if s.mcpApps == nil || handle.Checker == nil {
 		s.sendTo(ws, wsMessage{Type: "mcp_app_response", Data: map[string]any{"requestId": request.RequestID, "error": MCPAppAgentDisconnected}})
 		return
 	}
-	result, err := s.mcpApps.Request(ctx, request, s.mcpAppHandle(), s.requestPermissionViaWS)
+	result, err := s.mcpApps.Request(ctx, request, handle, s.requestPermissionViaWS)
 	if err != nil {
 		s.sendTo(ws, wsMessage{Type: "mcp_app_response", Data: map[string]any{"requestId": request.RequestID, "error": err.Error()}})
 		return
@@ -388,13 +393,18 @@ func (s *Server) handleMcpAppRequest(parent context.Context, ws *websocket.Conn,
 }
 
 func (s *Server) sendTo(ws *websocket.Conn, msg wsMessage) {
-	data, err := json.Marshal(msg)
-	if err != nil {
-		return
-	}
+	s.sendBatchTo(ws, []wsMessage{msg})
+}
+
+func (s *Server) sendBatchTo(ws *websocket.Conn, messages []wsMessage) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	_ = ws.WriteMessage(websocket.TextMessage, data)
+	for _, message := range messages {
+		data, err := json.Marshal(message)
+		if err == nil {
+			_ = ws.WriteMessage(websocket.TextMessage, data)
+		}
+	}
 }
 
 // Stop tears the server down: closes the HTTP/WS listener and disposes the
@@ -491,9 +501,9 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	// Per-connection bootstrap: every message below is unicasted to the newly
 	// connected client (mirrors the reference wss.on("connection") handler),
 	// not broadcast, so a late joiner syncs without disturbing other clients.
-	for _, message := range s.bootstrapSnapshot() {
-		s.sendTo(conn, message)
-	}
+	s.snapshotMu.RLock()
+	s.sendBatchTo(conn, s.bootstrapMessages())
+	s.snapshotMu.RUnlock()
 	s.planMu.Lock()
 	planID := s.planApprovalID
 	s.planMu.Unlock()
@@ -645,10 +655,12 @@ func (s *Server) initAgent() error {
 	if err := hooks.Validate(s.hookCfgs); err != nil {
 		return err
 	}
-	p := s.activeProvider()
-	if p == nil {
+	if len(s.providers) == 0 {
 		return errors.New("No providers configured")
 	}
+	configured := config.ResolveDefaultProvider(s.providers, s.defaultProvider)
+	provider := *configured
+	p := &provider
 	wd, _ := os.Getwd()
 	if err := history.RegisterProject(wd); err != nil {
 		return err
@@ -745,6 +757,7 @@ func (s *Server) initAgent() error {
 	ag.CoordinatorActiveFn = teams.CoordinatorActiveFn(s.enableCoordinatorMode)
 
 	s.ag = ag
+	s.provider = p
 	s.teamMgr.SetPermissionChecker(ag.Checker)
 	if bash, ok := s.registry.Get("Bash").(*tools.BashTool); ok {
 		ag.Checker.SandboxEnabled = bash.SandboxRequired
@@ -895,9 +908,12 @@ func (s *Server) handleClaimedUserMessage(ctx context.Context, content string, s
 	if isCommand && (name == "login" || name == "provider") {
 		if submittedInput == nil {
 			var sessionID *string
+			s.snapshotMu.RLock()
 			if s.ag != nil {
-				sessionID = &s.sessionID
+				id := s.sessionID
+				sessionID = &id
 			}
+			s.snapshotMu.RUnlock()
 			commandName := "login"
 			if _, err := history.RecordInput(history.InputOptions{Cwd: wd, SessionID: sessionID, Source: "ws", Text: content, CommandName: &commandName}); err != nil {
 				s.send(wsMessage{Type: "error", Data: map[string]string{"message": err.Error()}})
@@ -1152,7 +1168,7 @@ func (s *Server) runSlashCommand(runCtx context.Context, input string, entry his
 			s.send(wsMessage{Type: "connected", Data: map[string]any{
 				"session":   s.sessionID,
 				"cwd":       mustGetwd(),
-				"streaming": s.streaming,
+				"streaming": s.isStreaming(),
 			}})
 			s.send(wsMessage{Type: "clear", Data: nil})
 
@@ -1431,12 +1447,11 @@ func (s *Server) handleResume(args string) {
 		}
 	}
 	s.stopMemoryTasks()
-	if err := s.restoreSession(targetID); err != nil {
+	replay := session.RebuildFromSession(msgs, false)
+	if err := s.restoreSession(targetID, replay); err != nil {
 		s.send(wsMessage{Type: "error", Data: map[string]string{"message": err.Error()}})
 		return
 	}
-
-	replay := session.RebuildFromSession(msgs, false)
 
 	s.send(wsMessage{Type: "connected", Data: map[string]any{
 		"session":   targetID,
@@ -1445,7 +1460,6 @@ func (s *Server) handleResume(args string) {
 	}})
 	s.send(wsMessage{Type: "clear", Data: nil})
 	for _, msg := range replay {
-		s.conv.AppendMessages([]conversation.Message{msg})
 		text := msg.ContentText()
 		if text == "" {
 			continue
@@ -1462,16 +1476,7 @@ func (s *Server) handleResume(args string) {
 	s.send(wsMessage{Type: "command_done", Data: nil})
 }
 
-// restoreSession mirrors restoreRemoteSession in src/remote/session-state.ts:
-// it rebinds every piece of per-session state to targetID so a resumed session
-// starts clean instead of inheriting the previous session's caches, skills, and
-// tool restrictions.
-// rotateSessionState rebinds every piece of per-session state to sessionID. It
-// is the shared core of restoreSession (resume) and clearConversation (clear),
-// mirroring the reference restoreRemoteSession/clearConversation resets.
 func (s *Server) rotateSessionState(sessionID string) error {
-	s.snapshotMu.Lock()
-	defer s.snapshotMu.Unlock()
 	if s.taskMgr != nil {
 		if err := s.taskMgr.UseSession(sessionID); err != nil {
 			return err
@@ -1511,10 +1516,14 @@ func (s *Server) rotateSessionState(sessionID string) error {
 // restoreSession mirrors restoreRemoteSession in src/remote/session-state.ts: it
 // rebinds per-session state to a resumed session so it starts clean instead of
 // inheriting the previous session's caches, skills, and tool restrictions.
-func (s *Server) restoreSession(targetID string) error {
+func (s *Server) restoreSession(targetID string, replay []conversation.Message) error {
+	s.snapshotMu.Lock()
 	if err := s.rotateSessionState(targetID); err != nil {
+		s.snapshotMu.Unlock()
 		return err
 	}
+	s.conv.AppendMessages(replay)
+	s.snapshotMu.Unlock()
 	s.clearSubagents()
 	return nil
 }
@@ -1524,6 +1533,8 @@ func (s *Server) restoreSession(targetID string) error {
 // /resume and the JSONL no longer see the pre-clear history.
 func (s *Server) clearConversation() error {
 	s.stopMemoryTasks()
+	s.snapshotMu.Lock()
+	defer s.snapshotMu.Unlock()
 	if err := s.rotateSessionState(session.NewID()); err != nil {
 		return err
 	}
@@ -1935,6 +1946,8 @@ func (s *Server) cancelActiveRun() {
 // broadcastRewindList mirrors RemoteServer.broadcastRewindList: it sends the
 // checkpoint list, or a notice when there is nothing to rewind to.
 func (s *Server) broadcastRewindList() {
+	s.snapshotMu.RLock()
+	defer s.snapshotMu.RUnlock()
 	if s.ag == nil || s.fileHistory == nil {
 		return
 	}
@@ -2412,6 +2425,7 @@ func (s *Server) runNotificationTurn() {
 // OS sandbox at runtime (terminal /sandbox parity) or reports its status.
 func (s *Server) handleSandboxCommand(args string) {
 	s.snapshotMu.Lock()
+	args = strings.TrimSpace(args)
 	changed := args == "off" || args == "auto" || args == "manual"
 	defer func() {
 		s.snapshotMu.Unlock()
@@ -2589,7 +2603,10 @@ func (s *Server) handleImageUpload(conn *websocket.Conn, upload imageUploadData)
 	case images.MediaTypeGIF:
 		ext = ".gif"
 	}
-	dir, err := file_history.FileHistoryDir(s.sessionID)
+	s.snapshotMu.RLock()
+	sessionID := s.sessionID
+	s.snapshotMu.RUnlock()
+	dir, err := file_history.FileHistoryDir(sessionID)
 	if err != nil {
 		fail(err.Error())
 		return
@@ -2676,12 +2693,15 @@ func (s *Server) handleSteeringMessage(content string, submittedInput *history.I
 		return
 	}
 	wd := mustGetwd()
-	if s.ag != nil {
-		wd = s.ag.CurrentCwd()
+	s.snapshotMu.RLock()
+	ag, sessionID := s.ag, s.sessionID
+	if ag != nil {
+		wd = ag.CurrentCwd()
 	}
-	if matches := goalControlPattern.FindStringSubmatch(text); matches != nil && s.ag != nil {
+	s.snapshotMu.RUnlock()
+	if matches := goalControlPattern.FindStringSubmatch(text); matches != nil && ag != nil {
 		cmdName := "goal"
-		_, _ = history.RecordInput(history.InputOptions{Text: text, Cwd: wd, SessionID: &s.sessionID, Source: "ws", CommandName: &cmdName})
+		_, _ = history.RecordInput(history.InputOptions{Text: text, Cwd: wd, SessionID: &sessionID, Source: "ws", CommandName: &cmdName})
 		result := goal.HandleGoalCommand(s.goal(), matches[1])
 		s.send(wsMessage{Type: "system", Data: map[string]string{"message": result.Message}})
 		return
@@ -2696,7 +2716,7 @@ func (s *Server) handleSteeringMessage(content string, submittedInput *history.I
 		s.enqueueFollowUp(text, nil)
 		return
 	}
-	if s.ag == nil {
+	if ag == nil {
 		s.enqueueFollowUp(text, submittedInput)
 		return
 	}
@@ -2705,7 +2725,7 @@ func (s *Server) handleSteeringMessage(content string, submittedInput *history.I
 		input = *submittedInput
 	} else {
 		var err error
-		input, err = history.RecordInput(history.InputOptions{Text: text, Cwd: wd, SessionID: &s.sessionID, Source: "ws"})
+		input, err = history.RecordInput(history.InputOptions{Text: text, Cwd: wd, SessionID: &sessionID, Source: "ws"})
 		if err != nil {
 			s.enqueueFollowUp(text, nil)
 			return
@@ -2897,6 +2917,7 @@ func (s *Server) applyModel(modelID string) {
 		s.send(wsMessage{Type: "error", Data: map[string]string{"message": fmt.Sprintf("Failed to switch model: %s", err)}})
 		return
 	}
+	s.provider = &updated
 	for i := range s.providers {
 		if s.providers[i].BaseURL == updated.BaseURL {
 			s.providers[i].Model = updated.Model
@@ -2937,6 +2958,7 @@ func (s *Server) applyProviderSwitch(index int) {
 		s.send(wsMessage{Type: "error", Data: map[string]string{"message": fmt.Sprintf("Failed to switch provider: %s", err)}})
 		return
 	}
+	s.provider = &provider
 	s.defaultProvider = index
 	s.snapshotMu.Unlock()
 	saved := config.PersistDefaultProvider(index) == nil

@@ -60,9 +60,8 @@ type Agent struct {
 	skillInitMu         sync.Mutex
 	skills              *skillState
 	announcedDeferred   []string
-	recallMu            sync.Mutex
-	recentToolNames     []string
-	surfacedMemPaths    map[string]struct{}
+	recallInitMu        sync.Mutex
+	recall              *recallState
 	steeringMu          sync.Mutex
 	steeringQueue       []SteeringMessage
 	// pendingFollowUps is the depth of the UI follow-up queue, written by the UI
@@ -187,50 +186,76 @@ type RecallResult struct {
 
 const maxRecentTools = 10
 
+type recallState struct {
+	mu               sync.Mutex
+	recentToolNames  []string
+	surfacedMemPaths map[string]struct{}
+}
+
+func (a *Agent) recallState() *recallState {
+	a.recallInitMu.Lock()
+	defer a.recallInitMu.Unlock()
+	if a.recall == nil {
+		a.recall = &recallState{}
+	}
+	return a.recall
+}
+
+func (a *Agent) ShareRecall(parent *Agent) {
+	state := parent.recallState()
+	a.recallInitMu.Lock()
+	a.recall = state
+	a.recallInitMu.Unlock()
+}
+
 func (a *Agent) RecordRecentTool(name string) {
 	if name == "" {
 		return
 	}
-	a.recallMu.Lock()
-	defer a.recallMu.Unlock()
-	if i := slices.Index(a.recentToolNames, name); i >= 0 {
-		a.recentToolNames = slices.Delete(a.recentToolNames, i, i+1)
+	state := a.recallState()
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if i := slices.Index(state.recentToolNames, name); i >= 0 {
+		state.recentToolNames = slices.Delete(state.recentToolNames, i, i+1)
 	}
-	a.recentToolNames = append(a.recentToolNames, name)
-	if len(a.recentToolNames) > maxRecentTools {
-		a.recentToolNames = a.recentToolNames[1:]
+	state.recentToolNames = append(state.recentToolNames, name)
+	if len(state.recentToolNames) > maxRecentTools {
+		state.recentToolNames = state.recentToolNames[1:]
 	}
 }
 
 func (a *Agent) RecallHints() ([]string, map[string]struct{}) {
-	a.recallMu.Lock()
-	defer a.recallMu.Unlock()
-	tools := slices.Clone(a.recentToolNames)
-	surfaced := make(map[string]struct{}, len(a.surfacedMemPaths))
-	for p := range a.surfacedMemPaths {
+	state := a.recallState()
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	tools := slices.Clone(state.recentToolNames)
+	surfaced := make(map[string]struct{}, len(state.surfacedMemPaths))
+	for p := range state.surfacedMemPaths {
 		surfaced[p] = struct{}{}
 	}
 	return tools, surfaced
 }
 
 func (a *Agent) ResetRecall() {
-	a.recallMu.Lock()
-	defer a.recallMu.Unlock()
-	a.recentToolNames = nil
-	a.surfacedMemPaths = nil
+	state := a.recallState()
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	state.recentToolNames = nil
+	state.surfacedMemPaths = nil
 }
 
 func (a *Agent) MarkMemoriesSurfaced(paths []string) {
 	if len(paths) == 0 {
 		return
 	}
-	a.recallMu.Lock()
-	defer a.recallMu.Unlock()
-	if a.surfacedMemPaths == nil {
-		a.surfacedMemPaths = make(map[string]struct{}, len(paths))
+	state := a.recallState()
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.surfacedMemPaths == nil {
+		state.surfacedMemPaths = make(map[string]struct{}, len(paths))
 	}
 	for _, p := range paths {
-		a.surfacedMemPaths[p] = struct{}{}
+		state.surfacedMemPaths[p] = struct{}{}
 	}
 }
 

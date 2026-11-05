@@ -15,7 +15,7 @@ func (m Model) checkUpdate() tea.Cmd {
 	return func() tea.Msg { return updateNoticeMsg{update.CheckForUpdate(ctx)} }
 }
 func (m *Model) wakeNotifications() tea.Cmd {
-	if m.ag == nil || m.foregroundBusy() || m.commandBusy || m.modalActive() || len(m.pendingMessages) > 0 {
+	if m.ag == nil || m.foregroundBusy() || m.commandBusy || m.providerSwitching || m.modalActive() || len(m.pendingMessages) > 0 {
 		return nil
 	}
 	pending := m.taskMgr != nil && m.taskMgr.HasNotifications()

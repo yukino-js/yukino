@@ -10,7 +10,6 @@ import (
 
 	"github.com/yukino-js/yukino/yukino/internal/config"
 	"github.com/yukino-js/yukino/yukino/internal/llm"
-	"github.com/yukino-js/yukino/yukino/internal/mcp"
 )
 
 // Port of src/ui/model-select.tsx.
@@ -251,38 +250,7 @@ func (m Model) applyModelSelection(modelID string) (tea.Model, tea.Cmd) {
 	}
 	updated := *m.selectedProvider
 	updated.Model = nextModel
-	wd := m.getWorkDir()
-	client, err := llm.NewClient(&updated, providerSystemPrompt(&updated, wd))
-	if err != nil {
-		m.activityError = fmt.Sprintf("Failed to switch model: %s", err)
-		m.modelDialog = false
-		return m, nil
-	}
-	m.stopMemoryTasks()
-	m.selectedProvider = &updated
-	for i := range m.providers {
-		if m.providers[i].BaseURL == updated.BaseURL {
-			m.providers[i].Model = updated.Model
-			m.selectedProvider = &m.providers[i]
-			break
-		}
-	}
-	m.bindClient(client, m.selectedProvider)
-	mcp.DecideAndApply(m.registry, updated.BaseURL, updated.Protocol, config.GetContextWindow(&updated), m.MCPLoading)
-	m.modelDialog = false
-
-	// A save failure must not undo the runtime switch.
-	saved := true
-	if err := config.PersistModel(updated.BaseURL, updated.Model); err != nil {
-		m.activityError = fmt.Sprintf("Model switched but saving failed: %s", err)
-		saved = false
-	}
-	note := fmt.Sprintf("Model set to %s and saved.", updated.Model)
-	if !saved {
-		note = fmt.Sprintf("Model set to %s for this session.", updated.Model)
-	}
-	m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: note})
-	return m, nil
+	return m.startProviderChange(updated, true)
 }
 
 // renderDialogTextField renders a free-text row: a dim prompt followed by the

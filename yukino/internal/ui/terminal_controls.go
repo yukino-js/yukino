@@ -126,7 +126,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if next.StartupResume != nil && next.StartupResume != "" && next.state == stateChat && next.ag != nil {
 		args, _ := next.StartupResume.(string)
 		next.StartupResume = nil
-		resumed, resumeCmd := next.handleResume(args)
+		text := "/resume"
+		if args != "" {
+			text += " " + args
+		}
+		resumed, resumeCmd := next.executeCommand(text, nil)
 		next = resumed.(Model)
 		cmd = tea.Batch(cmd, resumeCmd)
 	}
@@ -138,7 +142,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		next.ctrlCDeadline = time.Time{}
 		next.ctrlCGeneration++
 	}
-	if !next.foregroundBusy() && !next.commandBusy && !next.modalActive() && next.state == stateChat && next.ag != nil && len(next.pendingMessages) > 0 && !next.queuePaused {
+	if !next.foregroundBusy() && !next.commandBusy && !next.providerSwitching && !next.modalActive() && next.state == stateChat && next.ag != nil && len(next.pendingMessages) > 0 && !next.queuePaused {
 		message := next.pendingMessages[0]
 		next.pendingMessages = next.pendingMessages[1:]
 		dispatched, dispatchCmd := next.dispatchInput(message.text, message.input)
@@ -191,7 +195,7 @@ func (m Model) submitInput(text string) (tea.Model, tea.Cmd) {
 		m.clearDraft()
 		return m, nil
 	}
-	if (m.foregroundBusy() || m.commandBusy || m.modalActive() || m.ag == nil) && !(m.streaming && goalControl.FindStringSubmatch(text) != nil) {
+	if (m.foregroundBusy() || m.commandBusy || m.providerSwitching || m.modalActive() || m.ag == nil) && !(m.streaming && goalControl.FindStringSubmatch(text) != nil) {
 		m.pendingMessages = append(m.pendingMessages, queuedMessage{text: text})
 		m.queuePaused = false
 		m.clearDraft()

@@ -5,9 +5,7 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/tools"
 )
 
-func (s *Server) bootstrapSnapshot() []wsMessage {
-	s.snapshotMu.RLock()
-	defer s.snapshotMu.RUnlock()
+func (s *Server) bootstrapMessages() []wsMessage {
 	messages := []wsMessage{}
 	if s.ag != nil {
 		messages = append(messages, wsMessage{Type: "connected", Data: map[string]any{"session": s.sessionID, "cwd": mustGetwd(), "streaming": s.isStreaming()}})

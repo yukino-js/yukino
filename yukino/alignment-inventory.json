@@ -1,9 +1,8 @@
 {
-  "reference_commit": "e7c44d941e2d4a72e4f53664ece7ac94701d487e",
+  "reference_commit": "88a0476cebc0004cc54e5e2a0fa692f4c5ce3dc3",
   "counts": {
-    "Corrected": 270,
+    "Corrected": 272,
     "Language-specific difference": 9,
-    "Partially aligned": 2,
     "Reviewed": 38,
     "Shared browser build": 51,
     "Synchronized artifact": 7
@@ -1021,7 +1020,7 @@
       "source": "src/remote/server.ts",
       "source_sha256": "39e665f2543f0c820e25559b4aaaaf1cefdc541db17d1e335bf729ec28dd4852",
       "counterpart": "`internal/remote/server.go`, `internal/remote/plan.go`, `internal/remote/goal.go`, `internal/remote/protocol.go`, `internal/remote/mcp_control.go`, `internal/remote/skill_fork.go`, `internal/remote/snapshot.go`, `internal/remote/web.go`",
-      "status": "Partially aligned"
+      "status": "Corrected"
     },
     {
       "source": "src/remote/session-state.ts",
@@ -1639,7 +1638,7 @@
       "source": "src/ui/app.tsx",
       "source_sha256": "1f7628e2286a742d2269ae4511939768569005cca5f8440a5fe87cc484444d62",
       "counterpart": "`internal/ui`",
-      "status": "Partially aligned"
+      "status": "Corrected"
     },
     {
       "source": "src/ui/ask-user-dialog.tsx",

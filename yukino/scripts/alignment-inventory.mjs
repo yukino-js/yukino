@@ -70,6 +70,17 @@ function inventory(reference) {
       throw new Error(`Browser artifact differs: ${path}`);
     }
   }
+  const localArtifacts = files(join(project, "internal/remote/browser/dist"))
+    .map((path) =>
+      relative(join(project, "internal/remote/browser/dist"), path),
+    )
+    .sort();
+  const referenceArtifacts = built
+    .map((path) => relative("src/remote/browser/dist", path))
+    .sort();
+  if (!isDeepStrictEqual(localArtifacts, referenceArtifacts)) {
+    throw new Error("Browser artifact file sets differ");
+  }
   const counts = {};
   for (const { status } of entries) counts[status] = (counts[status] ?? 0) + 1;
   return {
@@ -97,15 +108,32 @@ try {
   const result = inventory(resolve(values.reference));
   if (values.write) {
     writeFileSync(snapshot, JSON.stringify(result, null, 2) + "\n");
-  } else if (
-    !isDeepStrictEqual(JSON.parse(readFileSync(snapshot, "utf8")), result)
-  ) {
-    throw new Error(
-      "Reference hashes or ledger changed; compare the changed files before refreshing the inventory",
-    );
+  } else {
+    const recorded = JSON.parse(readFileSync(snapshot, "utf8"));
+    if (
+      !isDeepStrictEqual(recorded.files, result.files) ||
+      !isDeepStrictEqual(recorded.counts, result.counts)
+    ) {
+      const previous = new Map(
+        recorded.files.map((file) => [file.source, file]),
+      );
+      const current = new Map(result.files.map((file) => [file.source, file]));
+      const changed = [...new Set([...previous.keys(), ...current.keys()])]
+        .filter(
+          (path) => !isDeepStrictEqual(previous.get(path), current.get(path)),
+        )
+        .sort();
+      throw new Error(
+        `Reference hashes or ledger changed: ${changed.join(", ") || "status counts"}; compare the changed files before refreshing the inventory`,
+      );
+    }
   }
   console.log(
-    JSON.stringify({ files: result.files.length, counts: result.counts }),
+    JSON.stringify({
+      files: result.files.length,
+      counts: result.counts,
+      reference_commit: result.reference_commit,
+    }),
   );
 } catch (error) {
   console.error(error.message);

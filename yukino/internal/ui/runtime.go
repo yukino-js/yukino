@@ -30,6 +30,7 @@ func (m *Model) newRunAgent(ctx context.Context) *agent.Agent {
 	running.TaskManager = m.taskMgr
 	running.RecoveryState = handle.RecoveryState
 	running.ShareActiveSkills(handle)
+	running.ShareRecall(handle)
 	running.Instructions = memory.LoadInstructions(m.getWorkDir())
 	if m.memoryEnabled && m.memoryMgr != nil {
 		running.MemoryContent = m.memoryMgr.BuildSystemReminder()

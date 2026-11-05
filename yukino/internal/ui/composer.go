@@ -102,7 +102,7 @@ func (m Model) renderComposer(available int) string {
 	end := min(len(rows), start+maximum)
 	completionRows := m.completionRows(available)
 	// Border color follows the reference activityStatus precedence:
-	// error > retry > compacting > working/idle (the thinking-level color); the
+	// error > retry > compacting/switching > working/idle; the
 	// bash-mode override applies only when there is no error.
 	color := thinkingLevelColor(m.thinkingLevel())
 	switch {
@@ -110,7 +110,7 @@ func (m Model) renderComposer(available int) string {
 		color = redText
 	case m.retryStatus != "":
 		color = yellowText
-	case m.compacting:
+	case m.compacting || m.providerSwitching:
 		color = accentColor
 	}
 	if m.activityError == "" && strings.HasPrefix(m.editor.Value(), "!") {
@@ -118,11 +118,13 @@ func (m Model) renderComposer(available int) string {
 	}
 
 	// Status label follows the reference statusLabel precedence:
-	// error > compacting > user Bash > streaming (retry status, else "Working").
+	// error > switching > compacting > user Bash > streaming.
 	status := ""
 	switch {
 	case m.activityError != "":
 		status = "Error"
+	case m.providerSwitching:
+		status = "Switching provider..."
 	case m.compacting:
 		status = "Compacting context... (Esc to cancel)"
 	case m.userBash != nil:
@@ -162,7 +164,7 @@ func (m Model) renderComposer(available int) string {
 		var line strings.Builder
 		for j, cell := range row.cells {
 			style := lipgloss.NewStyle().Foreground(normalText)
-			if i == cursor.row && j == cursor.cell {
+			if i == cursor.row && j == cursor.cell && !m.providerSwitching {
 				line.WriteString(cursorMarker)
 			}
 			line.WriteString(style.Render(cell.text))

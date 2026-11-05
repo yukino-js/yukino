@@ -47,15 +47,15 @@ func TestRestoreSessionResetsPerSessionState(t *testing.T) {
 	oldCache := ag.FileStateCache
 	oldRecovery := ag.RecoveryState
 
-	if err := s.restoreSession("new-session"); err != nil {
+	if err := s.restoreSession("new-session", []conversation.Message{{Role: "user", Content: "restored transcript"}}); err != nil {
 		t.Fatal(err)
 	}
 
 	if s.sessionID != "new-session" || ag.SessionID != "new-session" {
 		t.Fatalf("session id not rotated: server=%q agent=%q", s.sessionID, ag.SessionID)
 	}
-	if s.conv.Len() != 0 {
-		t.Fatalf("conversation not reset: %d messages", s.conv.Len())
+	if messages := s.conv.GetMessages(); len(messages) != 1 || messages[0].Content != "restored transcript" {
+		t.Fatalf("conversation was not replaced with replay: %#v", messages)
 	}
 	if s.fileHistory == oldHistory {
 		t.Fatal("file history was not recreated")

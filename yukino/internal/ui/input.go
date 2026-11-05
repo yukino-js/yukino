@@ -255,6 +255,9 @@ func (m *Model) handleClipboard(msg clipboardImageMsg) {
 }
 
 func (m Model) handleComposerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.providerSwitching {
+		return m, nil
+	}
 	key := msg.String()
 	_, _, dockRows := m.terminalBudgets()
 	completionsVisible := m.completionRows(dockRows) > 0

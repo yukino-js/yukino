@@ -69,7 +69,7 @@ fmt-check:
 		exit 1; \
 	fi
 
-check: fmt-check vet test-race
+check: fmt-check vet test-race check-scripts
 
 .PHONY: inventory inventory-write check-terminal check-scripts
 inventory:
@@ -85,3 +85,6 @@ check-scripts:
 	$(NODE) --check scripts/alignment-inventory.mjs
 	$(NODE) --check scripts/check-terminal.mjs
 	$(NODE) --check scripts/generate-host-reference.mjs
+	$(NODE) --check scripts/generate-host-failures.mjs
+	$(NODE) --check scripts/remote-validation-fixtures.mjs
+	$(NODE) --test scripts/alignment-inventory.test.mjs

@@ -76,7 +76,13 @@ function shellQuote(value) {
   return "'" + value.replaceAll("'", "'\\''") + "'";
 }
 
-async function checkTerminal(binary, mode, report, accent, withProvider = false) {
+async function checkTerminal(
+  binary,
+  mode,
+  report,
+  accent,
+  withProvider = false,
+) {
   const taskHome = mkdtempSync(join(tmpdir(), "yukino-terminal-"));
   mkdirSync(join(taskHome, ".yukino"));
   writeFileSync(
@@ -103,11 +109,15 @@ async function checkTerminal(binary, mode, report, accent, withProvider = false)
   // macOS script rejects Node's socket-backed stdin; cat supplies a pipe.
   const child =
     process.platform === "darwin"
-      ? spawn("sh", ["-c", 'cat | exec "$@"', "terminal-check", "script", ...args], {
-          cwd: taskHome,
-          env,
-          stdio: "pipe",
-        })
+      ? spawn(
+          "sh",
+          ["-c", 'cat | exec "$@"', "terminal-check", "script", ...args],
+          {
+            cwd: taskHome,
+            env,
+            stdio: "pipe",
+          },
+        )
       : spawn("script", args, { cwd: taskHome, env, stdio: "pipe" });
   let output = "";
   let failure;

@@ -40,7 +40,7 @@ func (m Model) runMCPCommand(args string) (tea.Model, tea.Cmd) {
 		cfg, err := config.LoadConfig("", config.LoadOptions{})
 		if err != nil {
 			m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: "MCP reload failed: " + err.Error()})
-			return m, nil
+			return m.finishMCPCommand()
 		}
 		m.mcpConfigs = config.WithProjectMcpServers(cfg, m.getWorkDir()).MCPServers
 		if len(m.mcpConfigs) > 0 {
@@ -54,7 +54,7 @@ func (m Model) runMCPCommand(args string) (tea.Model, tea.Cmd) {
 		mcp.RetractMcpInstructions(m.conversation, m.mcpAnnounced)
 	} else if m.mcpMgr == nil || len(m.mcpMgr.MissingServers(m.mcpConfigs)) == 0 {
 		m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: m.mcpStatus()})
-		return m, nil
+		return m.finishMCPCommand()
 	} else {
 		m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: "Connecting MCP server(s): " + strings.Join(m.mcpMgr.MissingServers(m.mcpConfigs), ", ")})
 	}
@@ -117,6 +117,10 @@ func (m Model) applyMCPResult(msg mcpReadyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	m.mcpServerInfo = m.mcpStatus()
+	return m.finishMCPCommand()
+}
+
+func (m Model) finishMCPCommand() (tea.Model, tea.Cmd) {
 	m.commandBusy = false
 	if len(m.pendingMCPCommands) > 0 {
 		args := m.pendingMCPCommands[0]

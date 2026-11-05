@@ -50,11 +50,9 @@ func (m Model) handleResume(args string) (tea.Model, tea.Cmd) {
 
 	saved, err := session.LoadSessionForResume(wd, arg)
 	if err != nil {
-		// The reference surfaces a resume read failure as a user-visible message
-		// (handleSlashCommand's guard) instead of silently resuming empty.
 		m.chatMessages = append(m.chatMessages, chatMessage{
-			role:    "error",
-			content: fmt.Sprintf("Failed to load session %q: %v", arg, err),
+			role:    "system",
+			content: "Error: " + err.Error(),
 		})
 		return m, nil
 	}
@@ -121,9 +119,7 @@ func (m Model) handleResumeDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		if len(matches) > 0 {
 			selected := matches[m.resumeCursor(matches)]
-			m.resumeDialog = false
-			wd, _ := os.Getwd()
-			return m.doResumeSession(wd, selected.ID, nil)
+			return m.executeCommand("/resume "+selected.ID, nil)
 		}
 		return m, nil
 	default:

@@ -13,7 +13,6 @@ import (
 	"github.com/yukino-js/yukino/yukino/internal/history"
 	"github.com/yukino-js/yukino/yukino/internal/hooks"
 	"github.com/yukino-js/yukino/yukino/internal/llm"
-	"github.com/yukino-js/yukino/yukino/internal/mcp"
 	"github.com/yukino-js/yukino/yukino/internal/permissions"
 	"github.com/yukino-js/yukino/yukino/internal/subagent"
 	"github.com/yukino-js/yukino/yukino/internal/teams"
@@ -239,26 +238,5 @@ func (m Model) renderProviderDialog() string {
 // src/ui/app.tsx.
 func (m Model) switchProvider(provider config.ProviderConfig) (tea.Model, tea.Cmd) {
 	m.providerDialog = false
-	wd := m.getWorkDir()
-	client, err := llm.NewClient(&provider, providerSystemPrompt(&provider, wd))
-	if err != nil {
-		m.activityError = fmt.Sprintf("Failed to switch provider: %s", err)
-		return m, nil
-	}
-	m.stopMemoryTasks()
-	m.selectedProvider = &provider
-	for i := range m.providers {
-		if m.providers[i].BaseURL == provider.BaseURL && m.providers[i].Name == provider.Name {
-			m.selectedProvider = &m.providers[i]
-			_ = config.PersistDefaultProvider(i)
-			break
-		}
-	}
-	m.bindClient(client, m.selectedProvider)
-	mcp.DecideAndApply(m.registry, provider.BaseURL, provider.Protocol, config.GetContextWindow(&provider), m.MCPLoading)
-	m.chatMessages = append(m.chatMessages, chatMessage{
-		role:    "system",
-		content: fmt.Sprintf("Provider switched to %s · %s.", provider.Name, provider.Model),
-	})
-	return m, nil
+	return m.startProviderChange(provider, false)
 }

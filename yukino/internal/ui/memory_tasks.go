@@ -13,7 +13,10 @@ type memoryLoopMsg struct {
 	conv       *conversation.Manager
 	generation int
 }
-type memorySystemMsg string
+type memorySystemMsg struct {
+	message    string
+	generation int
+}
 
 // wireMemoryTasks mirrors the reference onLoopComplete wiring: the loop
 // completion hops onto the UI goroutine, where the background memory tasks
@@ -56,7 +59,7 @@ func (m Model) listenMemorySystem() tea.Cmd {
 	return func() tea.Msg {
 		select {
 		case message := <-ch:
-			return memorySystemMsg(message)
+			return message
 		case <-ctx.Done():
 			return nil
 		}
@@ -64,19 +67,20 @@ func (m Model) listenMemorySystem() tea.Cmd {
 }
 
 func (m Model) handleMemoryLoop(msg memoryLoopMsg) (tea.Model, tea.Cmd) {
-	if msg.generation == m.memoryGeneration && m.lifeCtx.Err() == nil && m.client != nil && m.memoryEnabled {
+	if msg.generation == m.memoryGeneration && m.lifeCtx.Err() == nil && !m.providerSwitching && m.client != nil && m.memoryEnabled {
 		if m.memoryTasks == nil {
 			ch, life := m.memorySystemCh, m.lifeCtx
+			generation := m.memoryGeneration
 			m.memoryTasks = background.New(m.client, m.getWorkDir(), background.Callbacks{
 				OnSaved: func(saved []string) {
 					select {
-					case ch <- "Memory saved: " + strings.Join(saved, ", "):
+					case ch <- memorySystemMsg{message: "Memory saved: " + strings.Join(saved, ", "), generation: generation}:
 					case <-life.Done():
 					}
 				},
 				AppendSystem: func(message string) {
 					select {
-					case ch <- message:
+					case ch <- memorySystemMsg{message: message, generation: generation}:
 					case <-life.Done():
 					}
 				},
@@ -88,6 +92,8 @@ func (m Model) handleMemoryLoop(msg memoryLoopMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleMemorySystem(msg memorySystemMsg) (tea.Model, tea.Cmd) {
-	m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: string(msg)})
+	if msg.generation == m.memoryGeneration && m.lifeCtx.Err() == nil {
+		m.chatMessages = append(m.chatMessages, chatMessage{role: "system", content: msg.message})
+	}
 	return m, m.listenMemorySystem()
 }

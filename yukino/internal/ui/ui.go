@@ -50,7 +50,7 @@ type Model struct {
 	userBashTool                           *toolBlockInfo
 	userBashOutputCh                       chan userBashOutputMsg
 	memoryLoopCh                           chan memoryLoopMsg
-	memorySystemCh                         chan string
+	memorySystemCh                         chan memorySystemMsg
 	pendingBashRecords                     []session.Message
 	lifeCtx                                context.Context
 	lifeCancel                             context.CancelFunc
@@ -161,6 +161,7 @@ type Model struct {
 	retryStatus        string
 	activityError      string
 	compacting         bool
+	providerSwitching  bool
 
 	spinner spinner.Model
 
@@ -341,7 +342,7 @@ func New(providers []config.ProviderConfig, mcpConfigs []config.MCPServerConfig,
 		loginForm:        newProviderLoginForm(nil),
 		lifeCtx:          lifeCtx, lifeCancel: lifeCancel, hostPermissionCh: make(chan agent.PermissionRequestEvent, 32), userBashOutputCh: make(chan userBashOutputMsg, 16),
 		memoryLoopCh:       make(chan memoryLoopMsg, 4),
-		memorySystemCh:     make(chan string, 64),
+		memorySystemCh:     make(chan memorySystemMsg, 64),
 		providers:          providers,
 		todoList:           initialTodos,
 		teamMgr:            teamMgr,
@@ -583,6 +584,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case providerChangeDoneMsg:
+		return m.finishProviderChange(msg)
+
 	case mcpReadyMsg:
 		return m.applyMCPResult(msg)
 
@@ -611,7 +615,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// The reference animates the spinner on an 80ms interval whenever a
 		// status label is shown and the state is not an error: streaming,
 		// compacting and user Bash all keep the tick chain alive.
-		if m.activityError == "" && (m.streaming || m.compacting || m.userBash != nil) {
+		if m.activityError == "" && (m.streaming || m.compacting || m.providerSwitching || m.userBash != nil) {
 			var cmd tea.Cmd
 			m.spinner, cmd = m.spinner.Update(msg)
 			return m, cmd

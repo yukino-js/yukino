@@ -302,6 +302,7 @@ func (m *Model) prefetchRelevantMemories(parent context.Context, query string) <
 	}
 	ag := m.ag
 	client := m.client
+	manager := m.memoryMgr
 	go func() {
 		ctx, cancel := context.WithCancel(parent)
 		defer cancel()
@@ -310,12 +311,12 @@ func (m *Model) prefetchRelevantMemories(parent context.Context, query string) <
 		if ag != nil {
 			recentTools, surfaced = ag.RecallHints()
 		}
-		results := m.memoryMgr.FindRelevantMemories(ctx, query, client, recentTools, surfaced)
+		results := manager.FindRelevantMemories(ctx, query, client, recentTools, surfaced)
 		paths := make([]string, 0, len(results))
 		for _, r := range results {
 			paths = append(paths, r.Path)
 		}
-		out <- agent.RecallResult{Reminder: m.memoryMgr.RenderReminder(results), Paths: paths}
+		out <- agent.RecallResult{Reminder: manager.RenderReminder(results), Paths: paths}
 	}()
 	return out
 }
